@@ -1,0 +1,8 @@
+{
+    "type": "FullyConnected",
+    "input_length": 32,
+    "layer_sizes": [
+        32,
+        32
+    ]
+}
