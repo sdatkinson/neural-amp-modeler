@@ -1,6 +1,6 @@
-# Guitar amp
+# NAM: neural amp modeler
 
-Let's make a data-driven model (neural network) of a guitar amp!
+Let's use deep learning to make a model of a guitar amp!
 
 ## Autoregressive models
 
