@@ -2,6 +2,10 @@
 
 Let's use deep learning to make a model of a guitar amp!
 
+## Setup
+
+Use `pip install -r requirements.txt` as well as intalling the TensorFlow version of your choice (e.g. `pip install tensorflow-gpu`).
+
 ## Autoregressive models
 
 * Fully-connected (n-to-1)
