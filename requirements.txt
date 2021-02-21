@@ -1,11 +1,2 @@
-# File: requirements.txt
-# Created Date: 2019-01-02
-# Author: Steven Atkinson (steven@atkinson.mn)
-
-black
-flake8
-matplotlib
-numpy
-pytest
-torch>=1
+tensorflow
 wavio
