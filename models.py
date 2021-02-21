@@ -72,7 +72,7 @@ class Autoregressive(Model):
         n = x.numel()
         batch_size = batch_size or n
         # Pad x with leading zeros:
-        x = torch.cat((torch.zeros(self.input_length - 1), x))
+        x = torch.cat((torch.zeros(self.input_length - 1).to(x.device), x))
         i = 0
         y = []
         while i < n:
