@@ -8,15 +8,16 @@ import abc
 from tempfile import mkdtemp
 import os
 import json
+from tf_slim.layers import layers as _layers;
 
 
 def from_json(f, n_train=1, checkpoint_path=None):
     if isinstance(f, str):
         with open(f, "r") as json_file:
             f = json.load(json_file)
-    
+
     if f["type"] == "FullyConnected":
-        return FullyConnected(n_train, f["input_length"], 
+        return FullyConnected(n_train, f["input_length"],
             layer_sizes=f["layer_sizes"], checkpoint_path=checkpoint_path)
     else:
         raise NotImplementedError("Model type {} unrecognized".format(
@@ -32,7 +33,7 @@ class Model(object):
         Make sure child classes call _build() after this!
         """
         if sess is None:
-            sess = tf.get_default_session()
+            sess = tf.compat.v1.get_default_session()
         self.sess = sess
 
         if checkpoint_path is None:
@@ -43,7 +44,7 @@ class Model(object):
 
         # self._batch_size = batch_size
         self._n_train = n_train
-        self.target = tf.placeholder(tf.float32, shape=(None, 1))
+        self.target = tf.compat.v1.placeholder(tf.float32, shape=(None, 1))
         self.prediction = None
         self.total_prediction_loss = None
         self.rmse = None
@@ -52,7 +53,7 @@ class Model(object):
     # @property
     # def batch_size(self):
     #     return self._batch_size
-    
+
     @property
     def n_train(self):
         return self._n_train
@@ -66,7 +67,7 @@ class Model(object):
             self.saver.restore(self.sess, ckpt.model_checkpoint_path)
         except Exception as e:
             print("Error while attempting to load model: {}".format(e))
-    
+
     @abc.abstractclassmethod
     def predict(self, x):
         """
@@ -86,18 +87,18 @@ class Model(object):
         self.loss = self._build_loss()
 
         # Launch the session
-        self.sess.run(tf.global_variables_initializer())
-        self.saver = tf.train.Saver(tf.global_variables())
+        self.sess.run(tf.compat.v1.global_variables_initializer())
+        self.saver = tf.compat.v1.train.Saver(tf.compat.v1.global_variables())
 
     def _build_loss(self):
-        self.total_prediction_loss = tf.losses.mean_squared_error(self.target, 
+        self.total_prediction_loss = tf.compat.v1.losses.mean_squared_error(self.target,
             self.prediction, weights=self.n_train)
-            
+
         # Don't count this as a loss!
         self.rmse = tf.sqrt(
             self.total_prediction_loss / self.n_train)
 
-        return tf.losses.get_total_loss()
+        return tf.compat.v1.losses.get_total_loss()
 
     @abc.abstractclassmethod
     def _build_prediction(self):
@@ -109,12 +110,12 @@ class Autoregressive(Model):
     Autoregressive models that take in a few of the most recent input samples
     and predict the output at the last time point.
     """
-    def __init__(self, n_train, input_length, sess=None, 
+    def __init__(self, n_train, input_length, sess=None,
             checkpoint_path=None):
         super().__init__(n_train, sess=sess, checkpoint_path=checkpoint_path)
         self._input_length = input_length
-        self.x = tf.placeholder(tf.float32, shape=(None, self.input_length))
-    
+        self.x = tf.compat.v1.placeholder(tf.float32, shape=(None, self.input_length))
+
     @property
     def input_length(self):
         return self._input_length
@@ -134,7 +135,7 @@ class Autoregressive(Model):
                 print("model.predict {}/{}".format(i, n))
             this_batch_size = np.min([batch_size, n - i])
             # Reshape into a batch:
-            x_mtx = np.stack([x[j: j + self.input_length] 
+            x_mtx = np.stack([x[j: j + self.input_length]
                 for j in range(i, i + this_batch_size)])
             # Predict and flatten.
             y.append(self.sess.run(self.prediction, feed_dict={self.x: x_mtx}) \
@@ -146,10 +147,10 @@ class Autoregressive(Model):
 class FullyConnected(Autoregressive):
     """
     Autoregressive model taking in a sequence of the most recent inputs, putting
-    them through a series of FC layers, and outputting the single output at the 
+    them through a series of FC layers, and outputting the single output at the
     last time step.
     """
-    def __init__(self, n_train, input_length, layer_sizes=(512,), 
+    def __init__(self, n_train, input_length, layer_sizes=(512,),
             sess=None, checkpoint_path=None):
         super().__init__(n_train, input_length, sess=sess,
             checkpoint_path=checkpoint_path)
@@ -159,7 +160,8 @@ class FullyConnected(Autoregressive):
     def _build_prediction(self):
         h = self.x
         for m in self._layer_sizes:
-            h = tf.contrib.layers.fully_connected(h, m)
-        y = -1.0 + 2.0 * tf.contrib.layers.fully_connected(h, 1, 
+            h = _layers.fully_connected(h, m)
+            
+        y = -1.0 + 2.0 * _layers.fully_connected(h, 1,
             activation_fn=tf.nn.sigmoid)
-        return y       
+        return y

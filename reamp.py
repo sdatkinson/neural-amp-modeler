@@ -46,7 +46,7 @@ if __name__ == "__main__":
     bits = _sampwidth_to_bits(sampwidth)
     x_data = x.data.flatten() / 2 ** (bits - 1)
     
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
         model = models.from_json(args.architecture, 
             checkpoint_path=args.checkpoint_dir)
         model.load()
@@ -63,4 +63,3 @@ if __name__ == "__main__":
         plt.plot(y)
         plt.legend(["Input", "Target", "Prediction"])
         plt.show()
-    
