@@ -71,9 +71,3 @@ You can train for shorter or longer.
 1000 gives pretty great results, but if you're impatient you can sometimes get away with
 comparable results after 500 epochs, and you might nto even be able to tell the
 difference with far fewer (maybe 200?...100?)
-
-- Other models
-- Real-time (eventually)
-- Model stereo outputs
-- Data classes for .wav data, keeping sample rate, etc
-- spek.cc?
