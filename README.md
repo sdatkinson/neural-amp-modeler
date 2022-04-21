@@ -77,8 +77,3 @@ difference with far fewer (maybe 200?...100?)
 - Model stereo outputs
 - Data classes for .wav data, keeping sample rate, etc
 - spek.cc?
-
-## Other interesting tidbits?
-
-- Audio analysis plugins: vamp-plugins.org
-- Spectrogram: sonicvisualiser.org
