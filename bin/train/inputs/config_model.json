@@ -1,0 +1,25 @@
+{
+    "net": {
+        "name": "WaveNet",
+        "config": {
+            "channels": 16,
+            "dilations": [1,2,4,8,16,32,64,128,256,512,1024,2048,1,2,4,8,16,32,64,128,256,512,1024,2048],
+            "batchnorm": true,
+            "activation": "Tanh"
+        }
+    },
+    "optimizer": {
+        "lr": 0.003
+    },
+    "lr_scheduler": {
+        "class": "ReduceLROnPlateau",
+        "kwargs": {
+            "factor": 0.5,
+            "patience": 50,
+            "cooldown": 50,
+            "min_lr": 1.0e-5,
+            "verbose": true
+        },
+        "monitor": "val_loss"
+    }
+}

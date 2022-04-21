@@ -1,0 +1,16 @@
+{
+    "train": {
+        "x_path": "C:\\path\\to\\train\\source.wav",
+        "y_path": "C:\\path\\to\\train\\target.wav",
+        "ny": 1024
+    },
+    "validation": {
+        "x_path": "C:\\path\\to\\validation\\source.wav",
+        "y_path": "C:\\path\\to\\validation\\target.wav",
+        "ny": null
+    },
+    "common": {
+        "nx": 8191,
+        "delay": 0
+    }
+}
