@@ -1,0 +1,18 @@
+{
+    "train": {
+        "start": null,
+        "stop": 36576000,
+        "ny": 1024
+    },
+    "validation": {
+        "start": 36576000,
+        "stop": null,
+        "ny": null
+    },
+    "common": {
+        "x_path": "C:\\path\\to\\source.wav",
+        "y_path": "C:\\path\\to\\target.wav",
+        "nx": 8191,
+        "delay": 0
+    }
+}

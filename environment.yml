@@ -1,0 +1,25 @@
+# File: environment.yml
+# Created Date: Saturday February 13th 2021
+# Author: Steven Atkinson (steven@atkinson.mn)
+
+name: nam2
+channels:
+  - pytorch
+dependencies:
+  - black
+  - flake8
+  - h5py
+  - jupyter
+  - matplotlib
+  - numpy
+  - pip
+  - pytest
+  - pytorch
+  - scipy
+  - tqdm
+  - wheel
+  - pip:
+      - pre-commit
+      - pytorch_lightning
+      - sounddevice
+      - wavio

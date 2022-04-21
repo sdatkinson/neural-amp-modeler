@@ -1,2 +1,18 @@
-tensorflow
+# File: requirements.txt
+# Created Date: 2021-01-24
+# Author: Steven Atkinson (steven@atkinson.mn)
+
+black
+flake8
+matplotlib
+numpy
+pip
+pre-commit
+pytest
+pytorch_lightning
+scipy
+sounddevice
+torch
+tqdm
 wavio
+wheel
