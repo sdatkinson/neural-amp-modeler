@@ -37,5 +37,4 @@ if __name__ == "__main__":
     parser.add_argument("model_config_path", type=str)
     parser.add_argument("checkpoint", type=str)
     parser.add_argument("outdir")
-    parser.add_argument("--source-length", type=int, default=16384)
     main(parser.parse_args())
