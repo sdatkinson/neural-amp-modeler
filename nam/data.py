@@ -121,6 +121,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         start: Optional[int] = None,
         stop: Optional[int] = None,
         delay: Optional[int] = None,
+        y_scale: float = 1.0,
     ):
         """
         :param start: In samples
@@ -135,6 +136,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             else:
                 x = x[-delay:]
                 y = y[:delay]
+        y = y * y_scale
         self._validate_inputs(x, y, nx, ny)
         self._x = x
         self._y = y
