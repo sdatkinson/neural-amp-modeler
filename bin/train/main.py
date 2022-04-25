@@ -117,6 +117,10 @@ def main(args):
         val_dataloader,
         **learning_config.get("trainer_fit_kwargs", {}),
     )
+    # Go to best checkpoint
+    model = Model.load_from_checkpoint(
+        trainer.checkpoint_callback.best_model_path, **Model.parse_config(model_config)
+    )
     model.eval()
     plot(
         model,
