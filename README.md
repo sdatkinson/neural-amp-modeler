@@ -52,7 +52,7 @@ path/to/checkpoints/epoch=123_val_loss=0.000010.ckpt \
 path/to/exported_models/MyAmp
 ```
 
-You'll want the `HardCodedModel.h` to paste over into the plugin source.
+You'll want the `HardCodedModel.h` to paste over into the plugin source (i.e. [here](https://github.com/sdatkinson/iPlug2/blob/5a0f533f7a9e4ee691da26adb2a38d87905e87fe/Examples/NAM/HardCodedModel.h)).
 
 ## Advanced usage
 
