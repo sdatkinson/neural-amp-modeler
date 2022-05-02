@@ -184,6 +184,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "ny": config["ny"],
             "start": config.get("start"),
             "stop": config.get("stop"),
+            "delay": config.get("delay"),
+            "y_scale": config.get("y_scale", 1.0),
         }
 
     def _validate_inputs(self, x, y, nx, ny):
