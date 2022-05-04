@@ -6,6 +6,9 @@ For the code to create the plugin with a trained model, see my
 
 ## How to use
 
+This repository handles training, reamping, and exporting the weights of a model (to
+use with [the iPlug2 plugin]())
+
 ### Train a model
 
 You'll need at least two mono wav files: the input (DI) and the amped sound (without the cab).
@@ -32,6 +35,8 @@ bin/train/outputs/MyAmp
 
 Handy if you want to just check it out without going through the trouble of building the
 plugin.
+
+For example:
 
 ```bash
 python bin/run.py \

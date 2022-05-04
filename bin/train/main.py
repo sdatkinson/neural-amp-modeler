@@ -58,9 +58,12 @@ def plot(
         print(f"Took {t1 - t0} ({tx / (t1 - t0):.2f}x)")
 
     plt.figure(figsize=(16, 5))
-    plt.plot(ds.x[window_start:window_end], label="Input")
-    plt.plot(output[window_start:window_end], label="Output")
-    plt.plot(ds.y[window_start:window_end], label="Target")
+    # plt.plot(ds.x[window_start:window_end], label="Input")
+    plt.plot(output[window_start:window_end], label="Prediction")
+    plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
+    # plt.plot(
+    #     ds.y[window_start:window_end] - output[window_start:window_end], label="Error"
+    # )
     plt.title(f"NRMSE={_rms(torch.Tensor(output) - ds.y) / _rms(ds.y)}")
     plt.legend()
     if savefig is not None:
