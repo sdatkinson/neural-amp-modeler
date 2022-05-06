@@ -14,7 +14,7 @@ import torch.nn as nn
 
 from .._core import InitializableFromConfig
 from .linear import Linear
-from .conv_net import ConvNet
+from .conv_net import ConvNet, SkippyNet
 
 
 class Model(pl.LightningModule, InitializableFromConfig):
@@ -53,9 +53,11 @@ class Model(pl.LightningModule, InitializableFromConfig):
     def parse_config(cls, config):
         config = super().parse_config(config)
         net_config = config["net"]
-        net = {"Linear": Linear.init_from_config, "ConvNet": ConvNet.init_from_config}[
-            net_config["name"]
-        ](net_config["config"])
+        net = {
+            "Linear": Linear.init_from_config,
+            "ConvNet": ConvNet.init_from_config,
+            "SkippyNet": SkippyNet.init_from_config,
+        }[net_config["name"]](net_config["config"])
         return {
             "net": net,
             "optimizer_config": config["optimizer"],

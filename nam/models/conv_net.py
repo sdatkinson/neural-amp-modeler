@@ -62,6 +62,10 @@ class _IR(nn.Module):
         return F.conv1d(x[:, None], self._weight)[:, 0]
 
 
+def _make_activation(name: str) -> nn.Module:
+    return getattr(nn, name)()
+
+
 def _conv_net(
     channels: int = 32,
     dilations: Sequence[int] = None,
@@ -75,7 +79,7 @@ def _conv_net(
         )
         if batchnorm:
             net.add_module(_BATCHNORM_NAME, nn.BatchNorm1d(cout))
-        net.add_module(_ACTIVATION_NAME, getattr(nn, activation)())
+        net.add_module(_ACTIVATION_NAME, _make_activation(activation))
         return net
 
     def check_and_expand(n, x):
@@ -288,3 +292,185 @@ class ConvNet(BaseNet):
             else:
                 i += 1
         return i
+
+
+class _SkipConnectConv1d(nn.Module):
+    """
+    Special skip-connect for 1D Convolutions that trims the input as it passes it over
+    """
+
+    def __init__(self, net: nn.Module):
+        super().__init__()
+        self._net = net
+        self._raw_balance = nn.Parameter(torch.tensor(0.0))
+
+    @property
+    def _balance(self) -> torch.Tensor:
+        return torch.sigmoid(self._raw_balance)
+
+    def forward(self, x):
+        """
+        Require Lout<=Lin
+
+        :param x: (B,C,Lin)
+        :return: (B,C,Lout)
+        """
+        z = self._net(x)
+        if z.ndim != 3:
+            raise ValueError(f"Expected 3-dimensional tensor; found {z.ndim}")
+        l_out = z.shape[-1]
+        balance = self._balance
+        return balance * z + (1.0 - balance) * x[..., -l_out:]
+
+
+class _SkipIn(nn.Module):
+    """
+    Module to let the input skip in to a conv layer
+    """
+
+    def __init__(self, dim: int):
+        super().__init__()
+        # self._weight_inner = nn.Parameter(torch.zeros((dim,)))
+        # self._weight_skip = nn.Parameter(torch.ones((dim,)))
+        # self._raw_balance = nn.Parameter(torch.tensor(0.0))
+        self._mix_in = nn.Conv1d(dim, dim, 1, groups=dim)
+
+    # @property
+    # def _balance(self) -> torch.Tensor:
+    #     return torch.sigmoid(self._raw_balance)
+
+    def forward(self, x_inner, x_skip):
+        """
+        Assumes 
+        :param x_inner: (B,C,L1)
+        :param x_skip: (B,C,L2)
+
+        :return: (B,C,L1)
+        """
+        l_inner = x_inner.shape[-1]
+        l_skip = x_skip.shape[-1]
+        if l_skip < l_inner:
+            raise ValueError(
+                f"Skip input is of length {l_skip}, which is less than the inner input "
+                f"({l_inner})"
+            )
+        return x_inner + self._mix_in(x_skip[:, :, -l_inner:])
+
+
+class SkippyNet(BaseNet):
+    """
+    A convolutional architecture with skip-in, skip-around (residual), and skip-out 
+    connections!
+    """
+
+    def __init__(
+        self,
+        channels: int = 8,
+        dilations: Optional[Sequence[int]] = None,
+        batchnorm: bool = False,
+        activation: str = "Tanh",
+        skip_ins: bool = False,
+        skip_connections: bool = False,
+    ):
+        dilations = (
+            [
+                1,
+                2,
+                4,
+                8,
+                16,
+                32,
+                64,
+                128,
+                256,
+                512,
+                1024,
+                2048,
+                1,
+                2,
+                4,
+                8,
+                16,
+                32,
+                64,
+                128,
+                256,
+                512,
+                1024,
+                2048,
+            ]
+            if dilations is None
+            else dilations
+        )
+        super().__init__()
+        self._receptive_field = 1 + sum(dilations)
+        self._conv_in = nn.Conv1d(1, channels, 1)
+        self._convs = nn.ModuleList(
+            [
+                self._make_conv(channels, d, activation, batchnorm, skip_connections)
+                for d in dilations
+            ]
+        )
+        self._skip_ins = (
+            nn.ModuleList([_SkipIn(channels) for _ in dilations]) if skip_ins else None
+        )
+        self._head = nn.Conv1d(channels * (1 + len(self._convs)), 1, 1)
+
+    @property
+    def pad_start_default(self) -> bool:
+        return True
+
+    @property
+    def receptive_field(self) -> int:
+        return self._receptive_field
+
+    def export(self, outdir: Path):
+        raise NotImplementedError()
+
+    def export_cpp_header(self, filename: Path):
+        raise NotImplementedError()
+
+    @classmethod
+    def _make_conv(
+        cls,
+        channels: int,
+        dilation: int,
+        activation: str,
+        batchnorm: bool,
+        skip_connection: bool,
+    ):
+        net = nn.Sequential()
+        net.add_module(
+            "conv",
+            nn.Conv1d(channels, channels, 2, dilation=dilation, bias=not batchnorm),
+        )
+        if batchnorm:
+            net.add_module("batchnorm", nn.BatchNorm1d(channels))
+        net.add_module("activation", _make_activation(activation))
+        if skip_connection:
+            net = _SkipConnectConv1d(net)
+        return net
+
+    def _forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        B=Batch size
+        L=Input length
+        R=receptive field
+
+        :param x: (B,L)
+        :return: (B, L-R+1)
+        """
+        x = self._conv_in(x[:, None, :])
+        if self._skip_ins is not None:
+            x_skip_in = x
+        layer_outputs = [x]
+        for i in range(len(self._convs)):
+            if self._skip_ins is not None:
+                x = self._skip_ins[i](x, x_skip_in)
+            c = self._convs[i]
+            x = c(x)
+            layer_outputs.append(x)
+        n = layer_outputs[-1].shape[-1]
+        head_in = torch.cat([lo[:, :, -n:] for lo in layer_outputs], dim=1)
+        head_out = self._head(head_in)
+        return head_out[:, 0]
