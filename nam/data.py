@@ -133,7 +133,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             if delay > 0:
                 x = x[:-delay]
                 y = y[delay:]
-            else:
+            elif delay < 0:
                 x = x[-delay:]
                 y = y[:delay]
         y = y * y_scale
