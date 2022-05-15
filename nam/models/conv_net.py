@@ -425,10 +425,124 @@ class SkippyNet(BaseNet):
         return self._receptive_field
 
     def export(self, outdir: Path):
-        raise NotImplementedError()
+        """
+        Files created:
+        * config.json
+        * weights.npy
+        * input.npy
+        * output.npy
+
+        weights are serialized to weights.npy in the following order:
+        * Conv-in (TODO remove)
+            * weight (C,)
+            * biases (C,)
+        * loop blocks 0,...,L-1
+            * skip-in
+                * conv
+                    * weight (C,)
+                    * bias (C,)
+            * conv:
+                * weight (Cout, Cin, K)
+                * bias (if no batchnorm) (Cout)
+            * BN
+                * running mean
+                * running_var
+                * weight (Cout)
+                * bias (Cout)
+                * eps ()
+            * activation (nothing)
+            * Skip connection
+                * balance ()
+        * head
+            * weight (LC, 1, 1)
+            * bias (1, 1)
+
+        A test input & output are also provided, input.npy and output.npy
+        """
+        # FIXME
+        training = self.training
+        self.eval()
+        with open(Path(outdir, "config.json"), "w") as fp:
+            json.dump(
+                {
+                    "version": __version__,
+                    "architecture": "ConvNet",
+                    "config": {
+                        "channels": self._channels,
+                        "dilations": self._get_dilations(),
+                        "batchnorm": self._batchnorm,
+                        "activation": self._activation,
+                        "skip_ins": self._skip_ins is not None,
+                        "skip_connections": isinstance(
+                            self._convs[0], _SkipConnectConv1d
+                        ),
+                    },
+                },
+                fp,
+                indent=4,
+            )
+
+        params = [self._conv_in.weight.flatten(), self._conv_in.bias.flatten()]
+        for i in range(self._num_layers):
+            block_name = f"block_{i}"
+            block = self._net._modules[block_name]
+            conv = block._modules[_CONV_NAME]
+            params.append(conv.weight.flatten())
+            if conv.bias is not None:
+                params.append(conv.bias.flatten())
+            if self._batchnorm:
+                bn = block._modules[_BATCHNORM_NAME]
+                params.append(bn.running_mean.flatten())
+                params.append(bn.running_var.flatten())
+                params.append(bn.weight.flatten())
+                params.append(bn.bias.flatten())
+                params.append(torch.Tensor([bn.eps]).to(bn.weight.device))
+        head = self._net._modules["head"]
+        params.append(head.weight.flatten())
+        params.append(head.bias.flatten())
+        params = torch.cat(params).detach().cpu().numpy()
+        # Hope I don't regret using np.save...
+        np.save(Path(outdir, "weights.npy"), params)
+
+        # And an input/output to verify correct computation:
+        x, y = self._test_signal()
+        np.save(Path(outdir, "input.npy"), x.detach().cpu().numpy())
+        np.save(Path(outdir, "output.npy"), y.detach().cpu().numpy())
+
+        # And resume training state
+        self.train(training)
 
     def export_cpp_header(self, filename: Path):
-        raise NotImplementedError()
+        with TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.export(Path(tmpdir))
+            with open(Path(tmpdir, "config.json"), "r") as fp:
+                _c = json.load(fp)
+            version = _c["version"]
+            config = _c["config"]
+            with open(filename, "w") as f:
+                f.writelines(
+                    (
+                        "#pragma once\n",
+                        "// Automatically-generated model file\n",
+                        "#include <vector>\n",
+                        f'#define PYTHON_MODEL_VERSION "{version}"\n',
+                        f"const int CHANNELS = {config['channels']};\n",
+                        f"const bool"
+                        "std::vector<int> DILATIONS{"
+                        + ",".join([str(d) for d in config["dilations"]])
+                        + "};\n",
+                        f"const bool BATCHNORM = {'true' if config['batchnorm'] else 'false'};\n",
+                        f"const std::string ACTIVATION = \"{config['activation']}\";\n",
+                        f"const bool SKIP_INS = {'true' if config['skip_ins'] else 'false'};\n",
+                        f"const bool SKIP_CONNECTIONS = {'true' if config['skip_connections'] else 'false'};\n",
+                        "std::vector<float> PARAMS{"
+                        + ",".join(
+                            [f"{w:.16f}" for w in np.load(Path(tmpdir, "weights.npy"))]
+                        )
+                        + "};\n",
+                    )
+                )
 
     @classmethod
     def _make_conv(
@@ -441,15 +555,19 @@ class SkippyNet(BaseNet):
     ):
         net = nn.Sequential()
         net.add_module(
-            "conv",
+            _CONV_NAME,
             nn.Conv1d(channels, channels, 2, dilation=dilation, bias=not batchnorm),
         )
         if batchnorm:
-            net.add_module("batchnorm", nn.BatchNorm1d(channels))
-        net.add_module("activation", _make_activation(activation))
+            net.add_module(_BATCHNORM_NAME, nn.BatchNorm1d(channels))
+        net.add_module(_ACTIVATION_NAME, _make_activation(activation))
         if skip_connection:
             net = _SkipConnectConv1d(net)
         return net
+
+    @property
+    def _num_layers(self) -> int:
+        return len(self._convs)
 
     def _forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -474,3 +592,9 @@ class SkippyNet(BaseNet):
         head_in = torch.cat([lo[:, :, -n:] for lo in layer_outputs], dim=1)
         head_out = self._head(head_in)
         return head_out[:, 0]
+
+    def _get_dilations(self) -> Tuple[int]:
+        return tuple(
+            self._convs[i]._modules[_CONV_NAME].dilation[0]
+            for i in range(self._num_blocks)
+        )
