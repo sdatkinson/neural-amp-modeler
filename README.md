@@ -4,10 +4,22 @@ This is the training part of NAM.
 For the code to create the plugin with a trained model, see my
 [iPlug2 fork](https://github.com/sdatkinson/iPlug2).
 
-## How to use
-
 This repository handles training, reamping, and exporting the weights of a model (to
 use with [the iPlug2 plugin]())
+
+## How to use (Google Colab)
+
+If you don't have a good computer for training ML models, you can run the
+notebook located at `bin/train/colab.ipynb` in the cloud using Google Colab--no
+local installation required!
+
+Go to `[colab.research.google.com](https://colab.research.google.com), open the
+notebook using the "GitHub" tab, and go!
+
+## How to use (Local)
+
+Alternatively, the you can clone this repo and use it in the following ways on
+your own computer:
 
 ### Train a model
 
