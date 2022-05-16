@@ -13,7 +13,7 @@ If you don't have a good computer for training ML models, you can run the
 notebook located at `bin/train/colab.ipynb` in the cloud using Google Colab--no
 local installation required!
 
-Go to `[colab.research.google.com](https://colab.research.google.com), open the
+Go to [colab.research.google.com](https://colab.research.google.com), open the
 notebook using the "GitHub" tab, and go!
 
 ## How to use (Local)
