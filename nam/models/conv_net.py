@@ -302,11 +302,6 @@ class _SkipConnectConv1d(nn.Module):
     def __init__(self, net: nn.Module):
         super().__init__()
         self._net = net
-        self._raw_balance = nn.Parameter(torch.tensor(0.0))
-
-    @property
-    def _balance(self) -> torch.Tensor:
-        return torch.sigmoid(self._raw_balance)
 
     def forward(self, x):
         """
@@ -319,8 +314,7 @@ class _SkipConnectConv1d(nn.Module):
         if z.ndim != 3:
             raise ValueError(f"Expected 3-dimensional tensor; found {z.ndim}")
         l_out = z.shape[-1]
-        balance = self._balance
-        return balance * z + (1.0 - balance) * x[..., -l_out:]
+        return z + x[..., -l_out:]
 
 
 class _SkipIn(nn.Module):
