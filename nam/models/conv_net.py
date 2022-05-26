@@ -17,6 +17,7 @@ import torch.nn.functional as F
 
 from .. import __version__
 from ..data import wav_to_tensor
+from . import activations
 from ._base import BaseNet
 
 _CONV_NAME = "conv"
@@ -63,7 +64,12 @@ class _IR(nn.Module):
 
 
 def _make_activation(name: str) -> nn.Module:
-    return getattr(nn, name)()
+    if hasattr(nn, name):
+        return getattr(nn, name)()
+    elif hasattr(activations, name):
+        return getattr(activations, name)()
+    else:
+        raise ValueError(f"Unknown activation {name}")
 
 
 def _conv_net(
