@@ -19,6 +19,7 @@ from .. import __version__
 from ..data import wav_to_tensor
 from . import activations
 from ._base import BaseNet
+from .core import Functional
 
 _CONV_NAME = "conv"
 _BATCHNORM_NAME = "batchnorm"
@@ -31,19 +32,6 @@ class TrainStrategy(Enum):
 
 
 default_train_strategy = TrainStrategy.DILATE
-
-
-class _Functional(nn.Module):
-    """
-    Define a layer by a function w/ no params
-    """
-
-    def __init__(self, op):
-        super().__init__()
-        self._op = op
-
-    def forward(self, *args, **kwargs):
-        return self._op(*args, **kwargs)
 
 
 class _IR(nn.Module):
@@ -98,7 +86,7 @@ def _conv_net(
     dilations = [1, 2, 4, 8] if dilations is None else dilations
     receptive_field = sum(dilations) + 1
     net = nn.Sequential()
-    net.add_module("expand", _Functional(partial(check_and_expand, receptive_field)))
+    net.add_module("expand", Functional(partial(check_and_expand, receptive_field)))
     cin = 1
     cout = channels
     for i, dilation in enumerate(dilations):
@@ -305,9 +293,16 @@ class _SkipConnectConv1d(nn.Module):
     Special skip-connect for 1D Convolutions that trims the input as it passes it over
     """
 
-    def __init__(self, net: nn.Module):
+    def __init__(self, net: nn.Module, channels: Optional[int] = None):
+        """
+        :param channels: Provide to have per-channel weights
+        """
         super().__init__()
         self._net = net
+        channels = 1 if channels is None else channels
+        self._skip_weight = nn.Parameter(torch.ones((1, channels, 1)))
+        self._net_weight = nn.Parameter(torch.zeros((1, channels, 1)))
+        self._bias = nn.Parameter(torch.zeros((1, channels, 1)))
 
     def forward(self, x):
         """
@@ -320,7 +315,7 @@ class _SkipConnectConv1d(nn.Module):
         if z.ndim != 3:
             raise ValueError(f"Expected 3-dimensional tensor; found {z.ndim}")
         l_out = z.shape[-1]
-        return z + x[..., -l_out:]
+        return self._skip_weight * z + self._net_weight * x[..., -l_out:] + self._bias
 
 
 class _SkipIn(nn.Module):
@@ -562,7 +557,7 @@ class SkippyNet(BaseNet):
             net.add_module(_BATCHNORM_NAME, nn.BatchNorm1d(channels))
         net.add_module(_ACTIVATION_NAME, _make_activation(activation))
         if skip_connection:
-            net = _SkipConnectConv1d(net)
+            net = _SkipConnectConv1d(net, channels=channels)
         return net
 
     @property
