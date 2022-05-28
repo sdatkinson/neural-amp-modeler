@@ -548,14 +548,22 @@ class SkippyNet(BaseNet):
         batchnorm: bool,
         skip_connection: bool,
     ):
+        a = _make_activation(activation)
+        # Some activations halve the dimension e.g. product activations, so double
+        # coming in
+        conv_out_channels = (
+            2 * channels if isinstance(a, activations.Product) else channels
+        )
         net = nn.Sequential()
         net.add_module(
             _CONV_NAME,
-            nn.Conv1d(channels, channels, 2, dilation=dilation, bias=not batchnorm),
+            nn.Conv1d(
+                channels, conv_out_channels, 2, dilation=dilation, bias=not batchnorm
+            ),
         )
         if batchnorm:
-            net.add_module(_BATCHNORM_NAME, nn.BatchNorm1d(channels))
-        net.add_module(_ACTIVATION_NAME, _make_activation(activation))
+            net.add_module(_BATCHNORM_NAME, nn.BatchNorm1d(conv_out_channels))
+        net.add_module(_ACTIVATION_NAME, a)
         if skip_connection:
             net = _SkipConnectConv1d(net, channels=channels)
         return net
