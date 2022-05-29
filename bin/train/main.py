@@ -26,9 +26,9 @@ def timestamp() -> str:
     return f"{t.year:04d}-{t.month:02d}-{t.day:02d}-{t.hour:02d}-{t.minute:02d}-{t.second:02d}"
 
 
-def ensure_outdir(outdir: str) -> Path:
-    outdir = Path(outdir, timestamp())
-    outdir.mkdir(parents=True, exist_ok=False)
+def ensure_outdir(outdir: str, no_timestamp: bool) -> Path:
+    outdir = Path(outdir) if no_timestamp else Path(outdir, timestamp())
+    outdir.mkdir(parents=True, exist_ok=no_timestamp)
     return outdir
 
 
@@ -73,7 +73,9 @@ def plot(
 
 
 def main(args):
-    outdir = ensure_outdir(args.outdir)
+    outdir = ensure_outdir(args.outdir, args.no_timestamp)
+    config_path = Path(outdir, "configs", timestamp())
+
     # Read
     with open(args.data_config_path, "r") as fp:
         data_config = json.load(fp)
@@ -82,12 +84,13 @@ def main(args):
     with open(args.learning_config_path, "r") as fp:
         learning_config = json.load(fp)
     # Write
+    config_path.mkdir(parents=True, exist_ok=False)
     for basename, config in (
         ("data", data_config),
         ("model", model_config),
         ("learning", learning_config),
     ):
-        with open(Path(outdir, f"config_{basename}.json"), "w") as fp:
+        with open(Path(config_path, f"config_{basename}.json"), "w") as fp:
             json.dump(config, fp, indent=4)
 
     model = Model.init_from_config(model_config)
@@ -97,8 +100,6 @@ def main(args):
     train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
     val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
 
-    # ckpt_path = Path(outdir, "checkpoints")
-    # ckpt_path.mkdir()
     trainer = pl.Trainer(
         callbacks=[
             pl.callbacks.model_checkpoint.ModelCheckpoint(
@@ -145,4 +146,5 @@ if __name__ == "__main__":
     parser.add_argument("model_config_path", type=str)
     parser.add_argument("learning_config_path", type=str)
     parser.add_argument("outdir")
+    parser.add_argument("--no-timestamp", action="store_true")
     main(parser.parse_args())
