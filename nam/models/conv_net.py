@@ -23,6 +23,7 @@ from .core import Functional
 
 _CONV_NAME = "conv"
 _BATCHNORM_NAME = "batchnorm"
+_LAYERNORM_NAME = "layernorm"
 _ACTIVATION_NAME = "activation"
 
 
@@ -352,6 +353,27 @@ class _SkipIn(nn.Module):
         return x_inner + self._mix_in(x_skip[:, :, -l_inner:])
 
 
+class _LayerNorm(nn.Module):
+    """
+    Special layer norm operating across channels only
+
+    Input (B,dim,L) -> LN(*,dim,*) -> Output (B,dim,L)
+    """
+
+    def __init__(self, dim: int, eps: float = 1.0e-5):
+        super().__init__()
+        self._bias = nn.Parameter(torch.zeros((dim,)))
+        self._weight = nn.Parameter(torch.ones((dim,)))
+        self._eps = eps
+
+    def forward(self, x):
+        mean, var = x.mean(dim=1, keepdim=True), x.var(dim=1, keepdim=True)
+        return (
+            self._weight[None, :, None] * (x - mean) / torch.sqrt(var + self._eps)
+            + self._bias[None, :, None]
+        )
+
+
 class SkippyNet(BaseNet):
     """
     A convolutional architecture with skip-in, skip-around (residual), and skip-out 
@@ -363,6 +385,7 @@ class SkippyNet(BaseNet):
         channels: int = 8,
         dilations: Optional[Sequence[int]] = None,
         batchnorm: bool = False,
+        layernorm: bool = False,
         activation: str = "Tanh",
         skip_ins: bool = False,
         skip_connections: bool = False,
@@ -402,7 +425,9 @@ class SkippyNet(BaseNet):
         self._conv_in = nn.Conv1d(1, channels, 1)
         self._convs = nn.ModuleList(
             [
-                self._make_conv(channels, d, activation, batchnorm, skip_connections)
+                self._make_conv(
+                    channels, d, activation, batchnorm, layernorm, skip_connections
+                )
                 for d in dilations
             ]
         )
@@ -546,6 +571,7 @@ class SkippyNet(BaseNet):
         dilation: int,
         activation: str,
         batchnorm: bool,
+        layernorm: bool,
         skip_connection: bool,
     ):
         a = _make_activation(activation)
@@ -563,6 +589,8 @@ class SkippyNet(BaseNet):
         )
         if batchnorm:
             net.add_module(_BATCHNORM_NAME, nn.BatchNorm1d(conv_out_channels))
+        if layernorm:
+            net.add_module(_LAYERNORM_NAME, _LayerNorm(conv_out_channels))
         net.add_module(_ACTIVATION_NAME, a)
         if skip_connection:
             net = _SkipConnectConv1d(net, channels=channels)
