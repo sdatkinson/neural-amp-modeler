@@ -15,7 +15,7 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
 
-from nam.data import Split, init_dataset
+from nam.data import ParametricDataset, Split, init_dataset
 from nam.models import Model
 
 torch.manual_seed(0)
@@ -53,7 +53,8 @@ def plot(
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx})")
         t0 = time()
-        output = model(ds.x).flatten().cpu().numpy()
+        args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
+        output = model(*args).flatten().cpu().numpy()
         t1 = time()
         print(f"Took {t1 - t0} ({tx / (t1 - t0):.2f}x)")
 

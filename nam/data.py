@@ -3,10 +3,11 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import abc
+from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -103,13 +104,20 @@ def tensor_to_wav(
 
 class AbstractDataset(_Dataset, abc.ABC):
     @abc.abstractmethod
-    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx
+    ) -> Union[
+        Tuple[torch.Tensor, torch.Tensor],
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    ]:
         pass
 
 
 class Dataset(AbstractDataset, InitializableFromConfig):
     """
-    Take a pair of matched audio files and serve input + output pairs
+    Take a pair of matched audio files and serve input + output pairs.
+    
+    No conditioning parameters associated w/ the data.
     """
 
     def __init__(
@@ -157,6 +165,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         return single_pairs // self._ny
 
     @property
+    def ny(self) -> int:
+        return self._ny
+
+    @property
     def x(self):
         return self._x
 
@@ -195,10 +207,42 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         assert nx <= len(x)
         if ny is not None:
             assert ny <= len(y) - nx + 1
+        if torch.abs(y).max() >= 1.0:
+            raise ValueError("Output clipped.")
+
+
+class ParametricDataset(Dataset):
+    """
+    Additionally tracks some conditioning parameters
+    """
+
+    def __init__(self, params: Dict[str, Union[bool, float, int]], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._keys = sorted(tuple(k for k in params.keys()))
+        self._vals = torch.Tensor([float(params[k]) for k in self._keys])
+
+    @classmethod
+    def parse_config(cls, config):
+        params = config["params"]
+        return {"params": params, **super().parse_config(config)}
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # FIXME don't override signature
+        x, y = super().__getitem__(idx)
+        return self.vals, x, y
+
+    @property
+    def keys(self) -> Tuple[str]:
+        return self._keys
+
+    @property
+    def vals(self):
+        return self._vals
 
 
 class ConcatDataset(AbstractDataset, InitializableFromConfig):
     def __init__(self, datasets: Sequence[Dataset]):
+        self._validate_datasets(datasets)
         self._datasets = datasets
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -213,13 +257,50 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def parse_config(cls, config):
-        return {"datasets": tuple(Dataset.init_from_config(c) for c in config)}
+        init = (
+            ParametricDataset.init_from_config
+            if config["parametric"]
+            else Dataset.init_from_config
+        )
+        return {"datasets": tuple(init(c) for c in config["dataset_configs"])}
+
+    @classmethod
+    def _validate_datasets(cls, datasets: Sequence[Dataset]):
+        Reference = namedtuple("Reference", ("index", "val"))
+        ref_keys, ref_ny = None, None
+        for i, d in enumerate(datasets):
+            ref_ny = Reference(i, d.ny) if ref_ny is None else ref_ny
+            if d.ny != ref_ny.val:
+                raise ValueError(
+                    f"Mismatch between ny of datasets {ref_ny.index} ({ref_ny.val}) and {i} ({d.ny})"
+                )
+            if isinstance(d, ParametricDataset):
+                val = d.keys
+                if ref_keys is None:
+                    ref_keys = Reference(i, val)
+                if val != ref_keys.val:
+                    raise ValueError(
+                        f"Mismatch between keys of datasets {ref_keys.index} "
+                        f"({ref_keys.val}) and {i} ({val})"
+                    )
 
 
 def init_dataset(config, split: Split) -> AbstractDataset:
+    parametric = config.get("parametric", False)
     base_config = config[split.value]
     common = config.get("common", {})
     if isinstance(base_config, dict):
-        return Dataset.init_from_config({**common, **base_config})
+        init = (
+            ParametricDataset.init_from_config
+            if parametric
+            else Dataset.init_from_config
+        )
+        return init({**common, **base_config})
     elif isinstance(base_config, list):
-        return ConcatDataset.init_from_config([{**common, **c} for c in base_config])
+        return ConcatDataset.init_from_config(
+            {
+                "parametric": parametric,
+                "dataset_configs": [{**common, **c} for c in base_config],
+            }
+        )
+
