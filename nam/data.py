@@ -130,6 +130,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         stop: Optional[int] = None,
         delay: Optional[int] = None,
         y_scale: float = 1.0,
+        x_path: Optional[Union[str, Path]] = None,
+        y_path: Optional[Union[str, Path]] = None,
     ):
         """
         :param start: In samples
@@ -145,6 +147,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
                 x = x[-delay:]
                 y = y[:delay]
         y = y * y_scale
+        self._x_path = x_path
+        self._y_path = y_path
         self._validate_inputs(x, y, nx, ny)
         self._x = x
         self._y = y
@@ -198,6 +202,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "stop": config.get("stop"),
             "delay": config.get("delay"),
             "y_scale": config.get("y_scale", 1.0),
+            "x_path": config["x_path"],
+            "y_path": config["y_path"],
         }
 
     def _validate_inputs(self, x, y, nx, ny):
@@ -208,7 +214,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         if ny is not None:
             assert ny <= len(y) - nx + 1
         if torch.abs(y).max() >= 1.0:
-            raise ValueError("Output clipped.")
+            msg = "Output clipped."
+            if self._y_path is not None:
+                msg += f"Source is {self._y_path}"
+            raise ValueError(msg)
 
 
 class ParametricDataset(Dataset):
