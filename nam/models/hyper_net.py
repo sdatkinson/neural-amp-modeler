@@ -137,37 +137,44 @@ class _BatchNorm(nn.BatchNorm1d, _NetLayer):
         return weight * pre_affine + bias
 
 
+class _Affine(nn.Module):
+    def __init__(self, scale: torch.Tensor, bias: torch.Tensor):
+        super().__init__()
+        self._weight = nn.Parameter(scale)
+        self._bias = nn.Parameter(bias)
+
+    def forward(self, inputs):
+        return self._weight * inputs + self._bias
+
+
 class HyperNet(nn.Module):
     """
     MLP followed by layer norms on split-up dims
     """
 
-    def __init__(self, net, numels, norms, biases):
+    def __init__(self, d_in, net, numels, norms, biases):
         super().__init__()
         self._net = net
+        # Figure out the scale factor empirically
+        norm0 = net(torch.randn((10_000, d_in))).std(dim=0).mean().item()
         self._cum_numel = torch.cat(
             [torch.LongTensor([0]), torch.cumsum(torch.LongTensor(numels), dim=0)]
         )
-        self._layer_norms = nn.ModuleList([nn.LayerNorm(numel) for numel in numels])
-        [
-            layer_norm.weight.data.fill_(norm)
-            for norm, layer_norm in zip(norms, self._layer_norms)
-        ]
-        [
-            layer_norm.bias.data.fill_(bias)
-            for bias, layer_norm in zip(biases, self._layer_norms)
-        ]
+        affine_scale = torch.cat(
+            [torch.full((numel,), norm / norm0) for numel, norm in zip(numels, norms)]
+        )
+        affine_bias = torch.cat(
+            [torch.full((numel,), bias) for numel, bias in zip(numels, biases)]
+        )
+        self._affine = _Affine(affine_scale, affine_bias)
 
     def forward(self, x) -> Tuple[torch.Tensor]:
         """
         Just return a flat array of param tensors for now
         """
-        y = self._net(x)
+        y = self._affine(self._net(x))
         return tuple(
-            layer_norm(y[:, i:j])
-            for i, j, layer_norm in zip(
-                self._cum_numel[:-1], self._cum_numel[1:], self._layer_norms
-            )
+            y[:, i:j] for i, j in zip(self._cum_numel[:-1], self._cum_numel[1:])
         )
 
 
@@ -245,7 +252,8 @@ class HyperConvNet(ParametricBaseNet):
             layers.append(layer)
             layer_specs.append(layer.get_spec())
             if batchnorm:
-                layer = _BatchNorm(channels)
+                # Slow momentum on main net bc it's wild
+                layer = _BatchNorm(channels, momentum=0.001)
                 layers.append(layer)
                 layer_specs.append(layer.get_spec())
             layer = _get_activation(activation)
@@ -263,9 +271,17 @@ class HyperConvNet(ParametricBaseNet):
 
     @classmethod
     def _get_hyper_net(cls, config, specs):
+        def block(dx, dy, batchnorm):
+            layer_list = [nn.Linear(dx, dy)]
+            if batchnorm:
+                layer_list.append(nn.BatchNorm1d(dy))
+            layer_list.append(nn.ReLU())
+            return nn.Sequential(*layer_list)
+
         num_inputs = config["num_inputs"]
         num_layers = config["num_layers"]
         num_units = config["num_units"]
+        batchnorm = config["batchnorm"]
         # Flatten specs
         numels = [np.prod(np.array(shape)) for spec in specs for shape in spec.shapes]
         norms = [norm for spec in specs for norm in spec.norms]
@@ -274,12 +290,12 @@ class HyperConvNet(ParametricBaseNet):
 
         din, layer_list = num_inputs, []
         for _ in range(num_layers):
-            layer_list.append(nn.Sequential(nn.Linear(din, num_units), nn.ReLU()))
+            layer_list.append(block(din, num_units, batchnorm))
             din = num_units
         layer_list.append(nn.Linear(din, num_outputs))
         net = nn.Sequential(*layer_list)
 
-        return HyperNet(net, numels, norms, biases)
+        return HyperNet(num_inputs, net, numels, norms, biases)
 
     def _forward(self, params: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         net_params = self._hyper_net(params)
