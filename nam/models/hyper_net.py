@@ -253,7 +253,7 @@ class HyperConvNet(ParametricBaseNet):
             layer_specs.append(layer.get_spec())
             if batchnorm:
                 # Slow momentum on main net bc it's wild
-                layer = _BatchNorm(channels, momentum=0.001)
+                layer = _BatchNorm(channels, momentum=0.01)
                 layers.append(layer)
                 layer_specs.append(layer.get_spec())
             layer = _get_activation(activation)
