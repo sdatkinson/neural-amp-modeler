@@ -392,7 +392,7 @@ class HyperConvNet(ParametricBaseNet):
                     f'const int HYPER_NET_INPUT_DIM = {config["hyper_net"]["input_dim"]};\n',
                     f'const int HYPER_NET_NUM_LAYERS = {config["hyper_net"]["num_layers"]};\n',
                     f'const int HYPER_NET_NUM_UNITS = {config["hyper_net"]["num_units"]};\n',
-                    f'const int HYPER_NET_BATCHNORM = {config["hyper_net"]["batchnorm"]};\n',
+                    f'const int HYPER_NET_BATCHNORM = {"true" if config["hyper_net"]["batchnorm"] else "false"};\n',
                     f"const int CHANNELS = {config['net']['channels']};\n",
                     f"const bool BATCHNORM = {'true' if config['net']['batchnorm'] else 'false'};\n",
                     "std::vector<int> DILATIONS{"
