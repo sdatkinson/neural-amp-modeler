@@ -3,11 +3,13 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import abc
+import json
 import math
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
+from tempfile import TemporaryDirectory
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -19,6 +21,7 @@ from torch.nn.init import (
     _calculate_fan_in_and_fan_out,
 )
 
+from .._version import __version__
 from ._base import ParametricBaseNet
 
 
@@ -143,6 +146,14 @@ class _Affine(nn.Module):
         self._weight = nn.Parameter(scale)
         self._bias = nn.Parameter(bias)
 
+    @property
+    def bias(self) -> nn.Parameter:
+        return self._bias
+
+    @property
+    def weight(self) -> nn.Parameter:
+        return self._weight
+
     def forward(self, inputs):
         return self._weight * inputs + self._bias
 
@@ -164,9 +175,31 @@ class HyperNet(nn.Module):
             [torch.full((numel,), norm / norm0) for numel, norm in zip(numels, norms)]
         )
         affine_bias = torch.cat(
-            [torch.full((numel,), bias) for numel, bias in zip(numels, biases)]
+            [
+                torch.full((numel,), bias, dtype=torch.float)
+                for numel, bias in zip(numels, biases)
+            ]
         )
         self._affine = _Affine(affine_scale, affine_bias)
+
+    @property
+    def batchnorm(self) -> bool:
+        """
+        Does the hypernet use batchnorm layers
+        """
+        return any(isinstance(m, nn.BatchNorm1d) for m in self.modules())
+
+    @property
+    def input_dim(self) -> int:
+        return self._net[0][0].weight.shape[1]
+
+    @property
+    def num_layers(self) -> int:
+        return len([layer for layer in self._net if isinstance(layer, _HyperNetBlock)])
+
+    @property
+    def num_units(self) -> int:
+        return self._net[0][0].weight.shape[0]
 
     def forward(self, x) -> Tuple[torch.Tensor]:
         """
@@ -177,9 +210,51 @@ class HyperNet(nn.Module):
             y[:, i:j] for i, j in zip(self._cum_numel[:-1], self._cum_numel[1:])
         )
 
+    def get_export_params(self) -> np.ndarray:
+        params = []
+        for block in self._net[:-1]:
+            linear = block[0]
+            params.append(linear.weight.flatten())
+            params.append(linear.bias.flatten())
+            if self.batchnorm:
+                bn = block[1]
+                params.append(bn.running_mean.flatten())
+                params.append(bn.running_var.flatten())
+                params.append(bn.weight.flatten())
+                params.append(bn.bias.flatten())
+                params.append(torch.Tensor([bn.eps]).to(bn.weight.device))
+            assert len(block) <= 3, "Linear-(BN)-activation"
+            assert (
+                len([p for p in block[-1].parameters()]) == 0
+            ), "No params in activation"
+        head = self._net[-1]
+        params.append(head.weight.flatten())
+        params.append(head.bias.flatten())
+        affine = self._affine
+        params.append(affine.weight.flatten())
+        params.append(affine.bias.flatten())
+        return torch.cat(params).detach().cpu().numpy()
 
-def _extend_activation(C):
-    class Activation(C, _NetLayer):
+
+class _Activation(abc.ABC):
+    """
+    Indicate that a module is an activation within the main net
+    """
+
+    @abc.abstractproperty
+    def name(self) -> str:
+        """
+        What to call the layer by when making a config w/ it
+        """
+        pass
+
+
+def _extend_activation(C, name: str) -> _Activation:
+    class Activation(C, _NetLayer, _Activation):
+        @property
+        def name(self):
+            return name
+
         @property
         def num_tensors(self) -> int:
             return 0
@@ -193,12 +268,21 @@ def _extend_activation(C):
     return Activation
 
 
-_Tanh = _extend_activation(nn.Tanh)
-_Flatten = _extend_activation(nn.Flatten)  # Hah, works
+_Tanh = _extend_activation(nn.Tanh, "Tanh")
+_ReLU = _extend_activation(nn.ReLU, "ReLU")
+_Flatten = _extend_activation(nn.Flatten, "Flatten")  # Hah, works
 
 
 def _get_activation(name):
-    return {"Tanh": _Tanh}[name]()
+    return {"Tanh": _Tanh, "ReLU": _ReLU}[name]()
+
+
+class _HyperNetBlock(nn.Sequential):
+    """
+    For IDing blocks of the hypernet
+    """
+
+    pass
 
 
 class HyperConvNet(ParametricBaseNet):
@@ -209,7 +293,7 @@ class HyperConvNet(ParametricBaseNet):
     """
 
     def __init__(
-        self, hyper_net: nn.Module, net: Callable[[Any, torch.Tensor], torch.Tensor]
+        self, hyper_net: HyperNet, net: Callable[[Any, torch.Tensor], torch.Tensor]
     ):
         super().__init__()
         self._hyper_net = hyper_net
@@ -232,10 +316,94 @@ class HyperConvNet(ParametricBaseNet):
         return sum([m.dilation[0] for m in self._net if isinstance(m, _Conv)]) + 1 - 1
 
     def export(self, outdir: Path):
-        raise NotImplementedError()
+        """
+        Files created:
+        * config.json
+        * weights.npy
+        * test_signal_params.npy
+        * test_signal_input.npy
+        * test_signal_output.npy
+
+        weights are serialized to weights.npy in the following order:
+        * Hypernet
+            * Loop layers:
+                * Linear
+                    * weights (din*dout)
+                    * biases (dout)
+                * BN
+                    * running_mean (d)
+                    * running_var (d)
+                    * weight (d)
+                    * bias (d)
+                    * eps ()
+                * activation
+                    * (Assume no params bc Tanh)
+            * Linear out
+                * weights (units*dy)
+                * bias (dy)
+            * affine
+                * weights (dy)
+                * bias (dy)
+        * Main net
+            (Layers are conv-BN-act)
+            (All params are outputted by the hypernet except the BatchNorm buffers!)
+            * Loop layers
+                * BN
+                    * running_mean
+                    * running_var
+                    * eps ()
+        * (flatten: no params)
+
+        A test input & output are also provided, input.npy and output.npy
+        """
+        training = self.training
+        self.eval()
+        with open(Path(outdir, "config.json"), "w") as fp:
+            json.dump(self._get_export_config(), fp, indent=4)
+
+        # Hope I don't regret using np.save...
+        np.save(Path(outdir, "weights.npy"), self._get_export_params())
+
+        # And an input/output to verify correct computation:
+        params, x, y = self._test_signal()
+        np.save(Path(outdir, "test_signal_params.npy"), params.detach().cpu().numpy())
+        np.save(Path(outdir, "test_signal_input.npy"), x.detach().cpu().numpy())
+        np.save(Path(outdir, "test_signal_output.npy"), y.detach().cpu().numpy())
+
+        # And resume training state
+        self.train(training)
 
     def export_cpp_header(self, filename: Path):
-        return NotImplementedError()
+        with TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.export(Path(tmpdir))
+            with open(Path(tmpdir, "config.json"), "r") as fp:
+                _c = json.load(fp)
+            version = _c["version"]
+            config = _c["config"]
+            params = np.load(Path(tmpdir, "weights.npy"))
+        with open(filename, "w") as f:
+            f.writelines(
+                (
+                    "#pragma once\n",
+                    "// Automatically-generated model file\n",
+                    "// HyperConvNet model\n" "#include <vector>\n",
+                    f'#define PYTHON_MODEL_VERSION "{version}"\n',
+                    f'const int HYPER_NET_INPUT_DIM = {config["hyper_net"]["input_dim"]};\n',
+                    f'const int HYPER_NET_NUM_LAYERS = {config["hyper_net"]["num_layers"]};\n',
+                    f'const int HYPER_NET_NUM_UNITS = {config["hyper_net"]["num_units"]};\n',
+                    f'const int HYPER_NET_BATCHNORM = {config["hyper_net"]["batchnorm"]};\n',
+                    f"const int CHANNELS = {config['net']['channels']};\n",
+                    f"const bool BATCHNORM = {'true' if config['net']['batchnorm'] else 'false'};\n",
+                    "std::vector<int> DILATIONS{"
+                    + ",".join([str(d) for d in config["net"]["dilations"]])
+                    + "};\n",
+                    f"const std::string ACTIVATION = \"{config['net']['activation']}\";\n",
+                    "std::vector<float> PARAMS{"
+                    + ",".join([f"{w:.16f}" for w in params])
+                    + "};\n",
+                )
+            )
 
     @classmethod
     def _get_net(cls, config):
@@ -270,13 +438,13 @@ class HyperConvNet(ParametricBaseNet):
         return nn.ModuleList(layers), layer_specs
 
     @classmethod
-    def _get_hyper_net(cls, config, specs):
-        def block(dx, dy, batchnorm):
+    def _get_hyper_net(cls, config, specs) -> HyperNet:
+        def block(dx, dy, batchnorm) -> _HyperNetBlock:
             layer_list = [nn.Linear(dx, dy)]
             if batchnorm:
                 layer_list.append(nn.BatchNorm1d(dy))
             layer_list.append(nn.ReLU())
-            return nn.Sequential(*layer_list)
+            return _HyperNetBlock(*layer_list)
 
         num_inputs = config["num_inputs"]
         num_layers = config["num_layers"]
@@ -297,6 +465,27 @@ class HyperConvNet(ParametricBaseNet):
 
         return HyperNet(num_inputs, net, numels, norms, biases)
 
+    @property
+    def _activation(self) -> str:
+        """
+        What activation does the main net use
+        """
+        for m in self._net.modules():
+            if isinstance(m, _Activation):
+                return m.name
+
+    @property
+    def _batchnorm(self) -> bool:
+        return any(isinstance(x, _BatchNorm) for x in self._net)
+
+    @property
+    def _channels(self) -> int:
+        return self._net[0].weight.shape[0]
+
+    @property
+    def _net_no_head(self):
+        return self._net[:-2]
+
     def _forward(self, params: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         net_params = self._hyper_net(params)
         i = 0
@@ -306,3 +495,64 @@ class HyperConvNet(ParametricBaseNet):
             i = j
         assert j == len(net_params)
         return x
+
+    def _get_dilations(self) -> List[int]:
+        dilations = []
+        for (
+            layer
+        ) in self._net_no_head:  # Last two layers are a 1D conv head and flatten
+            if isinstance(layer, _Conv):
+                dilations.append(layer.dilation[0])
+        return dilations
+
+    def _get_export_config(self):
+        return {
+            "version": __version__,
+            "architecture": "HyperConvNet",
+            "config": {
+                "hyper_net": {
+                    "input_dim": self._hyper_net.input_dim,
+                    "num_layers": self._hyper_net.num_layers,
+                    "num_units": self._hyper_net.num_units,
+                    "batchnorm": self._hyper_net.batchnorm,
+                },
+                "net": {
+                    "channels": self._channels,
+                    "dilations": self._get_dilations(),
+                    "batchnorm": self._batchnorm,
+                    "activation": self._activation,
+                },
+            },
+        }
+
+    def _get_export_params(self) -> np.ndarray:
+        """
+        Flatten the parameters of the network to be exported.
+        See doctsring for .export() for ensured layout.
+        """
+        return np.concatenate(
+            [self._hyper_net.get_export_params(), self._get_net_export_params()]
+        )
+
+    def _get_net_export_params(self) -> np.ndarray:
+        """
+        Only the buffers--parameters are outputted by the hypernet!
+        """
+        params = []
+        for bn in self._net_no_head:
+            if isinstance(bn, _BatchNorm):
+                params.append(bn.running_mean.flatten())
+                params.append(bn.running_var.flatten())
+                params.append(torch.Tensor([bn.eps]).to(bn.running_mean.device))
+        return (
+            np.array([])
+            if len(params) == 0
+            else torch.cat(params).detach().cpu().numpy()
+        )
+
+    def _test_signal(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        params = torch.randn((self._hyper_net.input_dim,))
+        x = torch.randn((2 * self.receptive_field,))
+        x = 0.5 * x / x.abs().max()
+        y = self(params, x)
+        return params, x, y
