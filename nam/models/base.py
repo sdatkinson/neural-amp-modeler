@@ -13,8 +13,9 @@ import torch
 import torch.nn as nn
 
 from .._core import InitializableFromConfig
-from .linear import Linear
 from .conv_net import ConvNet
+from .hyper_net import HyperConvNet
+from .linear import Linear
 
 
 class Model(pl.LightningModule, InitializableFromConfig):
@@ -53,9 +54,11 @@ class Model(pl.LightningModule, InitializableFromConfig):
     def parse_config(cls, config):
         config = super().parse_config(config)
         net_config = config["net"]
-        net = {"Linear": Linear.init_from_config, "ConvNet": ConvNet.init_from_config}[
-            net_config["name"]
-        ](net_config["config"])
+        net = {
+            "ConvNet": ConvNet.init_from_config,
+            "HyperConvNet": HyperConvNet.init_from_config,
+            "Linear": Linear.init_from_config,
+        }[net_config["name"]](net_config["config"])
         return {
             "net": net,
             "optimizer_config": config["optimizer"],
@@ -84,8 +87,8 @@ class Model(pl.LightningModule, InitializableFromConfig):
         return self.net(*args, **kwargs)
 
     def _shared_step(self, batch):
-        sources, targets = batch
-        preds = self(sources, pad_start=False)
+        args, targets = batch[:-1], batch[-1]
+        preds = self(*args, pad_start=False)
         return nn.MSELoss()(preds, targets)
 
     def training_step(self, batch, batch_idx):
