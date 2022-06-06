@@ -70,7 +70,7 @@ If you want to mess with the model architecture and end up with a different rece
 field (e.g. by messing with the dilation pattern), then you need to make sure that `nx`
 is changed accordingly in the data setup.
 The default architecture has a receptive field of 8191 samples, so `nx` is `8191`.
-Generally, for the conv net architecture the receptive field is one elss than the sum of the `dilations`.
+Generally, for the conv net architecture the receptive field is one less than the sum of the `dilations`.
 
 You can train for shorter or longer.
 1000 gives pretty great results, but if you're impatient you can sometimes get away with
