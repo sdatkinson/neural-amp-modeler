@@ -51,12 +51,12 @@ def plot(
 ):
     with torch.no_grad():
         tx = len(ds.x) / 48_000
-        print(f"Run (t={tx})")
+        print(f"Run (t={tx:.2f} sec)")
         t0 = time()
         args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
         output = model(*args).flatten().cpu().numpy()
         t1 = time()
-        print(f"Took {t1 - t0} ({tx / (t1 - t0):.2f}x)")
+        print(f"Took {t1 - t0:.2f} sec ({tx / (t1 - t0):.2f}x)")
 
     plt.figure(figsize=(16, 5))
     # plt.plot(ds.x[window_start:window_end], label="Input")
@@ -65,7 +65,8 @@ def plot(
     # plt.plot(
     #     ds.y[window_start:window_end] - output[window_start:window_end], label="Error"
     # )
-    plt.title(f"NRMSE={_rms(torch.Tensor(output) - ds.y) / _rms(ds.y)}")
+    nrmse = _rms(torch.Tensor(output) - ds.y) / _rms(ds.y)
+    plt.title(f"NRMSE={100.0 * nrmse:.2f}%")
     plt.legend()
     if savefig is not None:
         plt.savefig(savefig)
