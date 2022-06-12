@@ -6,6 +6,8 @@
 Lightning stuff
 """
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 import pytorch_lightning as pl
@@ -18,13 +20,42 @@ from .hyper_net import HyperConvNet
 from .linear import Linear
 
 
+class ValidationLoss(Enum):
+    """
+    mse: mean squared error
+    esr: error signal ratio (Eq. (10) from 
+        https://www.mdpi.com/2076-3417/10/3/766/htm
+        NOTE: Be careful when computing ESR on minibatches! The average ESR over 
+        a minibatch of data not the same as the ESR of all of the same data in 
+        the minibatch calculated over at once (because of the denominator). 
+        (Hint: think about what happens if one item in the minibatch is all 
+        zeroes...)
+    """
+
+    MSE = "mse"
+    ESR = "esr"
+
+
+@dataclass
+class LossConfig(InitializableFromConfig):
+    dc_weight: float = 0.0
+    val_loss: ValidationLoss = ValidationLoss.MSE
+
+    @classmethod
+    def parse_config(cls, config):
+        config = super().parse_config(config)
+        dc_weight = config.get("dc_weight", 0.0)
+        val_loss = ValidationLoss(config.get("val_loss", "mse"))
+        return {"dc_weight": dc_weight, "val_loss": val_loss}
+
+
 class Model(pl.LightningModule, InitializableFromConfig):
     def __init__(
         self,
         net,
         optimizer_config: Optional[dict] = None,
         scheduler_config: Optional[dict] = None,
-        loss_config: Optional[dict] = None,
+        loss_config: Optional[LossConfig] = None,
     ):
         """
         :param scheduler_config: contains
@@ -40,7 +71,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
         self._net = net
         self._optimizer_config = {} if optimizer_config is None else optimizer_config
         self._scheduler_config = scheduler_config
-        self._loss_config = {} if loss_config is None else loss_config
+        self._loss_config = LossConfig() if loss_config is None else loss_config
 
     @classmethod
     def init_from_config(cls, config):
@@ -88,11 +119,12 @@ class Model(pl.LightningModule, InitializableFromConfig):
             "HyperConvNet": HyperConvNet.init_from_config,
             "Linear": Linear.init_from_config,
         }[net_config["name"]](net_config["config"])
+        loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
             "net": net,
             "optimizer_config": config["optimizer"],
             "scheduler_config": config["lr_scheduler"],
-            "loss_config": config.get("loss"),
+            "loss_config": loss_config,
         }
 
     @property
@@ -130,7 +162,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
         loss = loss + self._mse_loss(preds, targets)
 
         # DC loss
-        dc_weight = self._loss_config.get("dc_weight", 0.0)
+        dc_weight = self._loss_config.dc_weight
         if dc_weight > 0.0:
             # Denominator could be a bad idea. I'm going to omit it esp since I'm
             # using mini batches
@@ -143,9 +175,22 @@ class Model(pl.LightningModule, InitializableFromConfig):
 
     def validation_step(self, batch, batch_idx):
         preds, targets = self._shared_step(batch)
-        val_loss = self._mse_loss(preds, targets)
-        self.log_dict({"val_loss": val_loss})
+        mse_loss = self._mse_loss(preds, targets)
+        esr_loss = self._esr_loss(preds, targets)
+        val_loss = {ValidationLoss.MSE: mse_loss, ValidationLoss.ESR: esr_loss}[
+            self._loss_config.val_loss
+        ]
+        self.log_dict({"MSE": mse_loss, "ESR": esr_loss, "val_loss": val_loss})
         return val_loss
+
+    def _esr_loss(self, preds, targets):
+        """
+        Error signal ratio aka ESR loss.
+
+        Eq. (10), from
+        https://www.mdpi.com/2076-3417/10/3/766/htm
+        """
+        return nn.MSELoss()(preds, targets) / nn.MSELoss()(targets, 0.0 * targets)
 
     def _mse_loss(self, preds, targets):
         return nn.MSELoss()(preds, targets)
