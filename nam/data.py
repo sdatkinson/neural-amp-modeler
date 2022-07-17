@@ -13,6 +13,7 @@ import numpy as np
 import torch
 import wavio
 from torch.utils.data import Dataset as _Dataset
+from tqdm import tqdm
 
 from ._core import InitializableFromConfig
 
@@ -271,7 +272,7 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
             if config["parametric"]
             else Dataset.init_from_config
         )
-        return {"datasets": tuple(init(c) for c in config["dataset_configs"])}
+        return {"datasets": tuple(init(c) for c in tqdm(config["dataset_configs"], desc="Loading data"))}
 
     @classmethod
     def _validate_datasets(cls, datasets: Sequence[Dataset]):
