@@ -4,10 +4,22 @@ This is the training part of NAM.
 For the code to create the plugin with a trained model, see my
 [iPlug2 fork](https://github.com/sdatkinson/iPlug2).
 
-## How to use
-
 This repository handles training, reamping, and exporting the weights of a model (to
 use with [the iPlug2 plugin]())
+
+## How to use (Google Colab)
+
+If you don't have a good computer for training ML models, you can run the
+notebook located at `bin/train/colab.ipynb` in the cloud using Google Colab--no
+local installation required!
+
+Go to [colab.research.google.com](https://colab.research.google.com), open the
+notebook using the "GitHub" tab, and go!
+
+## How to use (Local)
+
+Alternatively, the you can clone this repo and use it in the following ways on
+your own computer:
 
 ### Train a model
 
@@ -70,7 +82,7 @@ If you want to mess with the model architecture and end up with a different rece
 field (e.g. by messing with the dilation pattern), then you need to make sure that `nx`
 is changed accordingly in the data setup.
 The default architecture has a receptive field of 8191 samples, so `nx` is `8191`.
-Generally, for the conv net architecture the receptive field is one less than the sum of the `dilations`.
+Generally, for the conv net architecture the receptive field is one elss than the sum of the `dilations`.
 
 You can train for shorter or longer.
 1000 gives pretty great results, but if you're impatient you can sometimes get away with
