@@ -272,7 +272,11 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
             if config["parametric"]
             else Dataset.init_from_config
         )
-        return {"datasets": tuple(init(c) for c in tqdm(config["dataset_configs"], desc="Loading data"))}
+        return {
+            "datasets": tuple(
+                init(c) for c in tqdm(config["dataset_configs"], desc="Loading data")
+            )
+        }
 
     @classmethod
     def _validate_datasets(cls, datasets: Sequence[Dataset]):

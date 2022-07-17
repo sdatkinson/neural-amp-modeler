@@ -21,13 +21,6 @@ requirements = [
     "wavio",
 ]
 
-# try:
-#     import torch  # noqa F401
-# except ImportError as e:
-#     raise ImportError(
-#         f"PyTorch not found. Please install it as needed.\nOriginal error: {e}"
-#     )
-
 setup(
     name="nam",
     version=main_ns["__version__"],
