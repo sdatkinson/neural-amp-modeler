@@ -3,6 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import abc
+from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -12,6 +13,7 @@ import numpy as np
 import torch
 import wavio
 from torch.utils.data import Dataset as _Dataset
+from tqdm import tqdm
 
 from ._core import InitializableFromConfig
 
@@ -122,6 +124,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         stop: Optional[int] = None,
         delay: Optional[int] = None,
         y_scale: float = 1.0,
+        x_path: Optional[Union[str, Path]] = None,
+        y_path: Optional[Union[str, Path]] = None,
     ):
         """
         :param start: In samples
@@ -133,10 +137,12 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             if delay > 0:
                 x = x[:-delay]
                 y = y[delay:]
-            else:
+            elif delay < 0:
                 x = x[-delay:]
                 y = y[:delay]
         y = y * y_scale
+        self._x_path = x_path
+        self._y_path = y_path
         self._validate_inputs(x, y, nx, ny)
         self._x = x
         self._y = y
@@ -155,6 +161,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         # If ny were 1
         single_pairs = n - self._nx + 1
         return single_pairs // self._ny
+
+    @property
+    def ny(self) -> int:
+        return self._ny
 
     @property
     def x(self):
@@ -186,6 +196,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "stop": config.get("stop"),
             "delay": config.get("delay"),
             "y_scale": config.get("y_scale", 1.0),
+            "x_path": config["x_path"],
+            "y_path": config["y_path"],
         }
 
     def _validate_inputs(self, x, y, nx, ny):
@@ -195,10 +207,16 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         assert nx <= len(x)
         if ny is not None:
             assert ny <= len(y) - nx + 1
+        if torch.abs(y).max() >= 1.0:
+            msg = "Output clipped."
+            if self._y_path is not None:
+                msg += f"Source is {self._y_path}"
+            raise ValueError(msg)
 
 
 class ConcatDataset(AbstractDataset, InitializableFromConfig):
     def __init__(self, datasets: Sequence[Dataset]):
+        self._validate_datasets(datasets)
         self._datasets = datasets
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -213,7 +231,24 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def parse_config(cls, config):
-        return {"datasets": tuple(Dataset.init_from_config(c) for c in config)}
+        return {
+            "datasets": tuple(
+                Dataset.init_from_config(c)
+                for c in tqdm(config["dataset_configs"], desc="Loading data")
+            )
+        }
+
+    @classmethod
+    def _validate_datasets(cls, datasets: Sequence[Dataset]):
+        Reference = namedtuple("Reference", ("index", "val"))
+        ref_ny = None
+        for i, d in enumerate(datasets):
+            ref_ny = Reference(i, d.ny) if ref_ny is None else ref_ny
+            if d.ny != ref_ny.val:
+                raise ValueError(
+                    f"Mismatch between ny of datasets {ref_ny.index} ({ref_ny.val}) and"
+                    f" {i} ({d.ny})"
+                )
 
 
 def init_dataset(config, split: Split) -> AbstractDataset:
@@ -222,4 +257,8 @@ def init_dataset(config, split: Split) -> AbstractDataset:
     if isinstance(base_config, dict):
         return Dataset.init_from_config({**common, **base_config})
     elif isinstance(base_config, list):
-        return ConcatDataset.init_from_config([{**common, **c} for c in base_config])
+        return ConcatDataset.init_from_config(
+            {"dataset_configs": [{**common, **c} for c in base_config]}
+        )
+    else:
+        raise TypeError(f"Unrecognized config type {type(base_config)}")
