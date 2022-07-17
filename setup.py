@@ -10,14 +10,16 @@ ver_path = convert_path("nam/_version.py")
 with open(ver_path) as ver_file:
     exec(ver_file.read(), main_ns)
 
-requirements = []  # torch...
-
-try:
-    import torch  # noqa F401
-except ImportError as e:
-    raise ImportError(
-        f"PyTorch not found. Please install it as needed.\nOriginal error: {e}"
-    )
+requirements = [
+    "matplotlib",
+    "numpy",
+    "pytorch_lightning",
+    "scipy",
+    "sounddevice",
+    "torch",
+    "tqdm",
+    "wavio",
+]
 
 setup(
     name="nam",
