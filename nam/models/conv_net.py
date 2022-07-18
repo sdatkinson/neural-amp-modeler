@@ -3,6 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import json
+import math
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -16,7 +17,7 @@ import torch.nn.functional as F
 
 
 from .. import __version__
-from ..data import wav_to_tensor
+from ..data import REQUIRED_RATE, wav_to_tensor
 from ._base import BaseNet
 
 _CONV_NAME = "conv"
@@ -164,81 +165,6 @@ class ConvNet(BaseNet):
     def _batchnorm(self) -> bool:
         return _BATCHNORM_NAME in self._net._modules["block_0"]._modules
 
-    def export(self, outdir: Path):
-        """
-        Files created:
-        * config.json
-        * weights.npy
-        * input.npy
-        * output.npy
-
-        weights are serialized to weights.npy in the following order:
-        * (expand: no params)
-        * loop blocks 0,...,L-1
-            * conv:
-                * weight (Cout, Cin, K)
-                * bias (if no batchnorm) (Cout)
-            * BN
-                * running mean
-                * running_var
-                * weight (Cout)
-                * bias (Cout)
-                * eps ()
-        * head
-            * weight (C, 1, 1)
-            * bias (1, 1)
-        * (flatten: no params)
-
-        A test input & output are also provided, input.npy and output.npy
-        """
-        training = self.training
-        self.eval()
-        with open(Path(outdir, "config.json"), "w") as fp:
-            json.dump(
-                {
-                    "version": __version__,
-                    "architecture": "ConvNet",
-                    "config": {
-                        "channels": self._channels,
-                        "dilations": self._get_dilations(),
-                        "batchnorm": self._batchnorm,
-                        "activation": self._activation,
-                    },
-                },
-                fp,
-                indent=4,
-            )
-
-        params = []
-        for i in range(self._num_layers):
-            block_name = f"block_{i}"
-            block = self._net._modules[block_name]
-            conv = block._modules[_CONV_NAME]
-            params.append(conv.weight.flatten())
-            if conv.bias is not None:
-                params.append(conv.bias.flatten())
-            if self._batchnorm:
-                bn = block._modules[_BATCHNORM_NAME]
-                params.append(bn.running_mean.flatten())
-                params.append(bn.running_var.flatten())
-                params.append(bn.weight.flatten())
-                params.append(bn.bias.flatten())
-                params.append(torch.Tensor([bn.eps]).to(bn.weight.device))
-        head = self._net._modules["head"]
-        params.append(head.weight.flatten())
-        params.append(head.bias.flatten())
-        params = torch.cat(params).detach().cpu().numpy()
-        # Hope I don't regret using np.save...
-        np.save(Path(outdir, "weights.npy"), params)
-
-        # And an input/output to verify correct computation:
-        x, y = self._test_signal()
-        np.save(Path(outdir, "input.npy"), x.detach().cpu().numpy())
-        np.save(Path(outdir, "output.npy"), y.detach().cpu().numpy())
-
-        # And resume training state
-        self.train(training)
-
     def export_cpp_header(self, filename: Path):
         with TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -267,6 +193,82 @@ class ConvNet(BaseNet):
                         + "};\n",
                     )
                 )
+
+    def _export_config(self):
+        return {
+            "channels": self._channels,
+            "dilations": self._get_dilations(),
+            "batchnorm": self._batchnorm,
+            "activation": self._activation,
+        }
+
+    def _export_input_output(self, x=None) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        :return: (L,), (L,)
+        """
+        with torch.no_grad():
+            training = self.training
+            self.eval()
+            x = self._export_input_signal() if x is None else x
+            y = self(x, pad_start=True)
+            self.train(training)
+            return tuple(z.detach().cpu().numpy() for z in (x, y))
+
+    def _export_input_signal(self):
+        """
+        :return: (L,)
+        """
+        rate = REQUIRED_RATE
+        return torch.cat(
+            [
+                torch.zeros((rate,)),
+                0.5
+                * torch.sin(
+                    2.0 * math.pi * 220.0 * torch.linspace(0.0, 1.0, rate + 1)[:-1]
+                ),
+                torch.zeros((rate,)),
+            ]
+        )
+
+    def _export_weights(self) -> np.ndarray:
+        """
+        weights are serialized to weights.npy in the following order:
+        * (expand: no params)
+        * loop blocks 0,...,L-1
+            * conv:
+                * weight (Cout, Cin, K)
+                * bias (if no batchnorm) (Cout)
+            * BN
+                * running mean
+                * running_var
+                * weight (Cout)
+                * bias (Cout)
+                * eps ()
+        * head
+            * weight (C, 1, 1)
+            * bias (1, 1)
+        * (flatten: no params)
+        """
+        params = []
+        for i in range(self._num_layers):
+            block_name = f"block_{i}"
+            block = self._net._modules[block_name]
+            conv = block._modules[_CONV_NAME]
+            params.append(conv.weight.flatten())
+            if conv.bias is not None:
+                params.append(conv.bias.flatten())
+            if self._batchnorm:
+                bn = block._modules[_BATCHNORM_NAME]
+                params.append(bn.running_mean.flatten())
+                params.append(bn.running_var.flatten())
+                params.append(bn.weight.flatten())
+                params.append(bn.bias.flatten())
+                params.append(torch.Tensor([bn.eps]).to(bn.weight.device))
+        head = self._net._modules["head"]
+        params.append(head.weight.flatten())
+        params.append(head.bias.flatten())
+        params = torch.cat(params).detach().cpu().numpy()
+        return params
 
     def _forward(self, x):
         y = self._net(x)

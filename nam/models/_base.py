@@ -39,7 +39,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         """
         pass
 
-    def _test_signal(
+    def _export_input_output(
         self, seed=0, extra_length=13
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         x = torch.Tensor(

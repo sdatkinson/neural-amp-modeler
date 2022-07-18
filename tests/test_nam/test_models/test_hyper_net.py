@@ -13,10 +13,15 @@ from .base import Base
 
 
 class TestHyperConvNet(Base):
+    @classmethod
+    def setup_class(cls):
+        return super().setup_class(hyper_net.HyperConvNet, (), {})
+
     @pytest.mark.parametrize(
         ("batchnorm,activation"), ((False, "ReLU"), (True, "Tanh"))
     )
     def test_init(self, batchnorm, activation):
+        # TODO refactor
         channels = 3
         dilations = [1, 2, 4]
         assert isinstance(
@@ -35,6 +40,7 @@ class TestHyperConvNet(Base):
         ("batchnorm,activation"), ((False, "ReLU"), (True, "Tanh"))
     )
     def test_export(self, batchnorm, activation):
+        # TODO refactor
         channels = 3
         dilations = [1, 2, 4]
         model = self._construct(
@@ -49,6 +55,7 @@ class TestHyperConvNet(Base):
             model.export(Path(tmpdir))
 
     def test_export_cpp_header(self):
+        # TODO refactor
         with TemporaryDirectory() as tmpdir:
             self._construct().export_cpp_header(Path(tmpdir, "model.h"))
 
@@ -70,8 +77,9 @@ class TestHyperConvNet(Base):
         }
 
     def _construct(self, config=None):
+        # Override for simplicity...
         config = self._config() if config is None else config
-        return hyper_net.HyperConvNet.init_from_config(config)
+        return self._C.init_from_config(config)
 
 
 if __name__ == "__main__":
