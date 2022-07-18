@@ -7,9 +7,9 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from nam.models import hyper_net
+from nam.models.parametric import hyper_net
 
-from .base import Base
+from ..base import Base
 
 
 class TestHyperConvNet(Base):
