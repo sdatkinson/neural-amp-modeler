@@ -4,6 +4,7 @@
 
 import abc
 from collections import namedtuple
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -232,9 +233,41 @@ class ParametricDataset(Dataset):
         self._vals = torch.Tensor([float(params[k]) for k in self._keys])
 
     @classmethod
+    def init_from_config(cls, config):
+        if "slices" not in config:
+            return super().init_from_config(config)
+        else:
+            return cls.init_from_config_with_slices(config)
+
+    @classmethod
+    def init_from_config_with_slices(cls, config):
+        config, x, y, slices = cls.parse_config_with_slices(config)
+        datasets = []
+        for s in tqdm(slices, desc="Slices..."):
+            c = deepcopy(config)
+            start, stop, params = [s[k] for k in ("start", "stop", "params")]
+            c.update(x=x[start:stop], y=y[start:stop], params=params)
+            datasets.append(ParametricDataset(**c))
+        return ConcatDataset(datasets)
+
+    @classmethod
     def parse_config(cls, config):
+        assert "slices" not in config
         params = config["params"]
-        return {"params": params, **super().parse_config(config)}
+        return {
+            "params": params,
+            "id": config.get("id"),
+            "common_params": config.get("common_params"),
+            "param_map": config.get("param_map"),
+            **super().parse_config(config),
+        }
+
+    @classmethod
+    def parse_config_with_slices(cls, config):
+        slices = config["slices"]
+        config = super().parse_config(config)
+        x, y = [config.pop(k) for k in "xy"]
+        return config, x, y, slices
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # FIXME don't override signature
@@ -251,7 +284,9 @@ class ParametricDataset(Dataset):
 
 
 class ConcatDataset(AbstractDataset, InitializableFromConfig):
-    def __init__(self, datasets: Sequence[Dataset]):
+    def __init__(self, datasets: Sequence[Dataset], flatten=True):
+        if flatten:
+            datasets = self._flatten_datasets(datasets)
         self._validate_datasets(datasets)
         self._datasets = datasets
 
@@ -265,6 +300,10 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
     def __len__(self) -> int:
         return sum(len(d) for d in self._datasets)
 
+    @property
+    def datasets(self):
+        return self._datasets
+
     @classmethod
     def parse_config(cls, config):
         init = (
@@ -277,6 +316,18 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
                 init(c) for c in tqdm(config["dataset_configs"], desc="Loading data")
             )
         }
+
+    def _flatten_datasets(self, datasets):
+        """
+        If any dataset is a ConcatDataset, pull it out
+        """
+        flattened = []
+        for d in datasets:
+            if isinstance(d, ConcatDataset):
+                flattened.extend(d.datasets)
+            else:
+                flattened.append(d)
+        return flattened
 
     @classmethod
     def _validate_datasets(cls, datasets: Sequence[Dataset]):
