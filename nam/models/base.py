@@ -18,6 +18,7 @@ from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .hyper_net import HyperConvNet
 from .linear import Linear
+from .recurrent import LSTM
 
 
 class ValidationLoss(Enum):
@@ -38,6 +39,13 @@ class ValidationLoss(Enum):
 
 @dataclass
 class LossConfig(InitializableFromConfig):
+    """
+    :param mask_first: How many of the first samples to ignore when comptuing the loss.
+    :param dc_weight: Weight for the DC loss term. If 0, ignored.
+    :params val_loss: Which loss to track for the best model checkpoint.
+    """
+
+    mask_first: int = 0
     dc_weight: float = 0.0
     val_loss: ValidationLoss = ValidationLoss.MSE
 
@@ -46,7 +54,15 @@ class LossConfig(InitializableFromConfig):
         config = super().parse_config(config)
         dc_weight = config.get("dc_weight", 0.0)
         val_loss = ValidationLoss(config.get("val_loss", "mse"))
-        return {"dc_weight": dc_weight, "val_loss": val_loss}
+        mask_first = config.get("mask_first", 0)
+        return {"mask_first": mask_first, "dc_weight": dc_weight, "val_loss": val_loss}
+
+    def apply_mask(self, *args):
+        """
+        :param args: (L,) or (B,)
+        :return: (L-M,) or (B, L-M)
+        """
+        return tuple(a[..., self.mask_first :] for a in args)
 
 
 class Model(pl.LightningModule, InitializableFromConfig):
@@ -118,6 +134,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
             "ConvNet": ConvNet.init_from_config,
             "HyperConvNet": HyperConvNet.init_from_config,
             "Linear": Linear.init_from_config,
+            "LSTM": LSTM.init_from_config,
         }[net_config["name"]](net_config["config"])
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {

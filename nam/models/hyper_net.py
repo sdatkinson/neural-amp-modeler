@@ -359,13 +359,13 @@ class HyperConvNet(ParametricBaseNet):
         training = self.training
         self.eval()
         with open(Path(outdir, "config.json"), "w") as fp:
-            json.dump(self._get_export_config(), fp, indent=4)
+            json.dump(self._export_config(), fp, indent=4)
 
         # Hope I don't regret using np.save...
-        np.save(Path(outdir, "weights.npy"), self._get_export_params())
+        np.save(Path(outdir, "weights.npy"), self._export_weights())
 
         # And an input/output to verify correct computation:
-        params, x, y = self._test_signal()
+        params, x, y = self._export_input_output()
         np.save(Path(outdir, "test_signal_params.npy"), params.detach().cpu().numpy())
         np.save(Path(outdir, "test_signal_input.npy"), x.detach().cpu().numpy())
         np.save(Path(outdir, "test_signal_output.npy"), y.detach().cpu().numpy())
@@ -505,7 +505,7 @@ class HyperConvNet(ParametricBaseNet):
                 dilations.append(layer.dilation[0])
         return dilations
 
-    def _get_export_config(self):
+    def _export_config(self):
         return {
             "version": __version__,
             "architecture": "HyperConvNet",
@@ -525,16 +525,16 @@ class HyperConvNet(ParametricBaseNet):
             },
         }
 
-    def _get_export_params(self) -> np.ndarray:
+    def _export_weights(self) -> np.ndarray:
         """
         Flatten the parameters of the network to be exported.
         See doctsring for .export() for ensured layout.
         """
         return np.concatenate(
-            [self._hyper_net.get_export_params(), self._get_net_export_params()]
+            [self._hyper_net.get_export_params(), self._export_net_weights()]
         )
 
-    def _get_net_export_params(self) -> np.ndarray:
+    def _export_net_weights(self) -> np.ndarray:
         """
         Only the buffers--parameters are outputted by the hypernet!
         """
@@ -550,7 +550,7 @@ class HyperConvNet(ParametricBaseNet):
             else torch.cat(params).detach().cpu().numpy()
         )
 
-    def _test_signal(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _export_input_output(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         params = torch.randn((self._hyper_net.input_dim,))
         x = torch.randn((2 * self.receptive_field,))
         x = 0.5 * x / x.abs().max()

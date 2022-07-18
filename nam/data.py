@@ -18,7 +18,7 @@ from tqdm import tqdm
 from ._core import InitializableFromConfig
 
 _REQUIRED_SAMPWIDTH = 3
-_REQUIRED_RATE = 48_000
+REQUIRED_RATE = 48_000
 _REQUIRED_CHANNELS = 1  # Mono
 
 
@@ -47,7 +47,7 @@ def wav_to_np(
     x_wav = wavio.read(str(filename))
     assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
     assert x_wav.sampwidth == _REQUIRED_SAMPWIDTH, "24-bit"
-    assert x_wav.rate == _REQUIRED_RATE, "48 kHz"
+    assert x_wav.rate == REQUIRED_RATE, "48 kHz"
 
     if require_match is not None:
         assert required_shape is None
@@ -83,20 +83,20 @@ def wav_to_tensor(
         return torch.Tensor(arr)
 
 
-def tensor_to_wav(
-    x: torch.Tensor,
+def tensor_to_wav(x: torch.Tensor, *args, **kwargs):
+    np_to_wav(x.detach().cpu().numpy(), *args, **kwargs)
+
+
+def np_to_wav(
+    x: np.ndarray,
     filename: Union[str, Path],
     rate: int = 48_000,
     sampwidth: int = 3,
     scale="none",
 ):
     wavio.write(
-        filename,
-        (torch.clamp(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1)))
-        .detach()
-        .cpu()
-        .numpy()
-        .astype(np.int32),
+        str(filename),
+        (np.clip(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1))).astype(np.int32),
         rate,
         scale=scale,
         sampwidth=sampwidth,

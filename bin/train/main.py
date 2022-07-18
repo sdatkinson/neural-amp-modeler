@@ -73,6 +73,31 @@ def plot(
         plt.show()
 
 
+def _create_callbacks(learning_config):
+    """
+    Checkpointing, essentially
+    """
+    # Checkpoints should be run every time the validation check is run.
+    # So base it off of learning_config["trainer"]["val_check_interval"] if it's there.
+    if "val_check_interval" in learning_config["trainer"]:
+        kwargs = {
+            "every_n_train_steps": learning_config["trainer"]["val_check_interval"]
+        }
+    else:
+        kwargs = {"every_n_epochs": 1}
+
+    checkpoint_best = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
+        save_top_k=3,
+        monitor="val_loss",
+        **kwargs,
+    )
+    checkpoint_last = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
+    )
+    return [checkpoint_best, checkpoint_last]
+
+
 def main(args):
     outdir = ensure_outdir(args.outdir)
     # Read
@@ -101,17 +126,7 @@ def main(args):
     # ckpt_path = Path(outdir, "checkpoints")
     # ckpt_path.mkdir()
     trainer = pl.Trainer(
-        callbacks=[
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="{epoch}_{val_loss:.6f}",
-                save_top_k=3,
-                monitor="val_loss",
-                every_n_epochs=1,
-            ),
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_last_{epoch:04d}", every_n_epochs=1
-            ),
-        ],
+        callbacks=_create_callbacks(learning_config),
         default_root_dir=outdir,
         **learning_config["trainer"],
     )
