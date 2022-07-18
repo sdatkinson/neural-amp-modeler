@@ -21,8 +21,8 @@ from torch.nn.init import (
     _calculate_fan_in_and_fan_out,
 )
 
-from .._version import __version__
-from ._base import ParametricBaseNet
+from ..._version import __version__
+from .._base import ParametricBaseNet
 
 
 class SpecialLayers(Enum):

@@ -19,10 +19,7 @@ import torch.nn.functional as F
 from .. import __version__
 from ..data import REQUIRED_RATE, wav_to_tensor
 from ._base import BaseNet
-
-_CONV_NAME = "conv"
-_BATCHNORM_NAME = "batchnorm"
-_ACTIVATION_NAME = "activation"
+from ._names import ACTIVATION_NAME, BATCHNORM_NAME, CONV_NAME
 
 
 class TrainStrategy(Enum):
@@ -72,11 +69,11 @@ def _conv_net(
     def block(cin, cout, dilation):
         net = nn.Sequential()
         net.add_module(
-            _CONV_NAME, nn.Conv1d(cin, cout, 2, dilation=dilation, bias=not batchnorm)
+            CONV_NAME, nn.Conv1d(cin, cout, 2, dilation=dilation, bias=not batchnorm)
         )
         if batchnorm:
-            net.add_module(_BATCHNORM_NAME, nn.BatchNorm1d(cout))
-        net.add_module(_ACTIVATION_NAME, getattr(nn, activation)())
+            net.add_module(BATCHNORM_NAME, nn.BatchNorm1d(cout))
+        net.add_module(ACTIVATION_NAME, getattr(nn, activation)())
         return net
 
     def check_and_expand(n, x):
@@ -150,12 +147,12 @@ class ConvNet(BaseNet):
     @property
     def _activation(self):
         return (
-            self._net._modules["block_0"]._modules[_ACTIVATION_NAME].__class__.__name__
+            self._net._modules["block_0"]._modules[ACTIVATION_NAME].__class__.__name__
         )
 
     @property
     def _channels(self) -> int:
-        return self._net._modules["block_0"]._modules[_CONV_NAME].weight.shape[0]
+        return self._net._modules["block_0"]._modules[CONV_NAME].weight.shape[0]
 
     @property
     def _num_layers(self) -> int:
@@ -163,7 +160,7 @@ class ConvNet(BaseNet):
 
     @property
     def _batchnorm(self) -> bool:
-        return _BATCHNORM_NAME in self._net._modules["block_0"]._modules
+        return BATCHNORM_NAME in self._net._modules["block_0"]._modules
 
     def export_cpp_header(self, filename: Path):
         with TemporaryDirectory() as tmpdir:
@@ -253,12 +250,12 @@ class ConvNet(BaseNet):
         for i in range(self._num_layers):
             block_name = f"block_{i}"
             block = self._net._modules[block_name]
-            conv = block._modules[_CONV_NAME]
+            conv = block._modules[CONV_NAME]
             params.append(conv.weight.flatten())
             if conv.bias is not None:
                 params.append(conv.bias.flatten())
             if self._batchnorm:
-                bn = block._modules[_BATCHNORM_NAME]
+                bn = block._modules[BATCHNORM_NAME]
                 params.append(bn.running_mean.flatten())
                 params.append(bn.running_var.flatten())
                 params.append(bn.weight.flatten())
@@ -278,7 +275,7 @@ class ConvNet(BaseNet):
 
     def _get_dilations(self) -> Tuple[int]:
         return tuple(
-            self._net._modules[f"block_{i}"]._modules[_CONV_NAME].dilation[0]
+            self._net._modules[f"block_{i}"]._modules[CONV_NAME].dilation[0]
             for i in range(self._num_blocks)
         )
 
