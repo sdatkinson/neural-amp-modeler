@@ -23,8 +23,9 @@ class Base(abc.ABC):
         with TemporaryDirectory() as tmpdir:
             model.export(Path(tmpdir))
 
-    def _construct(self, args=None, kwargs=None):
+    def _construct(self, C=None, args=None, kwargs=None):
+        C = self._C if C is None else C
         args = args if args is not None else self._args
         kwargs = kwargs if kwargs is not None else self._kwargs
-        return self._C(*args, **kwargs)
+        return C(*args, **kwargs)
 

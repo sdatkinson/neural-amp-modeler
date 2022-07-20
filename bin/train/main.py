@@ -15,7 +15,7 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
 
-from nam.data import ParametricDataset, Split, init_dataset
+from nam.data import ConcatDataset, ParametricDataset, Split, init_dataset
 from nam.models import Model
 
 torch.manual_seed(0)
@@ -49,6 +49,26 @@ def plot(
     window_start: Optional[int] = None,
     window_end: Optional[int] = None,
 ):
+    if isinstance(ds, ConcatDataset):
+
+        def extend_savefig(i, savefig):
+            if savefig is None:
+                return None
+            savefig = Path(savefig)
+            extension = savefig.name.split(".")[-1]
+            stem = savefig.name[: -len(extension) - 1]
+            return Path(savefig.parent, f"{stem}_{i}.{extension}")
+
+        for i, ds_i in enumerate(ds.datasets):
+            plot(
+                model,
+                ds_i,
+                savefig=extend_savefig(i, savefig),
+                show=show and i == len(ds.datasets) - 1,
+                window_start=window_start,
+                window_end=window_end,
+            )
+        return
     with torch.no_grad():
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx})")

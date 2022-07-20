@@ -30,7 +30,8 @@ class LSTM(BaseNet):
         hidden_size,
         train_burn_in: Optional[int] = None,
         train_truncate: Optional[int] = None,
-        **lstm_kwargs
+        input_size: int = 1,
+        **lstm_kwargs,
     ):
         """
         :param hidden_size: for LSTM
@@ -40,11 +41,13 @@ class LSTM(BaseNet):
             during training so that backpropagation through time is faster + to simulate
             better starting states for h(t0)&c(t0) (instead of zeros)
             TODO recognition head to start the hidden state in a good place?
+        :param input_size: Usually 1 (mono input). A catnet extending this might change
+            it and provide the parametric inputs as additional input dimensions.
         """
         super().__init__()
         if "batch_first" in lstm_kwargs:
             raise ValueError("batch_first cannot be set.")
-        self._input_size = 1
+        self._input_size = input_size
         self._core = nn.LSTM(
             self._input_size, hidden_size, batch_first=True, **lstm_kwargs
         )
@@ -66,10 +69,11 @@ class LSTM(BaseNet):
 
     def _forward(self, x):
         """
-        :param x: (B,L)
+        :param x: (B,L) or (B,L,D)
         :return: (B,L)
         """
-        x = x[:, :, None]
+        if x.ndim==2:
+            x = x[:, :, None]
         if not self.training or self._train_truncate is None:
             output_features = self._core(x)[0]
         else:
