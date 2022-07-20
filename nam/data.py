@@ -212,7 +212,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         assert x.ndim == 1
         assert y.ndim == 1
         assert len(x) == len(y)
-        assert nx <= len(x)
+        if nx > len(x):
+            raise RuntimeError(f"Input of length {len(x)}, but receptive field is {nx}.")
         if ny is not None:
             assert ny <= len(y) - nx + 1
         if torch.abs(y).max() >= 1.0:
