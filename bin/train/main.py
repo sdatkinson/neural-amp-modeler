@@ -15,7 +15,7 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
 
-from nam.data import Split, init_dataset
+from nam.data import ConcatDataset, ParametricDataset, Split, init_dataset
 from nam.models import Model
 
 torch.manual_seed(0)
@@ -49,11 +49,32 @@ def plot(
     window_start: Optional[int] = None,
     window_end: Optional[int] = None,
 ):
+    if isinstance(ds, ConcatDataset):
+
+        def extend_savefig(i, savefig):
+            if savefig is None:
+                return None
+            savefig = Path(savefig)
+            extension = savefig.name.split(".")[-1]
+            stem = savefig.name[: -len(extension) - 1]
+            return Path(savefig.parent, f"{stem}_{i}.{extension}")
+
+        for i, ds_i in enumerate(ds.datasets):
+            plot(
+                model,
+                ds_i,
+                savefig=extend_savefig(i, savefig),
+                show=show and i == len(ds.datasets) - 1,
+                window_start=window_start,
+                window_end=window_end,
+            )
+        return
     with torch.no_grad():
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx})")
         t0 = time()
-        output = model(ds.x).flatten().cpu().numpy()
+        args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
+        output = model(*args).flatten().cpu().numpy()
         t1 = time()
         print(f"Took {t1 - t0} ({tx / (t1 - t0):.2f}x)")
 
@@ -70,6 +91,31 @@ def plot(
         plt.savefig(savefig)
     if show:
         plt.show()
+
+
+def _create_callbacks(learning_config):
+    """
+    Checkpointing, essentially
+    """
+    # Checkpoints should be run every time the validation check is run.
+    # So base it off of learning_config["trainer"]["val_check_interval"] if it's there.
+    if "val_check_interval" in learning_config["trainer"]:
+        kwargs = {
+            "every_n_train_steps": learning_config["trainer"]["val_check_interval"]
+        }
+    else:
+        kwargs = {"every_n_epochs": 1}
+
+    checkpoint_best = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
+        save_top_k=3,
+        monitor="val_loss",
+        **kwargs,
+    )
+    checkpoint_last = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
+    )
+    return [checkpoint_best, checkpoint_last]
 
 
 def main(args):
@@ -100,17 +146,7 @@ def main(args):
     # ckpt_path = Path(outdir, "checkpoints")
     # ckpt_path.mkdir()
     trainer = pl.Trainer(
-        callbacks=[
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="{epoch}_{val_loss:.6f}",
-                save_top_k=3,
-                monitor="val_loss",
-                every_n_epochs=1,
-            ),
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_last_{epoch:04d}", every_n_epochs=1
-            ),
-        ],
+        callbacks=_create_callbacks(learning_config),
         default_root_dir=outdir,
         **learning_config["trainer"],
     )

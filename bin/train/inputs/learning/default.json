@@ -1,6 +1,6 @@
 {
     "train_dataloader": {
-        "batch_size": 16,
+        "batch_size": 32,
         "shuffle": true,
         "pin_memory": true,
         "drop_last": true,

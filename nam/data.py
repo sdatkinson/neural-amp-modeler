@@ -4,10 +4,11 @@
 
 import abc
 from collections import namedtuple
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -18,7 +19,7 @@ from tqdm import tqdm
 from ._core import InitializableFromConfig
 
 _REQUIRED_SAMPWIDTH = 3
-_REQUIRED_RATE = 48_000
+REQUIRED_RATE = 48_000
 _REQUIRED_CHANNELS = 1  # Mono
 
 
@@ -47,7 +48,7 @@ def wav_to_np(
     x_wav = wavio.read(str(filename))
     assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
     assert x_wav.sampwidth == _REQUIRED_SAMPWIDTH, "24-bit"
-    assert x_wav.rate == _REQUIRED_RATE, "48 kHz"
+    assert x_wav.rate == REQUIRED_RATE, "48 kHz"
 
     if require_match is not None:
         assert required_shape is None
@@ -83,20 +84,20 @@ def wav_to_tensor(
         return torch.Tensor(arr)
 
 
-def tensor_to_wav(
-    x: torch.Tensor,
+def tensor_to_wav(x: torch.Tensor, *args, **kwargs):
+    np_to_wav(x.detach().cpu().numpy(), *args, **kwargs)
+
+
+def np_to_wav(
+    x: np.ndarray,
     filename: Union[str, Path],
     rate: int = 48_000,
     sampwidth: int = 3,
     scale="none",
 ):
     wavio.write(
-        filename,
-        (torch.clamp(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1)))
-        .detach()
-        .cpu()
-        .numpy()
-        .astype(np.int32),
+        str(filename),
+        (np.clip(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1))).astype(np.int32),
         rate,
         scale=scale,
         sampwidth=sampwidth,
@@ -105,13 +106,20 @@ def tensor_to_wav(
 
 class AbstractDataset(_Dataset, abc.ABC):
     @abc.abstractmethod
-    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx
+    ) -> Union[
+        Tuple[torch.Tensor, torch.Tensor],
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    ]:
         pass
 
 
 class Dataset(AbstractDataset, InitializableFromConfig):
     """
-    Take a pair of matched audio files and serve input + output pairs
+    Take a pair of matched audio files and serve input + output pairs.
+    
+    No conditioning parameters associated w/ the data.
     """
 
     def __init__(
@@ -204,7 +212,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         assert x.ndim == 1
         assert y.ndim == 1
         assert len(x) == len(y)
-        assert nx <= len(x)
+        if nx > len(x):
+            raise RuntimeError(f"Input of length {len(x)}, but receptive field is {nx}.")
         if ny is not None:
             assert ny <= len(y) - nx + 1
         if torch.abs(y).max() >= 1.0:
@@ -214,8 +223,71 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             raise ValueError(msg)
 
 
+class ParametricDataset(Dataset):
+    """
+    Additionally tracks some conditioning parameters
+    """
+
+    def __init__(self, params: Dict[str, Union[bool, float, int]], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._keys = sorted(tuple(k for k in params.keys()))
+        self._vals = torch.Tensor([float(params[k]) for k in self._keys])
+
+    @classmethod
+    def init_from_config(cls, config):
+        if "slices" not in config:
+            return super().init_from_config(config)
+        else:
+            return cls.init_from_config_with_slices(config)
+
+    @classmethod
+    def init_from_config_with_slices(cls, config):
+        config, x, y, slices = cls.parse_config_with_slices(config)
+        datasets = []
+        for s in tqdm(slices, desc="Slices..."):
+            c = deepcopy(config)
+            start, stop, params = [s[k] for k in ("start", "stop", "params")]
+            c.update(x=x[start:stop], y=y[start:stop], params=params)
+            datasets.append(ParametricDataset(**c))
+        return ConcatDataset(datasets)
+
+    @classmethod
+    def parse_config(cls, config):
+        assert "slices" not in config
+        params = config["params"]
+        return {
+            "params": params,
+            "id": config.get("id"),
+            "common_params": config.get("common_params"),
+            "param_map": config.get("param_map"),
+            **super().parse_config(config),
+        }
+
+    @classmethod
+    def parse_config_with_slices(cls, config):
+        slices = config["slices"]
+        config = super().parse_config(config)
+        x, y = [config.pop(k) for k in "xy"]
+        return config, x, y, slices
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # FIXME don't override signature
+        x, y = super().__getitem__(idx)
+        return self.vals, x, y
+
+    @property
+    def keys(self) -> Tuple[str]:
+        return self._keys
+
+    @property
+    def vals(self):
+        return self._vals
+
+
 class ConcatDataset(AbstractDataset, InitializableFromConfig):
-    def __init__(self, datasets: Sequence[Dataset]):
+    def __init__(self, datasets: Sequence[Dataset], flatten=True):
+        if flatten:
+            datasets = self._flatten_datasets(datasets)
         self._validate_datasets(datasets)
         self._datasets = datasets
 
@@ -229,36 +301,72 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
     def __len__(self) -> int:
         return sum(len(d) for d in self._datasets)
 
+    @property
+    def datasets(self):
+        return self._datasets
+
     @classmethod
     def parse_config(cls, config):
+        init = (
+            ParametricDataset.init_from_config
+            if config["parametric"]
+            else Dataset.init_from_config
+        )
         return {
             "datasets": tuple(
-                Dataset.init_from_config(c)
-                for c in tqdm(config["dataset_configs"], desc="Loading data")
+                init(c) for c in tqdm(config["dataset_configs"], desc="Loading data")
             )
         }
+
+    def _flatten_datasets(self, datasets):
+        """
+        If any dataset is a ConcatDataset, pull it out
+        """
+        flattened = []
+        for d in datasets:
+            if isinstance(d, ConcatDataset):
+                flattened.extend(d.datasets)
+            else:
+                flattened.append(d)
+        return flattened
 
     @classmethod
     def _validate_datasets(cls, datasets: Sequence[Dataset]):
         Reference = namedtuple("Reference", ("index", "val"))
-        ref_ny = None
+        ref_keys, ref_ny = None, None
         for i, d in enumerate(datasets):
             ref_ny = Reference(i, d.ny) if ref_ny is None else ref_ny
             if d.ny != ref_ny.val:
                 raise ValueError(
-                    f"Mismatch between ny of datasets {ref_ny.index} ({ref_ny.val}) and"
-                    f" {i} ({d.ny})"
+                    f"Mismatch between ny of datasets {ref_ny.index} ({ref_ny.val}) and {i} ({d.ny})"
                 )
+            if isinstance(d, ParametricDataset):
+                val = d.keys
+                if ref_keys is None:
+                    ref_keys = Reference(i, val)
+                if val != ref_keys.val:
+                    raise ValueError(
+                        f"Mismatch between keys of datasets {ref_keys.index} "
+                        f"({ref_keys.val}) and {i} ({val})"
+                    )
 
 
 def init_dataset(config, split: Split) -> AbstractDataset:
+    parametric = config.get("parametric", False)
     base_config = config[split.value]
     common = config.get("common", {})
     if isinstance(base_config, dict):
-        return Dataset.init_from_config({**common, **base_config})
+        init = (
+            ParametricDataset.init_from_config
+            if parametric
+            else Dataset.init_from_config
+        )
+        return init({**common, **base_config})
     elif isinstance(base_config, list):
         return ConcatDataset.init_from_config(
-            {"dataset_configs": [{**common, **c} for c in base_config]}
+            {
+                "parametric": parametric,
+                "dataset_configs": [{**common, **c} for c in base_config],
+            }
         )
-    else:
-        raise TypeError(f"Unrecognized config type {type(base_config)}")
+

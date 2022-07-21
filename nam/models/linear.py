@@ -55,7 +55,7 @@ class Linear(BaseNet):
         np.save(Path(outdir, "weights.npy"), params)
 
         # And an input/output to verify correct computation:
-        x, y = self._test_signal()
+        x, y = self._export_input_output()
         np.save(Path(outdir, "input.npy"), x.detach().cpu().numpy())
         np.save(Path(outdir, "output.npy"), y.detach().cpu().numpy())
 
