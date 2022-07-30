@@ -17,6 +17,7 @@ import torch
 
 from .._base import ParametricBaseNet
 from ..recurrent import LSTM
+from ..wavenet import WaveNet
 from .params import Param
 
 
@@ -167,3 +168,13 @@ class CatLSTM(_CatMixin, LSTM):
     def _export_input_output(self):
         x = self._append_default_params(self._export_input_signal()[None])
         return super()._export_input_output(x=x)
+
+
+class CatWaveNet(_CatMixin, WaveNet):
+    @property
+    def _shape_type(self) -> _ShapeType:
+        return _ShapeType.CONV
+
+    @property
+    def _single_class(self):
+        return WaveNet
