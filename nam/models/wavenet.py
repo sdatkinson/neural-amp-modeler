@@ -20,13 +20,13 @@ from ._names import ACTIVATION_NAME, CONV_NAME
 
 class _Layer(nn.Module):
     def __init__(
-        self, input_size, in_channels, out_channels: int, kernel_size: int, 
+        self, input_size, channels: int, kernel_size: int, 
         dilation: int, first: bool, final: bool):
         super().__init__()
         # Input mixer takes care of the bias
-        self._conv = nn.Conv1d(in_channels, 2 * out_channels, kernel_size, dilation=dilation, bias=not first)
-        self._input_mixer = None if first else nn.Conv1d(input_size, 2 * out_channels, 1)
-        self._1x1 = nn.Conv1d(out_channels, out_channels, 1)
+        self._conv = nn.Conv1d(channels, 2 * channels, kernel_size, dilation=dilation, bias=not first)
+        self._input_mixer = None if first else nn.Conv1d(input_size, 2 * channels, 1)
+        self._1x1 = nn.Conv1d(channels, channels, 1)
         self._first = first
         self._final = final
 
@@ -68,6 +68,7 @@ class _WaveNet(nn.Module):
         dilations: Sequence[int], head_layers: int=0, head_channels: int=8, head_activation: str="ReLU"
     ):
         super().__init__()
+        self._rechannel = nn.Conv1d(input_size, channels, 1)
         self._layers = self._make_layers(input_size, channels, kernel_size, dilations)
         self._head = self._make_head(channels, output_size, head_channels, head_layers, 
             head_activation)
@@ -81,7 +82,7 @@ class _WaveNet(nn.Module):
         :param x: (B,Cx,L)
         :return: (B,Cy,L-R)
         """
-        z = x
+        z = self._rechannel(x)
         out_length = x.shape[2] - self.receptive_field + 1
         head_input = None
         for i, layer in enumerate(self._layers):
@@ -107,13 +108,8 @@ class _WaveNet(nn.Module):
         return head
 
     def _make_layers(self, input_size: int, channels: int, kernel_size: int, dilations: Sequence[int]) -> nn.ModuleList:
-        layers = []
-        cin = input_size
-        for i, d in enumerate(dilations):
-            layers.append(_Layer(input_size, cin, channels, kernel_size, d, i == 0, 
-            i == len(dilations)-1))
-            cin = channels
-        return nn.ModuleList(layers)
+        return nn.ModuleList([_Layer(input_size, channels, kernel_size, d, i == 0, 
+            i == len(dilations)-1) for i, d in enumerate(dilations)])
 
 
 class WaveNet(BaseNet):
@@ -139,6 +135,8 @@ class WaveNet(BaseNet):
         raise NotImplementedError()
 
     def _forward(self, x):
-        y = self._net(x[:, None])
+        if x.ndim == 2:
+            x = x[:, None, :]
+        y = self._net(x)
         assert y.shape[1] == 1
         return y[:, 0, :]
