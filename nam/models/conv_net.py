@@ -18,6 +18,7 @@ import torch.nn.functional as F
 
 from .. import __version__
 from ..data import REQUIRED_RATE, wav_to_tensor
+from ._activations import get_activation
 from ._base import BaseNet
 from ._names import ACTIVATION_NAME, BATCHNORM_NAME, CONV_NAME
 
@@ -73,7 +74,7 @@ def _conv_net(
         )
         if batchnorm:
             net.add_module(BATCHNORM_NAME, nn.BatchNorm1d(cout))
-        net.add_module(ACTIVATION_NAME, getattr(nn, activation)())
+        net.add_module(ACTIVATION_NAME, get_activation(activation))
         return net
 
     def check_and_expand(n, x):

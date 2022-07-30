@@ -20,6 +20,7 @@ from .linear import Linear
 from .parametric.catnets import CatLSTM
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
+from .wavenet import WaveNet
 
 
 class ValidationLoss(Enum):
@@ -137,6 +138,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
             "HyperConvNet": HyperConvNet.init_from_config,
             "Linear": Linear.init_from_config,
             "LSTM": LSTM.init_from_config,
+            "WaveNet": WaveNet.init_from_config,
         }[net_config["name"]](net_config["config"])
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
