@@ -72,6 +72,9 @@ class Exportable(abc.ABC):
     def _export_input_output(self) -> Tuple[np.ndarray, np.ndarray]:
         """
         Create an input and corresponding output signal to verify its behavior.
+
+        They should be the same length, but the start of the output might have transient
+        effects. Up to you to interpret.
         """
         pass
 

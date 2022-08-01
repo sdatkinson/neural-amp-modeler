@@ -8,7 +8,6 @@ Recurrent models (LSTM)
 TODO batch_first=False (I get it...)
 """
 
-import math
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -16,7 +15,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ..data import REQUIRED_RATE
 from ._base import BaseNet
 
 
@@ -127,24 +125,6 @@ class LSTM(BaseNet):
             "hidden_size": self._core.hidden_size,
             "num_layers": self._core.num_layers,
         }
-
-    def _export_input_output(self, x=None):
-        x = self._export_input_signal()[None, :, None] if x is None else x
-        y = self._head(self._core(x, self._get_initial_state())[0][0])[:, 0]
-        return x[0, :, 0].detach().cpu().numpy(), y.detach().cpu().numpy().flatten()
-
-    def _export_input_signal(self):
-        rate = REQUIRED_RATE
-        return torch.cat(
-            [
-                torch.zeros((rate,)),
-                0.5
-                * torch.sin(
-                    2.0 * math.pi * 220.0 * torch.linspace(0.0, 1.0, rate + 1)[:-1]
-                ),
-                torch.zeros((rate,)),
-            ]
-        )
 
     def _export_weights(self):
         """

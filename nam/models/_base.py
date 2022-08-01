@@ -3,13 +3,15 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import abc
-from typing import Optional, Tuple
+import math
+from typing import Any, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 
 from .._core import InitializableFromConfig
+from ..data import REQUIRED_RATE
 from ._exportable import Exportable
 
 
@@ -39,15 +41,30 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         """
         pass
 
-    def _export_input_output(
-        self, seed=0, extra_length=13
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        x = torch.Tensor(
-            np.random.default_rng(seed).normal(
-                size=(self.receptive_field + extra_length,)
-            )
+    def _export_input_output_args(self) -> Tuple[Any]:
+        """
+        Create any other args necessesary (e.g. params to eval at)
+        """
+        return ()
+
+    def _export_input_output(self) -> Tuple[np.ndarray, np.ndarray]:
+        args = self._export_input_output_args()
+        rate = REQUIRED_RATE
+        x = torch.cat(
+            [
+                torch.zeros((rate,)),
+                0.5
+                * torch.sin(
+                    2.0 * math.pi * 220.0 * torch.linspace(0.0, 1.0, rate + 1)[:-1]
+                ),
+                torch.zeros((rate,)),
+            ]
         )
-        return x, self(x, pad_start=False)
+        # Use pad start to ensure same length as requested by ._export_input_output()
+        return (
+            x.detach().cpu().numpy(), 
+            self(*args, x, pad_start=True).detach().cpu().numpy()
+        )
 
 
 class BaseNet(_Base):

@@ -34,8 +34,16 @@ class Conv1d(nn.Conv1d):
 
 class _Layer(nn.Module):
     def __init__(
-        self, input_size, channels: int, kernel_size: int, 
-        dilation: int, activation: str, gated: bool, first: bool, final: bool):
+        self, 
+        input_size: int, 
+        channels: int, 
+        kernel_size: int, 
+        dilation: int, 
+        activation: str, 
+        gated: bool, 
+        first: bool, 
+        final: bool
+    ):
         super().__init__()
         # Input mixer takes care of the bias
         mid_channels = 2 * channels if gated else channels
@@ -63,16 +71,13 @@ class _Layer(nn.Module):
         return self._gated
 
     def export_weights(self) -> torch.Tensor:
-        tensors = [self.conv.weight.data.flatten(), self.bias.data.flatten()]
+        tensors = [self.conv.export_weights()]
         if self._input_mixer is not None:
-            tensors.extend(
-                [
-                    self._input_mixer.weight.data.flatten(), 
-                    self._input_mixer.bias.data.flatten()
-                ]
-            )
+            tensors.append(self._input_mixer.export_weights())
         # No params in activation
-        tensors.extend([])
+        tensors.append(self._1x1.export_weights())
+        return torch.cat(tensors)
+        
 
     def forward(self, x: torch.Tensor, h: Optional[torch.Tensor], out_length: int
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
@@ -107,11 +112,19 @@ class _Layer(nn.Module):
         return self._1x1.in_channels
 
 
-
 class _WaveNet(nn.Module):
-    def __init__(self, input_size: int, output_size, channels: int, kernel_size: int, 
-        dilations: Sequence[int], activation: str="Tanh", gated: bool=True, 
-        head_layers: int=0, head_channels: int=8, head_activation: str="ReLU"
+    def __init__(
+        self, 
+        input_size: int, 
+        output_size, 
+        channels: int, 
+        kernel_size: int, 
+        dilations: Sequence[int], 
+        activation: str="Tanh", 
+        gated: bool=True, 
+        head_layers: int=0, 
+        head_channels: int=8, 
+        head_activation: str="ReLU",
     ):
         super().__init__()
         # TODO bias=False in ._rechannel (redundant), explicit for attention
@@ -174,7 +187,7 @@ class _WaveNet(nn.Module):
         """
         return torch.cat(
             [
-                self._export_rechannel_weights(),
+                self._rechannel.export_weights(),
                 self._export_layer_weights(),
                 self._export_head_weights()
             ]
@@ -200,19 +213,14 @@ class _WaveNet(nn.Module):
         tensors = []
         for layer in self._head[:-1]:
             conv = layer[1]
-            tensors.extend([conv.weight.data.flatten(), conv.bias.data.flatten()])
+            tensors.append(conv.export_weights())
         head = self._head[-1]
-        tensors.extend([head.weight.data.flatten(), head.bias.data.flatten()])
+        tensors.append(head.export_weights())
         return torch.cat(tensors)
 
     def _export_layer_weights(self) -> torch.Tensor:
         # Reminder: First layer doesn't have a mixin module!
         return torch.cat([layer.export_weights() for layer in self._layers])
-
-    def _export_rechannel_weights(self) -> torch.Tensor:
-        return torch.cat(
-            [self._rechannel.weight.data.flatten(), self._rechannel.bias.data.flatten()]
-        )
 
     def _make_head(self, in_channels: int, out_channels: int, channels: int, 
         num_layers: int, activation: str
