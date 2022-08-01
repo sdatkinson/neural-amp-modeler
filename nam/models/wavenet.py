@@ -47,10 +47,10 @@ class _Layer(nn.Module):
         super().__init__()
         # Input mixer takes care of the bias
         mid_channels = 2 * channels if gated else channels
-        self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation, 
-            bias=not first
+        self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
+        self._input_mixer = None if first else Conv1d(
+            input_size, mid_channels, 1, bias=False
         )
-        self._input_mixer = None if first else Conv1d(input_size, mid_channels, 1)
         self._activation = get_activation(activation)
         self._activation_name = activation
         self._1x1 = Conv1d(channels, channels, 1)
