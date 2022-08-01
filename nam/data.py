@@ -335,14 +335,14 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
         lookup = {}
         offset = 0
         j = 0  # Dataset index
-        for i in len(self):
+        for i in range(len(self)):
             if offset == len(self.datasets[j]):
                 offset -= len(self.datasets[j])
                 j += 1
             lookup[i] = (j, offset)
             offset += 1
-        assert j == len(self.datasets)
-        assert offset == 1
+        assert j == len(self.datasets)-1
+        assert offset == len(self.datasets[-1])
         return lookup
 
     @classmethod
