@@ -76,8 +76,7 @@ class _Layer(nn.Module):
             tensors.append(self._input_mixer.export_weights())
         # No params in activation
         tensors.append(self._1x1.export_weights())
-        return torch.cat(tensors)
-        
+        return torch.cat(tensors)   
 
     def forward(self, x: torch.Tensor, h: Optional[torch.Tensor], out_length: int
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
@@ -210,13 +209,7 @@ class _WaveNet(nn.Module):
         """
         return: 1D array
         """
-        tensors = []
-        for layer in self._head[:-1]:
-            conv = layer[1]
-            tensors.append(conv.export_weights())
-        head = self._head[-1]
-        tensors.append(head.export_weights())
-        return torch.cat(tensors)
+        return torch.cat([layer[1].export_weights() for layer in self._head])
 
     def _export_layer_weights(self) -> torch.Tensor:
         # Reminder: First layer doesn't have a mixin module!
@@ -231,12 +224,13 @@ class _WaveNet(nn.Module):
             net.add_module(CONV_NAME, Conv1d(cx, cy, 1))
             return net
 
+        assert num_layers > 0
+
         head = nn.Sequential()
         cin = in_channels
         for i in range(num_layers):
-            head.add_module(f"layer_{i}", block(cin, channels))
+            head.add_module(f"layer_{i}", block(cin, channels if i != num_layers-1 else out_channels))
             cin = channels
-        head.add_module("head", Conv1d(cin, out_channels, 1))
         return head
 
     def _make_layers(self, input_size: int, channels: int, kernel_size: int, 

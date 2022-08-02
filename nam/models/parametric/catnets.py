@@ -11,8 +11,9 @@ import abc
 from enum import Enum
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
+import numpy as np
 import torch
 
 from .._base import ParametricBaseNet
@@ -95,6 +96,9 @@ class _CatMixin(ParametricBaseNet):
         }
         return config
 
+    def _export_input_output_args(self) -> Tuple[torch.Tensor]:
+        return (self._sidedoor_params_to_tensor(),)
+
     def _forward(self, params, x):
         """
         :param params: (N,D)
@@ -118,6 +122,13 @@ class _CatMixin(ParametricBaseNet):
             )
         )
         return self._single_class._forward(self, x_augmented)
+
+    def _sidedoor_params_to_tensor(self) -> torch.Tensor:
+        param_names = sorted([k for k in self._sidedoor_parametric_config.keys()])
+        params = torch.Tensor(
+            [self._sidedoor_parametric_config[k].default_value for k in param_names]
+        )
+        return params
 
     @contextmanager
     def _use_parametric_config(self, c):
@@ -148,10 +159,7 @@ class CatLSTM(_CatMixin, LSTM):
         :return: (B,L,1+D)
         """
         assert x.ndim == 2
-        param_names = sorted([k for k in self._sidedoor_parametric_config.keys()])
-        params = torch.Tensor(
-            [self._sidedoor_parametric_config[k].default_value for k in param_names]
-        )
+        params = self._sidedoor_params_to_tensor()
         sequence_length = x.shape[1]
         return torch.cat(
             [
@@ -165,10 +173,6 @@ class CatLSTM(_CatMixin, LSTM):
         inputs = self._append_default_params(torch.zeros((1, 48_000)))
         return super()._get_initial_state(inputs=inputs)
 
-    def _export_input_output(self):
-        x = self._append_default_params(self._export_input_signal()[None])
-        return super()._export_input_output(x=x)
-
 
 class CatWaveNet(_CatMixin, WaveNet):
     @property
@@ -178,3 +182,4 @@ class CatWaveNet(_CatMixin, WaveNet):
     @property
     def _single_class(self):
         return WaveNet
+        
