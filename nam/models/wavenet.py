@@ -126,8 +126,7 @@ class _WaveNet(nn.Module):
         head_activation: str="ReLU",
     ):
         super().__init__()
-        # TODO bias=False in ._rechannel (redundant), explicit for attention
-        self._rechannel = Conv1d(input_size, channels, 1, bias=True)
+        self._rechannel = Conv1d(input_size, channels, 1, bias=False)
         self._layers = self._make_layers(input_size, channels, kernel_size, dilations,
             activation, gated
         )
@@ -166,7 +165,7 @@ class _WaveNet(nn.Module):
 
     @property
     def head_layers(self) -> int:
-        return len(self._head) - 1  # Last layer is the head's head i.e. a linear layer
+        return len(self._head)  # They're (Act->Conv) blocks
         
     @property
     def input_size(self) -> int:
@@ -215,8 +214,13 @@ class _WaveNet(nn.Module):
         # Reminder: First layer doesn't have a mixin module!
         return torch.cat([layer.export_weights() for layer in self._layers])
 
-    def _make_head(self, in_channels: int, out_channels: int, channels: int, 
-        num_layers: int, activation: str
+    def _make_head(
+        self, 
+        in_channels: int, 
+        out_channels: int, 
+        channels: int, 
+        num_layers: int, 
+        activation: str
     ) -> nn.Sequential:
         def block(cx, cy):
             net = nn.Sequential()
@@ -237,10 +241,17 @@ class _WaveNet(nn.Module):
         dilations: Sequence[int], activation: str, gated: bool) -> nn.ModuleList:
         return nn.ModuleList(
             [
-                _Layer(input_size, channels, kernel_size, d, activation, gated,  i == 0,
-                i == len(dilations)-1
-            ) 
-            for i, d in enumerate(dilations)
+                _Layer(
+                    input_size, 
+                    channels, 
+                    kernel_size, 
+                    d, 
+                    activation, 
+                    gated,  
+                    i == 0,
+                    i == len(dilations)-1
+                ) 
+                for i, d in enumerate(dilations)
             ]
         )
 
