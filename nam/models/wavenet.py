@@ -47,6 +47,8 @@ class _Layer(nn.Module):
         # Input mixer takes care of the bias
         mid_channels = 2 * channels if gated else channels
         self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
+        # Custom init: favors direct input-output
+        self._conv.weight.data.zero_()
         self._input_mixer = Conv1d(
             condition_size, mid_channels, 1, bias=False
         )
