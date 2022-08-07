@@ -97,7 +97,7 @@ class _Layer(nn.Module):
         )
         return (
             x[:, :, -post_activation.shape[2]:] + self._1x1(post_activation), 
-            post_activation
+            post_activation[:, :, -out_length:]
         )
 
     @property
