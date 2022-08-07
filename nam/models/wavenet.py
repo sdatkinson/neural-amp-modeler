@@ -48,7 +48,7 @@ class _Layer(nn.Module):
         mid_channels = 2 * channels if gated else channels
         self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
         # Custom init: favors direct input-output
-        self._conv.weight.data.zero_()
+        # self._conv.weight.data.zero_()
         self._input_mixer = Conv1d(
             condition_size, mid_channels, 1, bias=False
         )
@@ -95,8 +95,10 @@ class _Layer(nn.Module):
             self._activation(z1[:, :self._channels]) 
             * torch.sigmoid(z1[:, self._channels:])
         )
-        z2 = self._1x1(post_activation)
-        return x[:, :, -z2.shape[2]:] + z2, z2[:, :, -out_length:]
+        return (
+            x[:, :, -post_activation.shape[2]:] + self._1x1(post_activation), 
+            post_activation
+        )
 
     @property
     def _channels(self) -> int:
