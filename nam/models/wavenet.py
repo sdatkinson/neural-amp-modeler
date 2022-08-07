@@ -69,6 +69,10 @@ class _Layer(nn.Module):
     def gated(self) -> bool:
         return self._gated
 
+    @property
+    def kernel_size(self) -> int:
+        return self._conv.kernel_size[0]
+        
     def export_weights(self) -> torch.Tensor:
         tensors = [self.conv.export_weights()]
         if self._input_mixer is not None:
@@ -158,7 +162,7 @@ class _Layers(nn.Module):
 
     @property
     def receptive_field(self) -> int:
-        return 1 + sum(self._dilations)
+        return 1 + (self._kernel_size - 1) * sum(self._dilations)
 
     def export_config(self):
         return deepcopy(self._config)
@@ -192,6 +196,10 @@ class _Layers(nn.Module):
     @property
     def _dilations(self) -> Sequence[int]:
         return self._config["dilations"]
+
+    @property
+    def _kernel_size(self) -> int:
+        return self._layers[0].kernel_size
 
 
 class _Head(nn.Module):
