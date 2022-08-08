@@ -72,14 +72,15 @@ class _Layer(nn.Module):
     @property
     def kernel_size(self) -> int:
         return self._conv.kernel_size[0]
-        
+
     def export_weights(self) -> torch.Tensor:
-        tensors = [self.conv.export_weights()]
-        if self._input_mixer is not None:
-            tensors.append(self._input_mixer.export_weights())
-        # No params in activation
-        tensors.append(self._1x1.export_weights())
-        return torch.cat(tensors)   
+        return torch.cat(
+            [
+                self.conv.export_weights(), 
+                self._input_mixer.export_weights(), 
+                self._1x1.export_weights()
+            ]
+        )   
 
     def forward(self, x: torch.Tensor, h: Optional[torch.Tensor], out_length: int
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
@@ -260,10 +261,6 @@ class _WaveNet(nn.Module):
         self._layers = nn.ModuleList([_Layers(**lc) for lc in layers_configs])
         self._head = None if head_config is None else _Head(**head_config)
         self._head_scale = head_scale
-        
-    @property
-    def input_size(self) -> int:
-        return self._rechannel.in_channels
 
     @property
     def receptive_field(self) -> int:
@@ -271,7 +268,6 @@ class _WaveNet(nn.Module):
 
     def export_config(self):
         return {
-            "input_size": self._net.input_size,
             "layers": [layers.export_config() for layers in self._layers],
             "head": None if self._head is None else self._head.export_config(),
             "head_scale": self._head_scale
@@ -284,6 +280,7 @@ class _WaveNet(nn.Module):
         weights = torch.cat([layer.export_weights() for layer in self._layers])
         if self._head is not None:
             weights = torch.cat([weights, self._head.export_weights()])
+        weights = torch.cat([weights, torch.Tensor([self._head_scale])])
         return weights.detach().cpu().numpy()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
