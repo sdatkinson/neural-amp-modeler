@@ -96,6 +96,23 @@ class _CatMixin(ParametricBaseNet):
         }
         return config
 
+    def _export_cpp_header_parametric(self, config):
+        if config is None:
+            return self._single_class._export_cpp_head_parametric(self, config)
+        s_parametric = ['nlohmann::json PARAMETRIC = nlohmann::json::parse(R"(\n', "  {\n"]
+        for i, (key, val) in  enumerate(config.items(), 1):
+            s_parametric.append(f'    "{key}": ' "{\n")
+            for j, (k2, v2) in enumerate(val.items(), 1):
+                v_str = f'"{v2}"' if isinstance(v2, str) else str(v2)
+                s_parametric.append(
+                    f'      "{k2}": {v_str}' + (",\n" if j < len(val) else "\n")
+                )
+            s_parametric.append("    }" f"{',' if i < len(config) else ''}\n")
+        s_parametric.append("  }\n")
+        s_parametric.append(')");\n')
+        return tuple(s_parametric)
+
+
     def _export_input_output_args(self) -> Tuple[torch.Tensor]:
         return (self._sidedoor_params_to_tensor(),)
 
