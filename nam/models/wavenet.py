@@ -297,6 +297,13 @@ class _WaveNet(nn.Module):
         return head_input if self._head is None else self._head(head_input)
 
 
+class WaveNetCore(_WaveNet):
+    """
+    Alias to expose
+    """
+    pass
+
+
 class WaveNet(BaseNet):
     def __init__(self, *args, **kwargs):
         super().__init__()
