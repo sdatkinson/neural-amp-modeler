@@ -52,7 +52,8 @@ class RCNN(BaseNet):
         if x.ndim == 2:
             x = x[:, :, None]
         h = self._recurrent(x)  # (B,L,DH)
-        h_conv = torch.cat([x, h], dim=2).transpose(1, 2)  # (B,DH+DX,L)
+        # h_conv = torch.cat([x, h], dim=2).transpose(1, 2)  # (B,DH+DX,L)
+        h_conv = h.transpose(1, 2)
         y = self._conv(h_conv)
         if y.shape[1] != 1:
             raise ValueError(
