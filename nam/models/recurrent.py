@@ -52,6 +52,12 @@ class LSTM(BaseNet):
         self._head = nn.Linear(hidden_size, 1)
         self._train_burn_in = train_burn_in
         self._train_truncate = train_truncate
+        self._initial_cell = nn.Parameter(
+            torch.zeros((lstm_kwargs.get("num_layers", 1), hidden_size))
+        )
+        self._initial_hidden = nn.Parameter(
+            torch.zeros((lstm_kwargs.get("num_layers", 1), hidden_size))
+        )
 
     @property
     def receptive_field(self) -> int:
@@ -70,25 +76,26 @@ class LSTM(BaseNet):
         :param x: (B,L) or (B,L,D)
         :return: (B,L)
         """
+        last_hidden_state = self._initial_state(len(x))
         if x.ndim==2:
             x = x[:, :, None]
         if not self.training or self._train_truncate is None:
-            output_features = self._core(x)[0]
+            output_features = self._core(x, last_hidden_state)[0]
         else:
-            last_hidden_state = None
             output_features_list = []
             if self._train_burn_in is not None:
                 last_output_features, last_hidden_state = self._core(
-                    x[:, : self._train_burn_in, :]
+                    x[:, : self._train_burn_in, :], last_hidden_state
                 )
                 output_features_list.append(last_output_features.detach())
             burn_in_offset = 0 if self._train_burn_in is None else self._train_burn_in
             for i in range(burn_in_offset, x.shape[1], self._train_truncate):
+                if i > burn_in_offset:
+                    # Don't detach the burn-in state so that we can learn it.
+                    last_hidden_state = tuple(z.detach() for z in last_hidden_state)
                 last_output_features, last_hidden_state = self._core(
                     x[:, i : i + self._train_truncate, :,],
-                    None
-                    if last_hidden_state is None
-                    else tuple(z.detach() for z in last_hidden_state),
+                    last_hidden_state,
                 )
                 output_features_list.append(last_output_features)
             output_features = torch.cat(output_features_list, dim=1)
@@ -161,3 +168,9 @@ class LSTM(BaseNet):
         inputs = torch.zeros((1, 48_000, 1)) if inputs is None else inputs
         _, (h, c) = self._core(inputs)
         return h, c
+
+    def _initial_state(self, n: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        return (
+            torch.tile(self._initial_hidden[:, None], (1, n, 1)),
+            torch.tile(self._initial_cell[:, None], (1, n, 1))
+        )
