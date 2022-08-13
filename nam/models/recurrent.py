@@ -234,3 +234,13 @@ class LSTM(BaseNet):
         inputs = torch.zeros((1, 48_000, 1)) if inputs is None else inputs
         _, (h, c) = self._core(inputs)
         return h, c
+
+    def _initial_state(self, n: Optional[int]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Literally what the forward pass starts with.
+        Default is zeroes; this should be better since it can be learned.
+        """
+        return (self._initial_hidden, self._initial_cell) if n is None else (
+            torch.tile(self._initial_hidden[:, None], (1, n, 1)),
+            torch.tile(self._initial_cell[:, None], (1, n, 1))
+        )
