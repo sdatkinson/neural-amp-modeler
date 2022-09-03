@@ -1,7 +1,7 @@
 {
     "_comments": [
         "Reminders and tips:",
-        " * For your data, use nx=1, and use a long ny like 32768.",
+        " * For your data, use a long ny like 32768.",
         " * For this model, it really helps if you have the delay in your data set",
         "   correctly. I've seen improvements fixing a delay that was off by 10",
         "   samples.",
@@ -14,11 +14,17 @@
     "net": {
         "name": "LSTM",
         "config": {
+            "num_layers": 3,
             "hidden_size": 24,
             "train_burn_in": 4096,
-            "train_truncate": 1024,
-            "num_layers": 3
+            "train_truncate": 512            
         }
+    },
+    "loss": {
+        "val_loss": "mse",
+        "mask_first": 4096,    
+        "pre_emph_weight": 1.0,
+        "pre_emph_coef": 0.85
     },
     "optimizer": {
         "lr": 0.01

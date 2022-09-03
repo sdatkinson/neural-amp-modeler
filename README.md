@@ -1,11 +1,8 @@
 # NAM: neural amp modeler
 
-This is the training part of NAM.
+This repository handles training, reamping, and exporting the weights of a model.
 For the code to create the plugin with a trained model, see my
 [iPlug2 fork](https://github.com/sdatkinson/iPlug2).
-
-This repository handles training, reamping, and exporting the weights of a model (to
-use with [the iPlug2 plugin]())
 
 ## How to use (Google Colab)
 
@@ -13,15 +10,36 @@ If you don't have a good computer for training ML models, you can run the
 notebook located at `bin/train/colab.ipynb` in the cloud using Google Colab--no
 local installation required!
 
-Go to [colab.research.google.com](https://colab.research.google.com), open the
-notebook using the "GitHub" tab, and go!
+Go to [colab.research.google.com](https://colab.research.google.com), select the 
+"GitHub" tab, paste in the URL for the notebook 
+(https://github.com/sdatkinson/neural-amp-modeler/blob/dev/bin/train/colab.ipynb), 
+and go!
+
+**Pros:**
+* No local installation required!
+* Decent GPUs are available if you don't have one on your computer.
+
+**Cons:**
+* Uploading your data can take a long time.
+* The session will time out after an hour or so (for free accounts), so extended 
+  training runs aren't really feasible.  I've tried to set you up with a good
+  model that should train quickly!
 
 ## How to use (Local)
 
-Alternatively, the you can clone this repo and use it in the following ways on
-your own computer:
+Alternatively, you can clone this repo to your computer and use it locally.
 
-### Train a model
+### Installation
+```bash
+conda env create -f environment.yml
+conda activate nam
+pip install .
+```
+
+### Things you can do
+Here are the primary ways this is meant to be used:
+
+#### Train a model
 
 You'll need at least two mono wav files: the input (DI) and the amped sound (without the cab).
 You can either record enough to have a training and validation set in the same file and
@@ -43,7 +61,7 @@ bin/train/inputs/config_learning.json \
 bin/train/outputs/MyAmp
 ```
 
-### Run a model on an input signal ("reamping")
+#### Run a model on an input signal ("reamping")
 
 Handy if you want to just check it out without going through the trouble of building the
 plugin.
@@ -58,7 +76,7 @@ path/to/checkpoints/epoch=123_val_loss=0.000010.ckpt \
 path/to/output.wav
 ```
 
-### Export a model (to use with [the plugin](https://github.com/sdatkinson/iPlug2))
+#### Export a model (to use with [the plugin](https://github.com/sdatkinson/iPlug2))
 
 Let's get ready to rock!
 
@@ -73,18 +91,10 @@ You'll want the `HardCodedModel.h` to paste over into the plugin source (i.e. [h
 
 ## Advanced usage
 
-The model architecture in `config_model.json` should work plenty good. However, if you
-want to, you can increase the number of channels and the model will generally fit
-better (though it'll get closer to the threshold of real-time. 20 works for a "large"
-model and is still about 6x real time on my desktop).
+The model architectures and cofigurations in `bin/train/inputs/models` should work plenty well out of the box. 
+However, feel free to play around with it; sometimes some tweaks can help improve performance.
 
-If you want to mess with the model architecture and end up with a different receptive
-field (e.g. by messing with the dilation pattern), then you need to make sure that `nx`
-is changed accordingly in the data setup.
-The default architecture has a receptive field of 8191 samples, so `nx` is `8191`.
-Generally, for the conv net architecture the receptive field is one elss than the sum of the `dilations`.
-
-You can train for shorter or longer.
-1000 gives pretty great results, but if you're impatient you can sometimes get away with
-comparable results after 500 epochs, and you might nto even be able to tell the
-difference with far fewer (maybe 200?...100?)
+Also, you can train for shorter or longer.
+1000 epochs is typically overkill, but how little you can get away with depends on the model you're using.
+I recommend watching the checkpoints and keeping an eye out for when the ESR drops below 0.01--usually it'll
+sound pretty good by that point.

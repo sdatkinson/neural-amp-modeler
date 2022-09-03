@@ -3,7 +3,11 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-Lightning stuff
+Implements the base PyTorch Lightning model.
+This is meant to combine an acutal model (subclassed from `._base.BaseNet` or 
+`._base.ParametricBaseNet`) along with loss function boilerplate.
+
+For the base *PyTorch* model containing the actual architecture, see `._base`.
 """
 
 from dataclasses import dataclass
@@ -17,9 +21,10 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
-from .parametric.catnets import CatLSTM
+from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
+from .wavenet import WaveNet
 
 
 class ValidationLoss(Enum):
@@ -44,11 +49,15 @@ class LossConfig(InitializableFromConfig):
     :param mask_first: How many of the first samples to ignore when comptuing the loss.
     :param dc_weight: Weight for the DC loss term. If 0, ignored.
     :params val_loss: Which loss to track for the best model checkpoint.
+    :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from 
+        https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
     """
 
     mask_first: int = 0
     dc_weight: float = 0.0
     val_loss: ValidationLoss = ValidationLoss.MSE
+    pre_emph_weight: Optional[float] = None
+    pre_emph_coef: Optional[float] = None
 
     @classmethod
     def parse_config(cls, config):
@@ -56,7 +65,15 @@ class LossConfig(InitializableFromConfig):
         dc_weight = config.get("dc_weight", 0.0)
         val_loss = ValidationLoss(config.get("val_loss", "mse"))
         mask_first = config.get("mask_first", 0)
-        return {"mask_first": mask_first, "dc_weight": dc_weight, "val_loss": val_loss}
+        pre_emph_coef = config.get("pre_emph_coef")
+        pre_emph_weight = config.get("pre_emph_weight")
+        return {
+            "mask_first": mask_first, 
+            "dc_weight": dc_weight, 
+            "val_loss": val_loss, 
+            "pre_emph_coef": pre_emph_coef,
+            "pre_emph_weight": pre_emph_weight
+        }
 
     def apply_mask(self, *args):
         """
@@ -133,10 +150,12 @@ class Model(pl.LightningModule, InitializableFromConfig):
         net_config = config["net"]
         net = {
             "CatLSTM": CatLSTM.init_from_config,
+            "CatWaveNet": CatWaveNet.init_from_config,
             "ConvNet": ConvNet.init_from_config,
             "HyperConvNet": HyperConvNet.init_from_config,
             "Linear": Linear.init_from_config,
             "LSTM": LSTM.init_from_config,
+            "WaveNet": WaveNet.init_from_config,
         }[net_config["name"]](net_config["config"])
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
@@ -177,8 +196,17 @@ class Model(pl.LightningModule, InitializableFromConfig):
         preds, targets = self._shared_step(batch)
 
         loss = 0.0
-        # Prediction aka MSE aka "ESR" loss
+        # Prediction aka MSE loss
         loss = loss + self._mse_loss(preds, targets)
+        # Pre-emphasized MSE
+        if self._loss_config.pre_emph_weight is not None:
+            if (self._loss_config.pre_emph_coef is None) != (
+                self._loss_config.pre_emph_weight is None
+            ):
+                raise ValueError("Invalid pre-emph")
+            loss = loss + self._loss_config.pre_emph_weight * self._mse_loss(
+                preds, targets, pre_emph_coef=self._loss_config.pre_emph_coef
+            )
 
         # DC loss
         dc_weight = self._loss_config.dc_weight
@@ -211,5 +239,9 @@ class Model(pl.LightningModule, InitializableFromConfig):
         """
         return nn.MSELoss()(preds, targets) / nn.MSELoss()(targets, 0.0 * targets)
 
-    def _mse_loss(self, preds, targets):
+    def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float]=None):
+        if pre_emph_coef is not None:
+            preds, targets = [
+                z[..., 1:] - pre_emph_coef * z[..., :-1] for z in (preds, targets)
+            ]
         return nn.MSELoss()(preds, targets)

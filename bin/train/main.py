@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from time import time
 from typing import Optional, Union
+from warnings import warn
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -76,7 +77,7 @@ def plot(
         args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
         output = model(*args).flatten().cpu().numpy()
         t1 = time()
-        print(f"Took {t1 - t0} ({tx / (t1 - t0):.2f}x)")
+        print(f"Took {t1 - t0:.2f} ({tx / (t1 - t0):.2f}x)")
 
     plt.figure(figsize=(16, 5))
     # plt.plot(ds.x[window_start:window_end], label="Input")
@@ -104,7 +105,7 @@ def _create_callbacks(learning_config):
             "every_n_train_steps": learning_config["trainer"]["val_check_interval"]
         }
     else:
-        kwargs = {"every_n_epochs": 1}
+        kwargs = {"every_n_epochs": learning_config["trainer"].get("check_val_every_n_epoch", 1)}
 
     checkpoint_best = pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
@@ -137,6 +138,11 @@ def main(args):
             json.dump(config, fp, indent=4)
 
     model = Model.init_from_config(model_config)
+    # Add receptive field to data config:
+    data_config["common"] = data_config.get("common", {})
+    if "nx" in data_config["common"]:
+        warn(f"Overriding data nx={data_config['common']['nx']} with model requried {model.net.receptive_field}")
+    data_config["common"]["nx"] = model.net.receptive_field
 
     dataset_train = init_dataset(data_config, Split.TRAIN)
     dataset_validation = init_dataset(data_config, Split.VALIDATION)
@@ -172,7 +178,7 @@ def main(args):
         window_end=110_000,
         show=False,
     )
-    plot(model, dataset_validation)
+    plot(model, dataset_validation, show=not args.no_show)
 
 
 if __name__ == "__main__":
@@ -181,4 +187,5 @@ if __name__ == "__main__":
     parser.add_argument("model_config_path", type=str)
     parser.add_argument("learning_config_path", type=str)
     parser.add_argument("outdir")
+    parser.add_argument("--no-show", action="store_true", help="Don't show plots")
     main(parser.parse_args())

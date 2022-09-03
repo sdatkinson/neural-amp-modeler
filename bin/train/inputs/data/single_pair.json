@@ -12,7 +12,6 @@
     "common": {
         "x_path": "C:\\path\\to\\source.wav",
         "y_path": "C:\\path\\to\\target.wav",
-        "nx": 8191,
         "delay": 0
     }
 }
