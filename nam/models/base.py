@@ -49,8 +49,6 @@ class LossConfig(InitializableFromConfig):
     :param mask_first: How many of the first samples to ignore when comptuing the loss.
     :param dc_weight: Weight for the DC loss term. If 0, ignored.
     :params val_loss: Which loss to track for the best model checkpoint.
-    :params hpf_knee: If provided, high-pass filter the signals to emphasize higher 
-        frequencies. Value is the knee frequency in Hz. Only applied to training loss.
     :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from 
         https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
     """
