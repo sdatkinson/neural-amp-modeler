@@ -3,7 +3,11 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-Lightning stuff
+Implements the base PyTorch Lightning model.
+This is meant to combine an acutal model (subclassed from `._base.BaseNet` or 
+`._base.ParametricBaseNet`) along with loss function boilerplate.
+
+For the base *PyTorch* model containing the actual architecture, see `._base`.
 """
 
 from dataclasses import dataclass
