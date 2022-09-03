@@ -8,7 +8,9 @@ Recurrent models (LSTM)
 TODO batch_first=False (I get it...)
 """
 
+import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Optional, Tuple
 
 import numpy as np
@@ -18,10 +20,34 @@ import torch.nn as nn
 from ._base import BaseNet
 
 
- # TODO merge LSTMCore into LSTM
+# TODO merge LSTMCore into LSTM
 
 
-class LSTMCore(nn.LSTM):
+class _L(nn.LSTM):
+    """
+    Tweaks to LSTM
+    * Up the remembering
+    """
+    def reset_parameters(self) -> None:
+        super().reset_parameters()
+        # https://danijar.com/tips-for-training-recurrent-neural-networks/
+        # forget += 1
+        # ifgo
+        value = 2.0
+        idx_input = slice(0, self.hidden_size)
+        idx_forget = slice(self.hidden_size, 2 * self.hidden_size)
+        for layer in range(self.num_layers):
+            for input in ("i", "h"):
+                # Balance out the scale of the cell w/ a -=1
+                getattr(self, f"bias_{input}h_l{layer}").data[
+                    idx_input
+                ] -= value
+                getattr(self, f"bias_{input}h_l{layer}").data[
+                    idx_forget
+                ] += value
+
+
+class LSTMCore(_L):
     def __init__(
         self, 
         *args, 
@@ -112,7 +138,7 @@ class LSTM(BaseNet):
         if "batch_first" in lstm_kwargs:
             raise ValueError("batch_first cannot be set.")
         self._input_size = input_size
-        self._core = nn.LSTM(
+        self._core = _L(
             self._input_size, hidden_size, batch_first=True, **lstm_kwargs
         )
         self._head = nn.Linear(hidden_size, 1)
@@ -135,7 +161,36 @@ class LSTM(BaseNet):
         return True
 
     def export_cpp_header(self, filename: Path):
-        raise NotImplementedError()
+        with TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            LSTM.export(self, Path(tmpdir))  # Hacky...need to work w/ CatLSTM
+            with open(Path(tmpdir, "config.json"), "r") as fp:
+                _c = json.load(fp)
+            version = _c["version"]
+            config = _c["config"]
+            s_parametric = self._export_cpp_header_parametric(config.get("parametric"))
+            with open(filename, "w") as f:
+                f.writelines(
+                    (
+                        "#pragma once\n",
+                        "// Automatically-generated model file\n",
+                        "#include <vector>\n",
+                        '#include "json.hpp"\n',
+                        '#include "lstm.h"\n',
+                        f'#define PYTHON_MODEL_VERSION "{version}"\n',
+                        f'const int NUM_LAYERS = {config["num_layers"]};\n',
+                        f'const int INPUT_SIZE = {config["input_size"]};\n',
+                        f'const int HIDDEN_SIZE = {config["hidden_size"]};\n',
+                    )
+                    + s_parametric
+                    + (
+                        "std::vector<float> PARAMS{"
+                        + ", ".join(
+                            [f"{w:.16f}f" for w in np.load(Path(tmpdir, "weights.npy"))]
+                        )
+                        + "};\n",
+                    )
+                )
 
     def _forward(self, x):
         """
@@ -199,6 +254,12 @@ class LSTM(BaseNet):
             "num_layers": self._core.num_layers,
         }
 
+    def _export_cpp_header_parametric(self, config):
+        # TODO refactor to merge w/ WaveNet implementation
+        if config is not None:
+            raise ValueError("Got non-None parametric config")
+        return ("nlohmann::json PARAMETRIC {};\n",)
+
     def _export_weights(self):
         """
         * Loop over cells:
@@ -249,13 +310,14 @@ class LSTM(BaseNet):
 # TODO refactor together
 
 class _SkippyLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers=1, **kwargs):
+    def __init__(self, input_size, hidden_size, skip_in: bool=False, num_layers=1, **kwargs):
         super().__init__()
         layers_per_lstm = 1
+        self._skip_in = skip_in
         self._lstms = nn.ModuleList(
             [
-                nn.LSTM(
-                    input_size + i * hidden_size, 
+                _L(
+                    self._layer_input_size(input_size, hidden_size, i), 
                     hidden_size, 
                     layers_per_lstm, 
                     batch_first=True
@@ -294,13 +356,17 @@ class _SkippyLSTM(nn.Module):
         :return: (N,L,L*DH), ((L,Li,N,DH), (L,Li,N,DH))
         """
         h0, c0 = self.initial_state(input) if state is None else state
-        hiddens, h_arr, c_arr = [], [], []
+        hiddens, h_arr, c_arr, hidden = [], [], [], None
         for layer, h0i, c0i in zip(self._lstms, h0, c0):
-            hidden, (hi, ci) = layer(input, (h0i, c0i))
+            if self._skip_in:
+                # TODO dense-block
+                layer_input = input if hidden is None else torch.cat([input, hidden], dim=2)
+            else:
+                layer_input = input if hidden is None else hidden
+            hidden, (hi, ci) = layer(layer_input, (h0i, c0i))
             hiddens.append(hidden)
             h_arr.append(hi)
             c_arr.append(ci)
-            input = torch.cat([input, hidden], dim=2)
         return (
             torch.cat(hiddens, dim=2), (torch.stack(h_arr), torch.stack(c_arr))
         )
@@ -317,6 +383,13 @@ class _SkippyLSTM(nn.Module):
             torch.tile(self._initial_hidden[:, :, None], (1, 1, batch_size, 1)),
             torch.tile(self._initial_cell[:, :, None], (1, 1, batch_size, 1))
         )
+
+    def _layer_input_size(self, input_size, hidden_size, i) -> int:
+        # TODO dense-block
+        if self._skip_in:
+            return input_size + (0 if i == 0 else hidden_size)
+        else:
+            return input_size if i == 0 else hidden_size
 
 
 class SkippyLSTM(BaseNet):
