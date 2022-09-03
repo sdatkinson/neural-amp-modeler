@@ -377,7 +377,7 @@ class WaveNet(BaseNet):
     def _export_cpp_header_parametric(self, config):
         if config is not None:
             raise ValueError("Got non-None parametric config")
-        return "nlohmann::json PARAMETRIC {};\n"
+        return ("nlohmann::json PARAMETRIC {};\n",)
 
     def _export_weights(self) -> np.ndarray:
         return self._net.export_weights()
