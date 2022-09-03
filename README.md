@@ -10,15 +10,36 @@ If you don't have a good computer for training ML models, you can run the
 notebook located at `bin/train/colab.ipynb` in the cloud using Google Colab--no
 local installation required!
 
-Go to [colab.research.google.com](https://colab.research.google.com), open the
-notebook using the "GitHub" tab, and go!
+Go to [colab.research.google.com](https://colab.research.google.com), select the 
+"GitHub" tab, paste in the URL for the notebook 
+(https://github.com/sdatkinson/neural-amp-modeler/blob/dev/bin/train/colab.ipynb), 
+and go!
+
+**Pros:**
+* No local installation required!
+* Decent GPUs are available if you don't have one on your computer.
+
+**Cons:**
+* Uploading your data can take a long time.
+* The session will time out after an hour or so (for free accounts), so extended 
+  training runs aren't really feasible.  I've tried to set you up with a good
+  model that should train quickly!
 
 ## How to use (Local)
 
-Alternatively, the you can clone this repo and use it in the following ways on
-your own computer:
+Alternatively, you can clone this repo to your computer and use it locally.
 
-### Train a model
+### Installation
+```bash
+conda env create -f environment.yml
+conda activate nam
+pip install .
+```
+
+### Things you can do
+Here are the primary ways this is meant to be used:
+
+#### Train a model
 
 You'll need at least two mono wav files: the input (DI) and the amped sound (without the cab).
 You can either record enough to have a training and validation set in the same file and
@@ -40,7 +61,7 @@ bin/train/inputs/config_learning.json \
 bin/train/outputs/MyAmp
 ```
 
-### Run a model on an input signal ("reamping")
+#### Run a model on an input signal ("reamping")
 
 Handy if you want to just check it out without going through the trouble of building the
 plugin.
@@ -55,7 +76,7 @@ path/to/checkpoints/epoch=123_val_loss=0.000010.ckpt \
 path/to/output.wav
 ```
 
-### Export a model (to use with [the plugin](https://github.com/sdatkinson/iPlug2))
+#### Export a model (to use with [the plugin](https://github.com/sdatkinson/iPlug2))
 
 Let's get ready to rock!
 
