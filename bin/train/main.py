@@ -77,7 +77,7 @@ def plot(
         args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
         output = model(*args).flatten().cpu().numpy()
         t1 = time()
-        print(f"Took {t1 - t0} ({tx / (t1 - t0):.2f}x)")
+        print(f"Took {t1 - t0:.2f} ({tx / (t1 - t0):.2f}x)")
 
     plt.figure(figsize=(16, 5))
     # plt.plot(ds.x[window_start:window_end], label="Input")
@@ -178,7 +178,7 @@ def main(args):
         window_end=110_000,
         show=False,
     )
-    plot(model, dataset_validation)
+    plot(model, dataset_validation, show=not args.no_show)
 
 
 if __name__ == "__main__":
@@ -187,4 +187,5 @@ if __name__ == "__main__":
     parser.add_argument("model_config_path", type=str)
     parser.add_argument("learning_config_path", type=str)
     parser.add_argument("outdir")
+    parser.add_argument("--no-show", action="store_true", help="Don't show plots")
     main(parser.parse_args())
