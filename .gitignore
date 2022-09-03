@@ -130,7 +130,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# etc
-data/
-.vscode/
-lightning_logs/
+# Training outputs
+./bin/train/outputs/
