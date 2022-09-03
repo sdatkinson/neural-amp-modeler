@@ -1,11 +1,8 @@
 # NAM: neural amp modeler
 
-This is the training part of NAM.
+This repository handles training, reamping, and exporting the weights of a model.
 For the code to create the plugin with a trained model, see my
 [iPlug2 fork](https://github.com/sdatkinson/iPlug2).
-
-This repository handles training, reamping, and exporting the weights of a model (to
-use with [the iPlug2 plugin]())
 
 ## How to use (Google Colab)
 
@@ -73,18 +70,10 @@ You'll want the `HardCodedModel.h` to paste over into the plugin source (i.e. [h
 
 ## Advanced usage
 
-The model architecture in `config_model.json` should work plenty good. However, if you
-want to, you can increase the number of channels and the model will generally fit
-better (though it'll get closer to the threshold of real-time. 20 works for a "large"
-model and is still about 6x real time on my desktop).
+The model architectures and cofigurations in `bin/train/inputs/models` should work plenty well out of the box. 
+However, feel free to play around with it; sometimes some tweaks can help improve performance.
 
-If you want to mess with the model architecture and end up with a different receptive
-field (e.g. by messing with the dilation pattern), then you need to make sure that `nx`
-is changed accordingly in the data setup.
-The default architecture has a receptive field of 8191 samples, so `nx` is `8191`.
-Generally, for the conv net architecture the receptive field is one elss than the sum of the `dilations`.
-
-You can train for shorter or longer.
-1000 gives pretty great results, but if you're impatient you can sometimes get away with
-comparable results after 500 epochs, and you might nto even be able to tell the
-difference with far fewer (maybe 200?...100?)
+Also, you can train for shorter or longer.
+1000 epochs is typically overkill, but how little you can get away with depends on the model you're using.
+I recommend watching the checkpoints and keeping an eye out for when the ESR drops below 0.01--usually it'll
+sound pretty good by that point.
