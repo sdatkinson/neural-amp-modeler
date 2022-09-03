@@ -290,13 +290,11 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
             datasets = self._flatten_datasets(datasets)
         self._validate_datasets(datasets)
         self._datasets = datasets
+        self._lookup = self._make_lookup()
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        for d in self._datasets:
-            if idx < len(d):
-                return d[idx]
-            else:
-                idx = idx - len(d)
+        i, j = self._lookup[idx]
+        return self.datasets[i][j]
 
     def __len__(self) -> int:
         return sum(len(d) for d in self._datasets)
@@ -329,6 +327,23 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
             else:
                 flattened.append(d)
         return flattened
+
+    def _make_lookup(self):
+        """
+        For faster __getitem__
+        """
+        lookup = {}
+        offset = 0
+        j = 0  # Dataset index
+        for i in range(len(self)):
+            if offset == len(self.datasets[j]):
+                offset -= len(self.datasets[j])
+                j += 1
+            lookup[i] = (j, offset)
+            offset += 1
+        assert j == len(self.datasets)-1
+        assert offset == len(self.datasets[-1])
+        return lookup
 
     @classmethod
     def _validate_datasets(cls, datasets: Sequence[Dataset]):
@@ -369,4 +384,3 @@ def init_dataset(config, split: Split) -> AbstractDataset:
                 "dataset_configs": [{**common, **c} for c in base_config],
             }
         )
-
