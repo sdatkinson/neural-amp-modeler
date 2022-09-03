@@ -3,7 +3,11 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-Lightning stuff
+Implements the base PyTorch Lightning model.
+This is meant to combine an acutal model (subclassed from `._base.BaseNet` or 
+`._base.ParametricBaseNet`) along with loss function boilerplate.
+
+For the base *PyTorch* model containing the actual architecture, see `._base`.
 """
 
 from dataclasses import dataclass
@@ -17,9 +21,10 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
-from .parametric.catnets import CatLSTM
+from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
+from .wavenet import WaveNet
 
 
 class ValidationLoss(Enum):
@@ -133,10 +138,12 @@ class Model(pl.LightningModule, InitializableFromConfig):
         net_config = config["net"]
         net = {
             "CatLSTM": CatLSTM.init_from_config,
+            "CatWaveNet": CatWaveNet.init_from_config,
             "ConvNet": ConvNet.init_from_config,
             "HyperConvNet": HyperConvNet.init_from_config,
             "Linear": Linear.init_from_config,
             "LSTM": LSTM.init_from_config,
+            "WaveNet": WaveNet.init_from_config,
         }[net_config["name"]](net_config["config"])
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {

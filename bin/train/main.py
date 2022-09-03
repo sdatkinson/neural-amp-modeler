@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from time import time
 from typing import Optional, Union
+from warnings import warn
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -104,7 +105,7 @@ def _create_callbacks(learning_config):
             "every_n_train_steps": learning_config["trainer"]["val_check_interval"]
         }
     else:
-        kwargs = {"every_n_epochs": 1}
+        kwargs = {"every_n_epochs": learning_config["trainer"].get("check_val_every_n_epoch", 1)}
 
     checkpoint_best = pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
@@ -137,6 +138,11 @@ def main(args):
             json.dump(config, fp, indent=4)
 
     model = Model.init_from_config(model_config)
+    # Add receptive field to data config:
+    data_config["common"] = data_config.get("common", {})
+    if "nx" in data_config["common"]:
+        warn(f"Overriding data nx={data_config['common']['nx']} with model requried {model.net.receptive_field}")
+    data_config["common"]["nx"] = model.net.receptive_field
 
     dataset_train = init_dataset(data_config, Split.TRAIN)
     dataset_validation = init_dataset(data_config, Split.VALIDATION)

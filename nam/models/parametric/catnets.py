@@ -11,12 +11,14 @@ import abc
 from enum import Enum
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
+import numpy as np
 import torch
 
 from .._base import ParametricBaseNet
 from ..recurrent import LSTM
+from ..wavenet import WaveNet
 from .params import Param
 
 
@@ -94,6 +96,26 @@ class _CatMixin(ParametricBaseNet):
         }
         return config
 
+    def _export_cpp_header_parametric(self, config):
+        if config is None:
+            return self._single_class._export_cpp_head_parametric(self, config)
+        s_parametric = ['nlohmann::json PARAMETRIC = nlohmann::json::parse(R"(\n', "  {\n"]
+        for i, (key, val) in  enumerate(config.items(), 1):
+            s_parametric.append(f'    "{key}": ' "{\n")
+            for j, (k2, v2) in enumerate(val.items(), 1):
+                v_str = f'"{v2}"' if isinstance(v2, str) else str(v2)
+                s_parametric.append(
+                    f'      "{k2}": {v_str}' + (",\n" if j < len(val) else "\n")
+                )
+            s_parametric.append("    }" f"{',' if i < len(config) else ''}\n")
+        s_parametric.append("  }\n")
+        s_parametric.append(')");\n')
+        return tuple(s_parametric)
+
+
+    def _export_input_output_args(self) -> Tuple[torch.Tensor]:
+        return (self._sidedoor_params_to_tensor(),)
+
     def _forward(self, params, x):
         """
         :param params: (N,D)
@@ -117,6 +139,13 @@ class _CatMixin(ParametricBaseNet):
             )
         )
         return self._single_class._forward(self, x_augmented)
+
+    def _sidedoor_params_to_tensor(self) -> torch.Tensor:
+        param_names = sorted([k for k in self._sidedoor_parametric_config.keys()])
+        params = torch.Tensor(
+            [self._sidedoor_parametric_config[k].default_value for k in param_names]
+        )
+        return params
 
     @contextmanager
     def _use_parametric_config(self, c):
@@ -147,10 +176,7 @@ class CatLSTM(_CatMixin, LSTM):
         :return: (B,L,1+D)
         """
         assert x.ndim == 2
-        param_names = sorted([k for k in self._sidedoor_parametric_config.keys()])
-        params = torch.Tensor(
-            [self._sidedoor_parametric_config[k].default_value for k in param_names]
-        )
+        params = self._sidedoor_params_to_tensor()
         sequence_length = x.shape[1]
         return torch.cat(
             [
@@ -164,6 +190,13 @@ class CatLSTM(_CatMixin, LSTM):
         inputs = self._append_default_params(torch.zeros((1, 48_000)))
         return super()._get_initial_state(inputs=inputs)
 
-    def _export_input_output(self):
-        x = self._append_default_params(self._export_input_signal()[None])
-        return super()._export_input_output(x=x)
+
+class CatWaveNet(_CatMixin, WaveNet):
+    @property
+    def _shape_type(self) -> _ShapeType:
+        return _ShapeType.CONV
+
+    @property
+    def _single_class(self):
+        return WaveNet
+        
