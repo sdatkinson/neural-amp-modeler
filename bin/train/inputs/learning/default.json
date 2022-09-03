@@ -4,7 +4,7 @@
         "shuffle": true,
         "pin_memory": true,
         "drop_last": true,
-        "num_workers": 4
+        "num_workers": 0
     },
     "val_dataloader": {
     },
