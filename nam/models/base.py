@@ -230,14 +230,21 @@ class Model(pl.LightningModule, InitializableFromConfig):
         self.log_dict({"MSE": mse_loss, "ESR": esr_loss, "val_loss": val_loss})
         return val_loss
 
-    def _esr_loss(self, preds, targets):
+    def _esr_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
         Error signal ratio aka ESR loss.
 
         Eq. (10), from
         https://www.mdpi.com/2076-3417/10/3/766/htm
+
+        B: Batch size
+        L: Sequence length
+        
+        :param preds: (B,L)
+        :param targets: (B,L)
+        :return: ()
         """
-        return nn.MSELoss()(preds, targets) / nn.MSELoss()(targets, 0.0 * targets)
+        return (torch.square(preds - targets).mean(dim=1) / torch.square(targets).mean(dim=1)).mean()
 
     def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float]=None):
         if pre_emph_coef is not None:
