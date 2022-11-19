@@ -10,10 +10,7 @@ If you don't have a good computer for training ML models, you can run the
 notebook located at `bin/train/colab.ipynb` in the cloud using Google Colab--no
 local installation required!
 
-Go to [colab.research.google.com](https://colab.research.google.com), select the 
-"GitHub" tab, paste in the URL for the notebook 
-(https://github.com/sdatkinson/neural-amp-modeler/blob/dev/bin/train/colab.ipynb), 
-and go!
+Simply go to [https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/dev/bin/train/colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/dev/bin/train/colab.ipynb) and follow the steps to upload your data and start training!
 
 **Pros:**
 * No local installation required!
