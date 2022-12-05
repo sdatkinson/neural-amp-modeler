@@ -109,7 +109,7 @@ def _get_configs(delay: int, epochs: int, stage_1_channels, stage_2_channels):
             },
         },
         "loss": {"val_loss": "esr"},
-        "optimizer": {"lr": 0.001},
+        "optimizer": {"lr": 0.003},
         "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.993}},
     }
     learning_config = {
