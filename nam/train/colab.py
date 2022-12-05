@@ -60,7 +60,7 @@ def _calibrate_delay_v1() -> int:
 
 
 def _calibrate_delay() -> int:
-    print("Calibrating the delay in your data...")
+    print("Delay wasn't provided; attempting to calibrate automatically...")
     return _calibrate_delay_v1()
 
 
@@ -177,9 +177,9 @@ def _get_valid_export_directory():
     return get_path(version)
 
 
-def run(epochs=100, stage_1_channels=16, stage_2_channels=8):
+def run(epochs=100, delay=None, stage_1_channels=16, stage_2_channels=8):
     _check_for_files()
-    delay = _calibrate_delay()
+    delay = _calibrate_delay() if delay is None else delay
     data_config, model_config, learning_config = _get_configs(
         delay, epochs, stage_1_channels, stage_2_channels
     )
