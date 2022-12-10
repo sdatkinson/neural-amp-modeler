@@ -72,8 +72,14 @@ def _calibrate_delay_v1() -> int:
 
     y = wav_to_np(_OUTPUT_BASENAME)[:48_000]
 
-    background_level = np.max(np.abs(y[:6_000]))
-    trigger_threshold = max(background_level + 0.01, 1.01 * background_level)
+    background_level = np.max(np.abs(y[:10_000]))
+    # If it's perfectly quiet, then sure, use the first nonzero response.
+    # Otherwise, hand-calibrated safety factors.
+    trigger_threshold = (
+        0.0
+        if background_level == 0.0
+        else max(background_level + 0.01, 1.01 * background_level)
+    )
     j1 = np.where(np.abs(y[j1_start_looking:j2_start_looking]) > trigger_threshold)[0][
         0
     ]
