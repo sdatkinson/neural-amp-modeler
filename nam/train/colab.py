@@ -265,7 +265,7 @@ def run(
     """
     torch.manual_seed(seed)
     input_version, input_basename = _check_for_files()
-    delay = _calibrate_delay(delay, input_version, input_basename)
+    delay = _calibrate_delay(delay, input_version)
     data_config, model_config, learning_config = _get_configs(
         input_basename, delay, epochs, stage_1_channels, stage_2_channels, lr, lr_decay
     )
