@@ -52,10 +52,10 @@ def _check_for_files() -> Tuple[_Version, str]:
                     "Recommend downloading and using the latest version."
                 )
             break
-        else:
-            raise FileNotFoundError(
-                f"Didn't find NAM's input audio file. Please upload {_INPUT_BASENAMES[0][1]}"
-            )
+    else:
+        raise FileNotFoundError(
+            f"Didn't find NAM's input audio file. Please upload {_INPUT_BASENAMES[0][1]}"
+        )
     if not Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
