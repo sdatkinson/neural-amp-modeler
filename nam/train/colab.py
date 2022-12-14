@@ -41,7 +41,7 @@ class _Version:
 _INPUT_BASENAMES = ((_Version(1, 1, 1), "v1_1_1.wav"), (_Version(1, 0, 0), "v1.wav"))
 _BUGGY_INPUT_BASENAMES = {
     # 1.1.0 has the spikes at the wrong spots.
-    _Version(1, 1, 0)
+    "v1_1_0.wav"
 }
 _OUTPUT_BASENAME = "output.wav"
 
