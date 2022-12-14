@@ -38,12 +38,21 @@ class _Version:
         return f"{self.major}.{self.minor}.{self.patch}"
 
 
-_INPUT_BASENAMES = ((_Version(1, 1, 0), "v1_1_0.wav"), (_Version(1, 0, 0), "v1.wav"))
+_INPUT_BASENAMES = ((_Version(1, 1, 1), "v1_1_1.wav"), (_Version(1, 0, 0), "v1.wav"))
+_BUGGY_INPUT_BASENAMES = {
+    # 1.1.0 has the spikes at the wrong spots.
+    _Version(1, 1, 0)
+}
 _OUTPUT_BASENAME = "output.wav"
 
 
 def _check_for_files() -> Tuple[_Version, str]:
     print("Checking that we have all of the required audio files...")
+    for name in _BUGGY_INPUT_BASENAMES:
+        if Path(name).exists():
+            raise RuntimeError(
+                f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_INPUT_BASENAMES[0][1]}"
+            )
     for i, (input_version, input_basename) in enumerate(_INPUT_BASENAMES):
         if Path(input_basename).exists():
             if i > 0:
