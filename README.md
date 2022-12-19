@@ -34,10 +34,22 @@ Alternatively, you can clone this repo to your computer and use it locally.
 
 ### Installation
 
+For computers with a CUDA-capable GPU (recommended):
+
 ```bash
-conda env create -f environment.yml
+conda env create -f environment_gpu.yml
+```
+
+Otherwise, for a CPU-only install (will train much more slowly):
+
+```bash
+conda env create -f environment_cpu.yml
+```
+
+Then activate the environment you've created with
+
+```bash
 conda activate nam
-pip install .
 ```
 
 ### Things you can do
