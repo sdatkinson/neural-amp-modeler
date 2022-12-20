@@ -34,6 +34,8 @@ Alternatively, you can clone this repo to your computer and use it locally.
 
 ### Installation
 
+Installation uses [Anaconda](https://www.anaconda.com/) for package management.
+
 For computers with a CUDA-capable GPU (recommended):
 
 ```bash
