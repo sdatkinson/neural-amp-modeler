@@ -140,7 +140,7 @@ class GUI(object):
         self.window.mainloop()
 
     def train(self):
-        epochs = 1
+        epochs = 100
         delay = None
         stage_1_channels = 16
         stage_2_channels = 8
@@ -159,10 +159,9 @@ class GUI(object):
             head_scale=head_scale,
             lr=lr,
             lr_decay=lr_decay,
-            seed=seed
+            seed=seed,
         )
         print("Model training complete!")
-        
 
 
 def main():
