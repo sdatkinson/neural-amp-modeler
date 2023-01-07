@@ -1,8 +1,8 @@
 # NAM: neural amp modeler
 
 This repository handles training, reamping, and exporting the weights of a model.
-For the code to create the plugin with a trained model, see my
-[iPlug2 fork](https://github.com/sdatkinson/iPlug2).
+For playing trained models in real time in a standalone application or plugin, see the partner repo,
+[NeuralAmpModelerPlugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin).
 
 ## How to use (Google Colab)
 
