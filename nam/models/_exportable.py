@@ -61,7 +61,7 @@ class Exportable(abc.ABC):
     @abc.abstractmethod
     def _export_config(self):
         """
-        Creates the JSON of the model's archtecture hyperparameters (number of layers, 
+        Creates the JSON of the model's archtecture hyperparameters (number of layers,
         number of units, etc)
 
         :return: a JSON serializable object
