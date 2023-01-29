@@ -1,42 +1,61 @@
 # NAM: neural amp modeler
 
 This repository handles training, reamping, and exporting the weights of a model.
-For the code to create the plugin with a trained model, see my
-[iPlug2 fork](https://github.com/sdatkinson/iPlug2).
+For playing trained models in real time in a standalone application or plugin, see the partner repo,
+[NeuralAmpModelerPlugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin).
 
 ## How to use (Google Colab)
 
-If you don't have a good computer for training ML models, you can run the
-notebook located at `bin/train/colab.ipynb` in the cloud using Google Colab--no
-local installation required!
+If you don't have a good computer for training ML models, you use Google Colab to train
+in the cloud using the pre-made notebooks under `bin\train`.
 
-Go to [colab.research.google.com](https://colab.research.google.com), select the 
-"GitHub" tab, paste in the URL for the notebook 
-(https://github.com/sdatkinson/neural-amp-modeler/blob/dev/bin/train/colab.ipynb), 
-and go!
+For the very easiest experience, simply go to
+[https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/easy_colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/easy_colab.ipynb) and follow the
+steps!
+
+For a little more visibility under the hood, you can use [colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/colab.ipynb) instead.
 
 **Pros:**
-* No local installation required!
-* Decent GPUs are available if you don't have one on your computer.
+
+- No local installation required!
+- Decent GPUs are available if you don't have one on your computer.
 
 **Cons:**
-* Uploading your data can take a long time.
-* The session will time out after an hour or so (for free accounts), so extended 
-  training runs aren't really feasible.  I've tried to set you up with a good
-  model that should train quickly!
+
+- Uploading your data can take a long time.
+- The session will time out after a few hours (for free accounts), so extended
+  training runs aren't really feasible. Also, there's a usage limit so you can't hang
+  out all day. I've tried to set you up with a good model that should train reasonably
+  quickly!
 
 ## How to use (Local)
 
 Alternatively, you can clone this repo to your computer and use it locally.
 
 ### Installation
+
+Installation uses [Anaconda](https://www.anaconda.com/) for package management.
+
+For computers with a CUDA-capable GPU (recommended):
+
 ```bash
-conda env create -f environment.yml
+conda env create -f environment_gpu.yml
+```
+
+Otherwise, for a CPU-only install (will train much more slowly):
+
+```bash
+conda env create -f environment_cpu.yml
+```
+
+Then activate the environment you've created with
+
+```bash
 conda activate nam
-pip install .
 ```
 
 ### Things you can do
+
 Here are the primary ways this is meant to be used:
 
 #### Train a model
@@ -87,14 +106,14 @@ path/to/checkpoints/epoch=123_val_loss=0.000010.ckpt \
 path/to/exported_models/MyAmp
 ```
 
-You'll want the `HardCodedModel.h` to paste over into the plugin source (i.e. [here](https://github.com/sdatkinson/iPlug2/blob/5a0f533f7a9e4ee691da26adb2a38d87905e87fe/Examples/NAM/HardCodedModel.h)).
+Then point the plugin at the exported model directory and you're good to go!
 
 ## Advanced usage
 
-The model architectures and cofigurations in `bin/train/inputs/models` should work plenty well out of the box. 
+The model architectures and cofigurations in `bin/train/inputs/models` should work plenty well out of the box.
 However, feel free to play around with it; sometimes some tweaks can help improve performance.
 
 Also, you can train for shorter or longer.
 1000 epochs is typically overkill, but how little you can get away with depends on the model you're using.
-I recommend watching the checkpoints and keeping an eye out for when the ESR drops below 0.01--usually it'll
-sound pretty good by that point.
+I recommend watching the checkpoints and keeping an eye out for when the ESR drops below
+0.01--usually it'll sound pretty good by that point.

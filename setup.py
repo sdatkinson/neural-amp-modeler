@@ -16,9 +16,10 @@ requirements = [
     "pytorch_lightning",
     "scipy",
     "sounddevice",
+    "tensorboard",
     "torch",
     "tqdm",
-    "wavio",
+    "wavio<=0.0.4",  # Breaking change in 0.0.5
 ]
 
 setup(

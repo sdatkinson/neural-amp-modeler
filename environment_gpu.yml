@@ -2,9 +2,10 @@
 # Created Date: Saturday February 13th 2021
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-name: nam
+name: nam-test
 channels:
   - pytorch
+  - nvidia
 dependencies:
   - black
   - flake8
@@ -15,7 +16,10 @@ dependencies:
   - pip
   - pytest
   - pytorch
+  - pytorch-cuda=11.7
   - scipy
+  - semver
+  - tensorboard
   - tqdm
   - wheel
   - pip:
@@ -23,3 +27,4 @@ dependencies:
       - pytorch_lightning
       - sounddevice
       - wavio
+      - -e .
