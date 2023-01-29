@@ -9,7 +9,7 @@ import torch.nn as nn
 from nam.models import losses
 
 
-def test_esr_batch():
+def test_esr():
     """
     Is the ESR calculation correct?
     """
