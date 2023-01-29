@@ -25,11 +25,12 @@
                     "gated": false,
                     "head_bias": true
                 }
-            ]
+            ],
+            "head_scale": 0.02
         }
     },
     "optimizer": {
-        "lr": 0.003
+        "lr": 0.004
     },
     "lr_scheduler": {
         "class": "ExponentialLR",
