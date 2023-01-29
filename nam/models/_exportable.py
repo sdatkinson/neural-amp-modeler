@@ -30,17 +30,17 @@ class Exportable(abc.ABC):
         """
         training = self.training
         self.eval()
-        with open(Path(outdir, "config.json"), "w") as fp:
+        with open(Path(outdir, "model.nam"), "w") as fp:
             json.dump(
                 {
                     "version": __version__,
                     "architecture": self.__class__.__name__,
                     "config": self._export_config(),
+                    "weights": self._export_weights().tolist(),
                 },
                 fp,
                 indent=4,
             )
-        np.save(Path(outdir, "weights.npy"), self._export_weights())
         x, y = self._export_input_output()
         np.save(Path(outdir, "inputs.npy"), x)
         np.save(Path(outdir, "outputs.npy"), y)
