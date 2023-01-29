@@ -107,11 +107,16 @@ def np_to_wav(
 class AbstractDataset(_Dataset, abc.ABC):
     @abc.abstractmethod
     def __getitem__(
-        self, idx
+        self, idx: int
     ) -> Union[
         Tuple[torch.Tensor, torch.Tensor],
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
     ]:
+        """
+        :return:
+            Case 1: Input (N1,), Output (N2,)
+            Case 2: Parameters (D,), Input (N1,), Output (N2,)
+        """
         pass
 
 
@@ -134,11 +139,31 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         y_scale: float = 1.0,
         x_path: Optional[Union[str, Path]] = None,
         y_path: Optional[Union[str, Path]] = None,
+        input_gain: float=0.0
     ):
         """
-        :param start: In samples
-        :param stop: In samples
+        :param x: The input signal. A 1D array.
+        :param y: The associated output from the model. A 1D array.
+        :param nx: The number of samples required as input for the model. For example,
+            for a ConvNet, this would be the receptive field.
+        :param ny: How many samples to provide as the output array for a single "datum".
+            It's usually more computationally-efficient to provide a larger `ny` than 1
+            so that the forward pass can process more audio all at once. However, this 
+            shouldn't be too large or else you won't be able to provide a large batch 
+            size (where each input-output pair could be something substantially 
+            different and improve batch diversity).
+        :param start: In samples; clip x and y up to this point.
+        :param stop: In samples; clip x and y past this point.
+        :param y_scale: Multiplies the output signal by a factor (e.g. if the data are 
+            too quiet).
         :param delay: In samples. Positive means we get rid of the start of x, end of y.
+        :param input_gain: In dB. If the input signal wasn't fed to the amp at unity 
+            gain, you can indicate the gain here. The data set will multipy the raw 
+            audio file by the specified gain so that the true input signal amplitude 
+            experienced by the signal chain will be provided as input to the model. If
+            you are using a reamping setup, you can estimate this by reamping a 
+            completely dry signal (i.e. connecting the interface output directly back 
+            into the input with which the guitar was originally recorded.)
         """
         x, y = [z[start:stop] for z in (x, y)]
         if delay is not None:
@@ -148,6 +173,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             elif delay < 0:
                 x = x[-delay:]
                 y = y[:delay]
+        x_scale = 10.0 ** (input_gain / 20.0)
+        x = x * x_scale
         y = y * y_scale
         self._x_path = x_path
         self._y_path = y_path
@@ -158,6 +185,11 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._ny = ny if ny is not None else len(x) - nx + 1
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :return: 
+            Input (NX+NY-1,)
+            Output (NY,)
+        """
         if idx >= len(self):
             raise IndexError(f"Attempted to access datum {idx}, but len is {len(self)}")
         i = idx * self._ny
@@ -271,6 +303,12 @@ class ParametricDataset(Dataset):
         return config, x, y, slices
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        :return: 
+            Parameter values (D,)
+            Input (NX+NY-1,)
+            Output (NY,)
+        """
         # FIXME don't override signature
         x, y = super().__getitem__(idx)
         return self.vals, x, y
