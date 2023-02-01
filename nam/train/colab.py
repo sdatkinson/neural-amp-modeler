@@ -6,6 +6,7 @@
 Hide the mess in Colab to make things look pretty for users.
 """
 
+from enum import Enum
 from pathlib import Path
 from time import time
 from typing import Optional, Tuple
@@ -18,6 +19,12 @@ from torch.utils.data import DataLoader
 
 from nam.data import REQUIRED_RATE, Split, init_dataset, wav_to_np
 from nam.models import Model
+
+
+class _Architecture(Enum):
+    STANDARD = "standard"
+    LITE = "lite"
+    FEATHER = "feather"
 
 
 class _Version:
@@ -133,13 +140,97 @@ def _calibrate_delay(
     return delay
 
 
+def _get_wavenet_config(architecture):
+    return {
+        _Architecture.STANDARD: {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "channels": 16,
+                    "head_size": 8,
+                    "kernel_size": 3,
+                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": False,
+                },
+                {
+                    "condition_size": 1,
+                    "input_size": 16,
+                    "channels": 8,
+                    "head_size": 1,
+                    "kernel_size": 3,
+                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": True,
+                },
+            ],
+            "head_scale": 0.02,
+        },
+        _Architecture.LITE: {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "channels": 12,
+                    "head_size": 6,
+                    "kernel_size": 3,
+                    "dilations": [1, 2, 4, 8, 16, 32, 64],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": False,
+                },
+                {
+                    "condition_size": 1,
+                    "input_size": 12,
+                    "channels": 6,
+                    "head_size": 1,
+                    "kernel_size": 3,
+                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": True,
+                },
+            ],
+            "head_scale": 0.02,
+        },
+        _Architecture.FEATHER: {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "channels": 8,
+                    "head_size": 4,
+                    "kernel_size": 3,
+                    "dilations": [1, 2, 4, 8, 16, 32, 64],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": False,
+                },
+                {
+                    "condition_size": 1,
+                    "input_size": 8,
+                    "channels": 4,
+                    "head_size": 1,
+                    "kernel_size": 3,
+                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": True,
+                },
+            ],
+            "head_scale": 0.02,
+        },
+    }[architecture]
+
+
 def _get_configs(
     input_basename: str,
     delay: int,
     epochs: int,
-    stage_1_channels: int,
-    stage_2_channels: int,
-    head_scale: float,
+    architecture: _Architecture,
     lr: float,
     lr_decay: float,
 ):
@@ -159,33 +250,7 @@ def _get_configs(
             "name": "WaveNet",
             # This should do decently. If you really want a nice model, try turning up
             # "channels" in the first block and "input_size" in the second from 12 to 16.
-            "config": {
-                "layers_configs": [
-                    {
-                        "input_size": 1,
-                        "condition_size": 1,
-                        "head_size": stage_2_channels,
-                        "channels": stage_1_channels,
-                        "kernel_size": 3,
-                        "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                        "activation": "Tanh",
-                        "gated": False,
-                        "head_bias": False,
-                    },
-                    {
-                        "input_size": stage_1_channels,
-                        "condition_size": 1,
-                        "head_size": 1,
-                        "channels": stage_2_channels,
-                        "kernel_size": 3,
-                        "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                        "activation": "Tanh",
-                        "gated": False,
-                        "head_bias": True,
-                    },
-                ],
-                "head_scale": head_scale,
-            },
+            "config": _get_wavenet_config(architecture),
         },
         "loss": {"val_loss": "esr"},
         "optimizer": {"lr": lr},
@@ -258,11 +323,9 @@ def _get_valid_export_directory():
 
 
 def run(
-    epochs=100,
-    delay=None,
-    stage_1_channels=16,
-    stage_2_channels=8,
-    head_scale: float = 0.02,
+    epochs: int = 100,
+    delay: Optional[int] = None,
+    architecture: str = "standard",
     lr=0.004,
     lr_decay=0.007,
     seed=0,
@@ -284,9 +347,7 @@ def run(
         input_basename,
         delay,
         epochs,
-        stage_1_channels,
-        stage_2_channels,
-        head_scale,
+        _Architecture(architecture),
         lr,
         lr_decay,
     )
