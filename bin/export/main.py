@@ -40,7 +40,7 @@ def main(args):
         export_args = (outdir, param_config)
     net.eval()
     outdir.mkdir(parents=True, exist_ok=True)
-    net.export(*export_args)
+    net.export(*export_args, include_snapshot=args.include_snapshot)
     net.export_cpp_header(Path(export_args[0], "HardCodedModel.h"), *export_args[1:])
 
 
@@ -49,6 +49,12 @@ if __name__ == "__main__":
     parser.add_argument("model_config_path", type=str)
     parser.add_argument("checkpoint", type=str)
     parser.add_argument("outdir")
+    parser.add_argument(
+        "--include-snapshot",
+        "-s",
+        help="Computes an example input-output pair for the model for debugging "
+        "purposes",
+    )
     parser.add_argument(
         "--param-config", type=str, help="Configuration for a parametric model"
     )
