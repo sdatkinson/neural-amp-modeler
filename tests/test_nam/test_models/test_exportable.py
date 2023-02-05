@@ -2,6 +2,11 @@
 # Created Date: Sunday January 29th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+"""
+Test export behavior of models
+"""
+
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Tuple
@@ -15,6 +20,27 @@ from nam.models import _exportable
 
 
 class TestExportable(object):
+    def test_export(self):
+        """
+        Does it work?
+        """
+
+        model = self._get_model()
+        with TemporaryDirectory() as tmpdir:
+            model.export(tmpdir)
+            model_basename = "model.nam"
+            model_path = Path(tmpdir, model_basename)
+            assert model_path.exists()
+            with open(model_path, "r") as fp:
+                model_dict = json.load(fp)
+            required_keys = {"version", "architecture", "config", "weights"}
+            for key in required_keys:
+                assert key in model_dict
+            weights_list = model_dict["weights"]
+            assert isinstance(weights_list, list)
+            assert len(weights_list) == 2
+            assert all(isinstance(w, float) for w in weights_list)
+
     @pytest.mark.parametrize("include_snapshot", (True, False))
     def test_include_snapshot(self, include_snapshot):
         """
