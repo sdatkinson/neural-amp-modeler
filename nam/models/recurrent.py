@@ -25,7 +25,7 @@ from ._base import BaseNet
 
 class _L(nn.LSTM):
     """
-    Tweaks to LSTM
+    Tweaks to PyTorch LSTM module
     * Up the remembering
     """
     def reset_parameters(self) -> None:
@@ -46,6 +46,15 @@ class _L(nn.LSTM):
                     idx_forget
                 ] += value
 
+
+# State:
+# L: Number of LSTM layers
+# DH: Hidden state dimension
+# [0]: hidden (L,DH)
+# [1]: cell (L,DH)
+_LSTMHiddenType = torch.Tensor
+_LSTMCellType = torch.Tensor
+_LSTMHiddenCellType = Tuple[_LSTMHiddenType, _LSTMCellType]
 
 class LSTMCore(_L):
     def __init__(
@@ -102,12 +111,11 @@ class LSTMCore(_L):
             output_features = torch.cat(output_features_list, dim=1)
         return output_features
 
-    def _initial_state(self, n: Optional[int]) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _initial_state(self, n: Optional[int]) -> _LSTMHiddenCellType:
         return (self._initial_hidden, self._initial_cell) if n is None else (
             torch.tile(self._initial_hidden[:, None], (1, n, 1)),
             torch.tile(self._initial_cell[:, None], (1, n, 1))
         )
-
 
 
 class LSTM(BaseNet):
@@ -192,7 +200,54 @@ class LSTM(BaseNet):
                     )
                 )
 
-    def _forward(self, x):
+    def export_onnx(self, filename: Path):
+        if self._input_size != 1:
+            raise NotImplementedError("Multi-dimensional inputs not supported yet")
+        o = _ONNXWrapped(self)
+        x = torch.randn((64,))  # (S,)
+        h, c = [z[:, 0, :] for z in self._initial_state(1)]  # (L,DH), (L,DH)
+        # Hint: 
+        torch.onnx.export(
+            o,
+            (x, h, c),
+            filename,
+            input_names = ["x", "hin", "cin"],
+            output_names = ["y", "hout", "cout"],
+            dynamic_axes={
+                "x": {0: "num_frames"},
+                "y": {0: "num_frames"}
+            }
+        )
+
+    def forward_onnx(
+        self, x: torch.Tensor, h: _LSTMHiddenType, c: _LSTMCellType
+    ) -> Tuple[torch.Tensor, _LSTMHiddenType, _LSTMCellType]:
+        """
+        Forward pass used by ONNX export
+        Only supports scalar inputs right now.
+
+        N: Sequeence length
+        L: Nubmer of layers
+        DH: Hidden state dimension
+
+        :param x: (N,)
+        :param state: (L, DH)
+        :param cell: (L, DH)
+
+        :return: (N,), (L, DH), (L, DH)
+        """
+        features, (h, c) = self._core(x[None, :, None], (h[:, None, :], c[:, None, :]))
+        y = self._apply_head(features)  # (1,S)
+        return y[0, :], h[:, 0, :], c[:, 0, :]
+
+    def _apply_head(self, features: torch.Tensor) -> torch.Tensor:
+        """
+        :param features: (B,S,DH)
+        :return: (B,S)
+        """
+        return self._head(features)[:, :, 0]
+
+    def _forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         :param x: (B,L) or (B,L,D)
         :return: (B,L)
@@ -220,7 +275,7 @@ class LSTM(BaseNet):
                 )
                 output_features_list.append(last_output_features)
             output_features = torch.cat(output_features_list, dim=1)
-        return self._head(output_features)[:, :, 0]
+        return self._apply_head(output_features)
 
     def _export_cell_weights(
         self, i: int, hidden_state: torch.Tensor, cell_state: torch.Tensor
@@ -281,7 +336,7 @@ class LSTM(BaseNet):
             ]
         )
 
-    def _get_initial_state(self, inputs=None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _get_initial_state(self, inputs=None) -> _LSTMHiddenCellType:
         """
         Convenience function to find a good hidden state to start the plugin at
 
@@ -296,7 +351,7 @@ class LSTM(BaseNet):
         _, (h, c) = self._core(inputs)
         return h, c
 
-    def _initial_state(self, n: Optional[int]) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _initial_state(self, n: Optional[int]) -> _LSTMHiddenCellType:
         """
         Literally what the forward pass starts with.
         Default is zeroes; this should be better since it can be learned.
@@ -306,6 +361,24 @@ class LSTM(BaseNet):
             torch.tile(self._initial_cell[:, None], (1, n, 1))
         )
 
+class _ONNXWrapped(nn.Module):
+    def __init__(self, net: LSTM):
+        super().__init__()
+        self._net = net
+
+    def forward(self, x: torch.Tensor, hidden: _LSTMHiddenType, cell: _LSTMCellType) -> tuple[torch.Tensor, _LSTMHiddenType, _LSTMCellType]:
+        """
+        N: Sequeence length
+        L: Nubmer of layers
+        DH: Hidden state dimension
+
+        :param x: (N,)
+        :param state: (L, DH)
+        :param cell: (L, DH)
+
+        :return: (N,), (L, DH), (L, DH)
+        """
+        return self._net.forward_onnx(x, hidden, cell)
 
 # TODO refactor together
 

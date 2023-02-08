@@ -21,6 +21,8 @@ dependencies:
   - tqdm
   - wheel
   - pip:
+      - onnx
+      - onnxruntime
       - pre-commit
       - pytorch_lightning
       - sounddevice

@@ -23,6 +23,8 @@ dependencies:
   - tqdm
   - wheel
   - pip:
+      - onnx
+      - onnxruntime  # TODO GPU...
       - pre-commit
       - pytorch_lightning
       - sounddevice
