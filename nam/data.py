@@ -13,6 +13,7 @@ from typing import Dict, Optional, Sequence, Tuple, Union
 import numpy as np
 import torch
 import wavio
+from scipy.interpolate import interp1d
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm
 
@@ -120,10 +121,39 @@ class AbstractDataset(_Dataset, abc.ABC):
         pass
 
 
+class _DelayInterpolationMethod(Enum):
+    """
+    :param LINEAR: Linear interpolation
+    :param CUBIC: Cubic spline interpolation
+    """
+
+    # Note: these match scipy.interpolate.interp1d kwarg "kind"
+    LINEAR = "linear"
+    CUBIC = "cubic"
+
+
+def _interpolate_delay(
+    x: torch.Tensor, delay: float, method: _DelayInterpolationMethod
+) -> np.ndarray:
+    """
+    NOTE: This breaks the gradient tape!
+    """
+    t_in = np.arange(len(x))
+    n_out = len(x) - int(np.ceil(np.abs(delay)))
+    if delay > 0:
+        t_out = np.arange(n_out) + delay
+    elif delay < 0:
+        t_out = np.arange(len(x) - n_out, len(x)) - np.abs(delay)
+
+    return torch.Tensor(
+        interp1d(t_in, x.detach().cpu().numpy(), kind=method.value)(t_out)
+    )
+
+
 class Dataset(AbstractDataset, InitializableFromConfig):
     """
     Take a pair of matched audio files and serve input + output pairs.
-    
+
     No conditioning parameters associated w/ the data.
     """
 
@@ -135,11 +165,14 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         ny: Optional[int],
         start: Optional[int] = None,
         stop: Optional[int] = None,
-        delay: Optional[int] = None,
+        delay: Optional[Union[int, float]] = None,
+        delay_interpolation_method: Union[
+            str, _DelayInterpolationMethod
+        ] = _DelayInterpolationMethod.CUBIC,
         y_scale: float = 1.0,
         x_path: Optional[Union[str, Path]] = None,
         y_path: Optional[Union[str, Path]] = None,
-        input_gain: float=0.0
+        input_gain: float = 0.0,
     ):
         """
         :param x: The input signal. A 1D array.
@@ -148,31 +181,29 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             for a ConvNet, this would be the receptive field.
         :param ny: How many samples to provide as the output array for a single "datum".
             It's usually more computationally-efficient to provide a larger `ny` than 1
-            so that the forward pass can process more audio all at once. However, this 
-            shouldn't be too large or else you won't be able to provide a large batch 
-            size (where each input-output pair could be something substantially 
+            so that the forward pass can process more audio all at once. However, this
+            shouldn't be too large or else you won't be able to provide a large batch
+            size (where each input-output pair could be something substantially
             different and improve batch diversity).
         :param start: In samples; clip x and y up to this point.
         :param stop: In samples; clip x and y past this point.
-        :param y_scale: Multiplies the output signal by a factor (e.g. if the data are 
+        :param delay: In samples. Positive means we get rid of the start of x, end of y
+            (i.e. we are correcting for an alignment error in which y is delayed behind
+            x). If a non-integer delay is provided, then y is interpolated, with
+            the extra sample removed.
+        :param y_scale: Multiplies the output signal by a factor (e.g. if the data are
             too quiet).
-        :param delay: In samples. Positive means we get rid of the start of x, end of y.
-        :param input_gain: In dB. If the input signal wasn't fed to the amp at unity 
-            gain, you can indicate the gain here. The data set will multipy the raw 
-            audio file by the specified gain so that the true input signal amplitude 
+        :param input_gain: In dB. If the input signal wasn't fed to the amp at unity
+            gain, you can indicate the gain here. The data set will multipy the raw
+            audio file by the specified gain so that the true input signal amplitude
             experienced by the signal chain will be provided as input to the model. If
-            you are using a reamping setup, you can estimate this by reamping a 
-            completely dry signal (i.e. connecting the interface output directly back 
+            you are using a reamping setup, you can estimate this by reamping a
+            completely dry signal (i.e. connecting the interface output directly back
             into the input with which the guitar was originally recorded.)
         """
         x, y = [z[start:stop] for z in (x, y)]
-        if delay is not None:
-            if delay > 0:
-                x = x[:-delay]
-                y = y[delay:]
-            elif delay < 0:
-                x = x[-delay:]
-                y = y[:delay]
+        if delay is not None and delay != 0:
+            x, y = self._apply_delay(x, y, delay, delay_interpolation_method)
         x_scale = 10.0 ** (input_gain / 20.0)
         x = x * x_scale
         y = y * y_scale
@@ -186,7 +217,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        :return: 
+        :return:
             Input (NX+NY-1,)
             Output (NY,)
         """
@@ -240,12 +271,55 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "y_path": config["y_path"],
         }
 
+    @classmethod
+    def _apply_delay(
+        cls,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        delay: Union[int, float],
+        method: _DelayInterpolationMethod,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(delay, int):
+            return cls._apply_delay_int(x, y, delay)
+        elif isinstance(delay, float):
+            return cls._apply_delay_float(x, y, delay, method)
+
+    @classmethod
+    def _apply_delay_int(
+        cls, x: torch.Tensor, y: torch.Tensor, delay: int
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if delay > 0:
+            x = x[:-delay]
+            y = y[delay:]
+        elif delay < 0:
+            x = x[-delay:]
+            y = y[:delay]
+        return x, y
+
+    @classmethod
+    def _apply_delay_float(
+        cls,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        delay: float,
+        method: _DelayInterpolationMethod,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        n_out = len(y) - int(np.ceil(np.abs(delay)))
+        if delay > 0:
+            x = x[:n_out]
+        elif delay < 0:
+            x = x[-n_out:]
+        y = _interpolate_delay(y, delay, method)
+        return x, y
+
     def _validate_inputs(self, x, y, nx, ny):
         assert x.ndim == 1
         assert y.ndim == 1
         assert len(x) == len(y)
         if nx > len(x):
-            raise RuntimeError(f"Input of length {len(x)}, but receptive field is {nx}.")
+            raise RuntimeError(
+                f"Input of length {len(x)}, but receptive field is {nx}."
+            )
         if ny is not None:
             assert ny <= len(y) - nx + 1
         if torch.abs(y).max() >= 1.0:
@@ -304,7 +378,7 @@ class ParametricDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        :return: 
+        :return:
             Parameter values (D,)
             Input (NX+NY-1,)
             Output (NY,)
@@ -379,7 +453,7 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
                 j += 1
             lookup[i] = (j, offset)
             offset += 1
-        assert j == len(self.datasets)-1
+        assert j == len(self.datasets) - 1
         assert offset == len(self.datasets[-1])
         return lookup
 
