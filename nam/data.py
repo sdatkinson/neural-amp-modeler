@@ -201,6 +201,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             completely dry signal (i.e. connecting the interface output directly back
             into the input with which the guitar was originally recorded.)
         """
+        if not isinstance(delay_interpolation_method, _DelayInterpolationMethod):
+            delay_interpolation_method = _DelayInterpolationMethod(
+                delay_interpolation_method
+            )
         x, y = [z[start:stop] for z in (x, y)]
         if delay is not None and delay != 0:
             x, y = self._apply_delay(x, y, delay, delay_interpolation_method)
@@ -266,6 +270,9 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "start": config.get("start"),
             "stop": config.get("stop"),
             "delay": config.get("delay"),
+            "delay_interpolation_method": config.get(
+                "delay_interpolation_method", _DelayInterpolationMethod.CUBIC.value
+            ),
             "y_scale": config.get("y_scale", 1.0),
             "x_path": config["x_path"],
             "y_path": config["y_path"],
