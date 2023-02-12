@@ -36,17 +36,23 @@ class TestDataset(object):
         assert torch.all(x == x_out)
         assert torch.all(y == y_out)
 
-    def test_apply_delay_int_positive(self):
-        """
-        Assert proper function of Dataset._apply_delay() when a positive integer delay
-        is given.
-        """
+    @pytest.mark.parametrize("method", (data._DelayInterpolationMethod))
+    def test_apply_delay_float_negative(self, method):
         n = 7
-        delay = 3
-        x_out, y_out = self._t_apply_delay_int(n, delay)
+        delay = -2.5
+        x_out, y_out = self._t_apply_delay_float(n, delay, method)
+
+        assert torch.all(x_out == torch.Tensor([3, 4, 5, 6]))
+        assert torch.all(y_out == torch.Tensor([0.5, 1.5, 2.5, 3.5]))
+
+    @pytest.mark.parametrize("method", (data._DelayInterpolationMethod))
+    def test_apply_delay_float_positive(self, method):
+        n = 7
+        delay = 2.5
+        x_out, y_out = self._t_apply_delay_float(n, delay, method)
 
         assert torch.all(x_out == torch.Tensor([0, 1, 2, 3]))
-        assert torch.all(y_out == torch.Tensor([3, 4, 5, 6]))
+        assert torch.all(y_out == torch.Tensor([2.5, 3.5, 4.5, 5.5]))
 
     def test_apply_delay_int_negative(self):
         """
@@ -59,6 +65,18 @@ class TestDataset(object):
 
         assert torch.all(x_out == torch.Tensor([3, 4, 5, 6]))
         assert torch.all(y_out == torch.Tensor([0, 1, 2, 3]))
+
+    def test_apply_delay_int_positive(self):
+        """
+        Assert proper function of Dataset._apply_delay() when a positive integer delay
+        is given.
+        """
+        n = 7
+        delay = 3
+        x_out, y_out = self._t_apply_delay_int(n, delay)
+
+        assert torch.all(x_out == torch.Tensor([0, 1, 2, 3]))
+        assert torch.all(y_out == torch.Tensor([3, 4, 5, 6]))
 
     def test_init(self):
         x, y = self._create_xy()
@@ -106,6 +124,21 @@ class TestDataset(object):
             return 0.99 * (2.0 * torch.rand((2, n)) - 1.0)  # Don't clip
         elif method == _XYMethod.STEP:
             return torch.tile((torch.linspace(0.0, 1.0, n) > 0.5)[None, :], (2, 1))
+
+    def _t_apply_delay_float(
+        self, n: int, delay: int, method: data._DelayInterpolationMethod
+    ):
+        x, y = self._create_xy(
+            n=n, method=_XYMethod.ARANGE, must_be_in_valid_range=False
+        )
+
+        x_out, y_out = data.Dataset._apply_delay(x, y, delay, method)
+        # 7, +/-2.5 -> 4
+        n_out = n - int(np.ceil(np.abs(delay)))
+        assert len(x_out) == n_out
+        assert len(y_out) == n_out
+
+        return x_out, y_out
 
     def _t_apply_delay_int(self, n: int, delay: int):
         x, y = self._create_xy(

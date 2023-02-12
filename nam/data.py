@@ -143,7 +143,7 @@ def _interpolate_delay(
     if delay > 0:
         t_out = np.arange(n_out) + delay
     elif delay < 0:
-        t_out = np.arange(len(x) - n_out, len(x)) - delay
+        t_out = np.arange(len(x) - n_out, len(x)) - np.abs(delay)
 
     return torch.Tensor(
         interp1d(t_in, x.detach().cpu().numpy(), kind=method.value)(t_out)
