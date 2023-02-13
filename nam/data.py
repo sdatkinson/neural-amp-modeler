@@ -138,6 +138,8 @@ def _interpolate_delay(
     """
     NOTE: This breaks the gradient tape!
     """
+    if delay == 0.0:
+        return x
     t_in = np.arange(len(x))
     n_out = len(x) - int(np.ceil(np.abs(delay)))
     if delay > 0:
@@ -361,6 +363,8 @@ class ParametricDataset(Dataset):
             c = deepcopy(config)
             start, stop, params = [s[k] for k in ("start", "stop", "params")]
             c.update(x=x[start:stop], y=y[start:stop], params=params)
+            if "delay" in s:
+                c["delay"] = s["delay"]
             datasets.append(ParametricDataset(**c))
         return ConcatDataset(datasets)
 
