@@ -288,6 +288,9 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         delay: Union[int, float],
         method: _DelayInterpolationMethod,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Check for floats that could be treated like ints (simpler algorithm)
+        if isinstance(delay, float) and int(delay) == delay:
+            delay = int(delay)
         if isinstance(delay, int):
             return cls._apply_delay_int(x, y, delay)
         elif isinstance(delay, float):
