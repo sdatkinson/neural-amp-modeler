@@ -37,6 +37,7 @@ class WavInfo:
 
 def wav_to_np(
     filename: Union[str, Path],
+    rate: Optional[int] = REQUIRED_RATE,
     require_match: Optional[Union[str, Path]] = None,
     required_shape: Optional[Tuple[int]] = None,
     required_wavinfo: Optional[WavInfo] = None,
@@ -49,7 +50,8 @@ def wav_to_np(
     x_wav = wavio.read(str(filename))
     assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
     assert x_wav.sampwidth == _REQUIRED_SAMPWIDTH, "24-bit"
-    assert x_wav.rate == REQUIRED_RATE, "48 kHz"
+    if rate is not None and x_wav.rate != rate:
+        raise RuntimeError(f"Expected sampel rate of {rate}; got {x_wav.rate} instead")
 
     if require_match is not None:
         assert required_shape is None
@@ -423,6 +425,9 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
         return self.datasets[i][j]
 
     def __len__(self) -> int:
+        """
+        How many data sets are in this data set
+        """
         return sum(len(d) for d in self._datasets)
 
     @property
@@ -467,8 +472,18 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
                 j += 1
             lookup[i] = (j, offset)
             offset += 1
-        assert j == len(self.datasets) - 1
-        assert offset == len(self.datasets[-1])
+        # Assert that we got to the last data set
+        if j != len(self.datasets) - 1:
+            raise RuntimeError(
+                f"During lookup population, didn't get to the last dataset (index "
+                f"{len(self.datasets)-1}). Instead index ended at {j}."
+            )
+        if offset != len(self.datasets[-1]):
+            raise RuntimeError(
+                "During lookup population, didn't end at the index of the last datum "
+                f"in the last dataset. Expected index {len(self.datasets[-1])}, got "
+                f"{offset} instead."
+            )
         return lookup
 
     @classmethod
