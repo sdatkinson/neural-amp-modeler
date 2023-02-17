@@ -366,7 +366,7 @@ class _ONNXWrapped(nn.Module):
 
     def forward(
         self, x: torch.Tensor, hidden: _LSTMHiddenType, cell: _LSTMCellType
-    ) -> tuple[torch.Tensor, _LSTMHiddenType, _LSTMCellType]:
+    ) -> Tuple[torch.Tensor, _LSTMHiddenType, _LSTMCellType]:
         """
         N: Sequeence length
         L: Nubmer of layers
