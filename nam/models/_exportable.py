@@ -68,6 +68,15 @@ class Exportable(abc.ABC):
         """
         pass
 
+    def export_onnx(self, filename: Path):
+        """
+        Export model in format for ONNX Runtime
+        """
+        raise NotImplementedError(
+            "Exporting to ONNX is not supported for models of type "
+            f"{self.__class__.__name__}"
+        )
+
     @abc.abstractmethod
     def _export_config(self):
         """

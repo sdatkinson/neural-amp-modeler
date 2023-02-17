@@ -40,8 +40,13 @@ def main(args):
         export_args = (outdir, param_config)
     net.eval()
     outdir.mkdir(parents=True, exist_ok=True)
-    net.export(*export_args, include_snapshot=args.include_snapshot)
-    net.export_cpp_header(Path(export_args[0], "HardCodedModel.h"), *export_args[1:])
+    net.export(*export_args, include_snapshot=args.snapshot)
+    if args.cpp:
+        net.export_cpp_header(
+            Path(export_args[0], "HardCodedModel.h"), *export_args[1:]
+        )
+    if args.onnx:
+        net.export_onnx(Path(outdir, "model.onnx"))
 
 
 if __name__ == "__main__":
@@ -50,12 +55,18 @@ if __name__ == "__main__":
     parser.add_argument("checkpoint", type=str)
     parser.add_argument("outdir")
     parser.add_argument(
-        "--include-snapshot",
+        "--param-config", type=str, help="Configuration for a parametric model"
+    )
+    parser.add_argument("--onnx", action="store_true", help="Export an ONNX model")
+    parser.add_argument(
+        "--cpp", action="store_true", help="Export a CPP header for hard-coding a model"
+    )
+    parser.add_argument(
+        "--snapshot",
         "-s",
+        action="store_true",
         help="Computes an example input-output pair for the model for debugging "
         "purposes",
     )
-    parser.add_argument(
-        "--param-config", type=str, help="Configuration for a parametric model"
-    )
+
     main(parser.parse_args())
