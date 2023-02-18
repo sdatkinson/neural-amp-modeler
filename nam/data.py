@@ -152,6 +152,14 @@ def _interpolate_delay(
     )
 
 
+class XYError(ValueError):
+    """
+    Exceptions related to invalid x and y provided for data sets
+    """
+
+    pass
+
+
 class StartStopError(ValueError):
     """
     Exceptions related to invalid start and stop arguments
@@ -219,6 +227,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             completely dry signal (i.e. connecting the interface output directly back
             into the input with which the guitar was originally recorded.)
         """
+        self._validate_x_y(x, y)
         self._validate_start_stop(x, y, start, stop)
         if not isinstance(delay_interpolation_method, _DelayInterpolationMethod):
             delay_interpolation_method = _DelayInterpolationMethod(
@@ -341,6 +350,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         y = _interpolate_delay(y, delay, method)
         return x, y
 
+    @classmethod
     def _validate_start_stop(
         self,
         x: torch.Tensor,
@@ -355,6 +365,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         we will raise an exception if something fishy is going on (e.g. starting after
         the end of the file, etc)
         """
+        # We could do this whole thing with `if len(x[start: stop]==0`, but being more
+        # explicit makes the error messages better for users.
         if start is None and stop is None:
             return
         if len(x) != len(y):
@@ -389,13 +401,30 @@ class Dataset(AbstractDataset, InitializableFromConfig):
                     f"Arrays are only {n} samples long, but stop was provided as {stop}, "
                     "which is before the beginning of the array!"
                 )
+        # Just in case...
+        if len(x[start:stop]) == 0:
+            raise StartStopError(
+                f"Array length {n} with start={start} and stop={stop} would get "
+                "rid of all of the data!"
+            )
+
+    @classmethod
+    def _validate_x_y(self, x, y):
+        if len(x) != len(y):
+            raise XYError(
+                f"Input and output aren't the same lengths! ({len(x)} vs {len(y)})"
+            )
+        # TODO channels
+        n = len(x)
+        if n == 0:
+            raise XYError("Input and output are empty!")
 
     def _validate_inputs_after_processing(self, x, y, nx, ny):
         assert x.ndim == 1
         assert y.ndim == 1
         assert len(x) == len(y)
         if nx > len(x):
-            raise RuntimeError(
+            raise RuntimeError(  # TODO XYError?
                 f"Input of length {len(x)}, but receptive field is {nx}."
             )
         if ny is not None:

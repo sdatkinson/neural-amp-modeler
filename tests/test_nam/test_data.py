@@ -158,6 +158,28 @@ class TestDataset(object):
             with pytest.raises(data.StopError):
                 init()
 
+    @pytest.mark.parametrize(
+        "lenx,leny,valid",
+        ((3, 3, True), (3, 4, False), (0, 0, False)),  # Lenght mismatch  # Empty!
+    )
+    def test_validate_x_y(self, lenx: int, leny: int, valid: bool):
+        def init():
+            data.Dataset(x, y, nx, ny)
+
+        x, y = self._create_xy()
+        assert len(x) >= lenx, "Invalid test!"
+        assert len(y) >= leny, "Invalid test!"
+        x = x[:lenx]
+        y = y[:leny]
+        nx = 1
+        ny = None
+        if valid:
+            init()
+            assert True  # It worked!
+        else:
+            with pytest.raises(data.XYError):
+                init()
+
     def _create_xy(
         self,
         n: int = 7,
