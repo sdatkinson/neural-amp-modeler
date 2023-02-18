@@ -203,6 +203,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             completely dry signal (i.e. connecting the interface output directly back
             into the input with which the guitar was originally recorded.)
         """
+        self._validate_start_stop(x, y, start, stop)
         if not isinstance(delay_interpolation_method, _DelayInterpolationMethod):
             delay_interpolation_method = _DelayInterpolationMethod(
                 delay_interpolation_method
@@ -215,7 +216,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         y = y * y_scale
         self._x_path = x_path
         self._y_path = y_path
-        self._validate_inputs(x, y, nx, ny)
+        self._validate_inputs_after_processing(x, y, nx, ny)
         self._x = x
         self._y = y
         self._nx = nx
@@ -324,7 +325,56 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         y = _interpolate_delay(y, delay, method)
         return x, y
 
-    def _validate_inputs(self, x, y, nx, ny):
+    def _validate_start_stop(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        start: Optional[int] = None,
+        stop: Optional[int] = None,
+    ):
+        """
+        Check for potential input errors.
+
+        These may be valid indices in Python, but probably point to invalid usage, so
+        we will raise an exception if something fishy is going on (e.g. starting after
+        the end of the file, etc)
+        """
+        if start is None and stop is None:
+            return
+        if len(x) != len(y):
+            raise ValueError(
+                f"Input and output are different length. Input has {len(x)} samples, "
+                f"and output has {len(y)}"
+            )
+        n = len(x)
+        if start is not None:
+            # Start after the files' end?
+            if start >= n:
+                raise ValueError(
+                    f"Arrays are only {n} samples long, but start was provided as {start}, "
+                    "which is beyond the end of the array!"
+                )
+            # Start before the files' beginning?
+            if start < -n:
+                raise ValueError(
+                    f"Arrays are only {n} samples long, but start was provided as {start}, "
+                    "which is before the beginning of the array!"
+                )
+        if stop is not None:
+            # Stop after the files' end?
+            if stop >= n:
+                raise ValueError(
+                    f"Arrays are only {n} samples long, but stop was provided as {stop}, "
+                    "which is beyond the end of the array!"
+                )
+            # Start before the files' beginning?
+            if stop < -n:
+                raise ValueError(
+                    f"Arrays are only {n} samples long, but stop was provided as {stop}, "
+                    "which is before the beginning of the array!"
+                )
+
+    def _validate_inputs_after_processing(self, x, y, nx, ny):
         assert x.ndim == 1
         assert y.ndim == 1
         assert len(x) == len(y)
