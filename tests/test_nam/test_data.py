@@ -111,8 +111,10 @@ class TestDataset(object):
         (
             (13, None, True),  # No start restrictions; nothing wrong
             (13, 2, True),  # Starts before the end; fine.
+            (13, 12, True),  # Starts w/ one to go--ok
             (13, 13, False),  # Starts after the end
             (13, -5, True),  # Starts counting back from the end, fine
+            (13, -13, True),  # Starts at the beginning of the array--ok
             (13, -14, False),  # Starts before the beginning of the array--invalid
         ),
     )
@@ -127,7 +129,33 @@ class TestDataset(object):
             init()
             assert True  # No problem!
         else:
-            with pytest.raises(ValueError):
+            with pytest.raises(data.StartError):
+                init()
+
+    @pytest.mark.parametrize(
+        "n,stop,valid",
+        (
+            (13, None, True),  # No stop restrictions; nothing wrong
+            (13, 2, True),  # Stops before the end; fine.
+            (13, 13, True),  # Stops at the end--ok
+            (13, 14, False),  # Stops after the end--not ok
+            (13, -5, True),  # Stops counting back from the end, fine
+            (13, -12, True),  # Stops w/ one sample--ok
+            (13, -13, False),  # Stops w/ no samples--not ok
+        ),
+    )
+    def test_validate_stop(self, n: int, stop: int, valid: bool):
+        def init():
+            data.Dataset(x, y, nx, ny, stop=stop)
+
+        nx = 1
+        ny = None
+        x, y = self._create_xy(n=n)
+        if valid:
+            init()
+            assert True  # No problem!
+        else:
+            with pytest.raises(data.StopError):
                 init()
 
     def _create_xy(

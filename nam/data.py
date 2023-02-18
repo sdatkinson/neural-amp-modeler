@@ -152,6 +152,22 @@ def _interpolate_delay(
     )
 
 
+class StartStopError(ValueError):
+    """
+    Exceptions related to invalid start and stop arguments
+    """
+
+    pass
+
+
+class StartError(StartStopError):
+    pass
+
+
+class StopError(StartStopError):
+    pass
+
+
 class Dataset(AbstractDataset, InitializableFromConfig):
     """
     Take a pair of matched audio files and serve input + output pairs.
@@ -350,26 +366,26 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         if start is not None:
             # Start after the files' end?
             if start >= n:
-                raise ValueError(
+                raise StartError(
                     f"Arrays are only {n} samples long, but start was provided as {start}, "
                     "which is beyond the end of the array!"
                 )
             # Start before the files' beginning?
             if start < -n:
-                raise ValueError(
+                raise StartError(
                     f"Arrays are only {n} samples long, but start was provided as {start}, "
                     "which is before the beginning of the array!"
                 )
         if stop is not None:
             # Stop after the files' end?
-            if stop >= n:
-                raise ValueError(
+            if stop > n:
+                raise StopError(
                     f"Arrays are only {n} samples long, but stop was provided as {stop}, "
                     "which is beyond the end of the array!"
                 )
             # Start before the files' beginning?
-            if stop < -n:
-                raise ValueError(
+            if stop <= -n:
+                raise StopError(
                     f"Arrays are only {n} samples long, but stop was provided as {stop}, "
                     "which is before the beginning of the array!"
                 )
