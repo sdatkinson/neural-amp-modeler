@@ -315,7 +315,7 @@ class HyperConvNet(ParametricBaseNet):
         # Last conv is the collapser--compensate w/ a minus 1
         return sum([m.dilation[0] for m in self._net if isinstance(m, _Conv)]) + 1 - 1
 
-    def export(self, outdir: Path):
+    def export(self, outdir: Path, include_snapshot: bool=False):
         """
         Files created:
         * config.json
@@ -365,10 +365,11 @@ class HyperConvNet(ParametricBaseNet):
         np.save(Path(outdir, "weights.npy"), self._export_weights())
 
         # And an input/output to verify correct computation:
-        params, x, y = self._export_input_output()
-        np.save(Path(outdir, "test_signal_params.npy"), params.detach().cpu().numpy())
-        np.save(Path(outdir, "test_signal_input.npy"), x.detach().cpu().numpy())
-        np.save(Path(outdir, "test_signal_output.npy"), y.detach().cpu().numpy())
+        if include_snapshot:
+            params, x, y = self._export_input_output()
+            np.save(Path(outdir, "test_signal_params.npy"), params.detach().cpu().numpy())
+            np.save(Path(outdir, "test_signal_input.npy"), x.detach().cpu().numpy())
+            np.save(Path(outdir, "test_signal_output.npy"), y.detach().cpu().numpy())
 
         # And resume training state
         self.train(training)

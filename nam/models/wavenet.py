@@ -37,13 +37,13 @@ class Conv1d(nn.Conv1d):
 
 class _Layer(nn.Module):
     def __init__(
-        self, 
+        self,
         condition_size: int,
-        channels: int, 
-        kernel_size: int, 
-        dilation: int, 
-        activation: str, 
-        gated: bool
+        channels: int,
+        kernel_size: int,
+        dilation: int,
+        activation: str,
+        gated: bool,
     ):
         super().__init__()
         # Input mixer takes care of the bias
@@ -51,9 +51,7 @@ class _Layer(nn.Module):
         self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
         # Custom init: favors direct input-output
         # self._conv.weight.data.zero_()
-        self._input_mixer = Conv1d(
-            condition_size, mid_channels, 1, bias=False
-        )
+        self._input_mixer = Conv1d(condition_size, mid_channels, 1, bias=False)
         self._activation = get_activation(activation)
         self._activation_name = activation
         self._1x1 = Conv1d(channels, channels, 1)
@@ -78,33 +76,38 @@ class _Layer(nn.Module):
     def export_weights(self) -> torch.Tensor:
         return torch.cat(
             [
-                self.conv.export_weights(), 
-                self._input_mixer.export_weights(), 
-                self._1x1.export_weights()
+                self.conv.export_weights(),
+                self._input_mixer.export_weights(),
+                self._1x1.export_weights(),
             ]
-        )   
+        )
 
-    def forward(self, x: torch.Tensor, h: Optional[torch.Tensor], out_length: int
+    def forward(
+        self, x: torch.Tensor, h: Optional[torch.Tensor], out_length: int
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
         """
         :param x: (B,C,L1) From last layer
         :param h: (B,DX,L2) Conditioning. If first, ignored.
-        
-        :return: 
+
+        :return:
             If not final:
                 (B,C,L1-d) to next layer
                 (B,C,L1-d) to mixer
             If final, next layer is None
         """
         zconv = self.conv(x)
-        z1 = zconv + self._input_mixer(h)[:, :, -zconv.shape[2]:]
-        post_activation = self._activation(z1) if not self._gated else (
-            self._activation(z1[:, :self._channels]) 
-            * torch.sigmoid(z1[:, self._channels:])
+        z1 = zconv + self._input_mixer(h)[:, :, -zconv.shape[2] :]
+        post_activation = (
+            self._activation(z1)
+            if not self._gated
+            else (
+                self._activation(z1[:, : self._channels])
+                * torch.sigmoid(z1[:, self._channels :])
+            )
         )
         return (
-            x[:, :, -post_activation.shape[2]:] + self._1x1(post_activation), 
-            post_activation[:, :, -out_length:]
+            x[:, :, -post_activation.shape[2] :] + self._1x1(post_activation),
+            post_activation[:, :, -out_length:],
         )
 
     @property
@@ -114,37 +117,33 @@ class _Layer(nn.Module):
 
 class _Layers(nn.Module):
     """
-    Takes in the input and condition (and maybe the head input so far); outputs the 
+    Takes in the input and condition (and maybe the head input so far); outputs the
     layer output and head input.
 
-    The original WaveNet only uses one of these, but you can stack multiple of this 
-    module to vary the channels throughout with minimal extra channel-changing conv 
+    The original WaveNet only uses one of these, but you can stack multiple of this
+    module to vary the channels throughout with minimal extra channel-changing conv
     layers.
     """
+
     def __init__(
         self,
-        input_size: int, 
+        input_size: int,
         condition_size: int,
         head_size,
-        channels: int, 
-        kernel_size: int, 
-        dilations: Sequence[int], 
-        activation: str="Tanh", 
-        gated: bool=True,
-        head_bias: bool=True
+        channels: int,
+        kernel_size: int,
+        dilations: Sequence[int],
+        activation: str = "Tanh",
+        gated: bool = True,
+        head_bias: bool = True,
     ):
         super().__init__()
         self._rechannel = Conv1d(input_size, channels, 1, bias=False)
         self._layers = nn.ModuleList(
             [
-                _Layer( 
-                    condition_size,
-                    channels, 
-                    kernel_size, 
-                    dilation, 
-                    activation, 
-                    gated
-                ) 
+                _Layer(
+                    condition_size, channels, kernel_size, dilation, activation, gated
+                )
                 for dilation in dilations
             ]
         )
@@ -160,7 +159,7 @@ class _Layers(nn.Module):
             "dilations": dilations,
             "activation": activation,
             "gated": gated,
-            "head_bias": head_bias
+            "head_bias": head_bias,
         }
 
     @property
@@ -172,12 +171,17 @@ class _Layers(nn.Module):
 
     def export_weights(self) -> torch.Tensor:
         return torch.cat(
-            [self._rechannel.export_weights()] 
-            + [layer.export_weights() for layer in self._layers] 
+            [self._rechannel.export_weights()]
+            + [layer.export_weights() for layer in self._layers]
             + [self._head_rechannel.export_weights()]
         )
 
-    def forward(self, x: torch.Tensor, c: torch.Tensor, head_input: Optional[torch.Tensor]=None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        c: torch.Tensor,
+        head_input: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         :param x: (B,Dx,L) layer input
         :param c: (B,Dc,L) condition
@@ -191,7 +195,8 @@ class _Layers(nn.Module):
         for layer in self._layers:
             x, head_term = layer(x, c, out_length)  # Ensures head_term sample length
             head_input = (
-                head_term if head_input is None 
+                head_term
+                if head_input is None
                 else head_input[:, :, -out_length:] + head_term
             )
         return self._head_rechannel(head_input), x
@@ -207,12 +212,12 @@ class _Layers(nn.Module):
 
 class _Head(nn.Module):
     def __init__(
-        self, 
-        in_channels: int, 
-        channels: int, 
-        activation: str, 
-        num_layers: int, 
-        out_channels: int
+        self,
+        in_channels: int,
+        channels: int,
+        activation: str,
+        num_layers: int,
+        out_channels: int,
     ):
         super().__init__()
 
@@ -228,17 +233,17 @@ class _Head(nn.Module):
         cin = in_channels
         for i in range(num_layers):
             layers.add_module(
-                f"layer_{i}", 
-                block(cin, channels if i != num_layers-1 else out_channels)
+                f"layer_{i}",
+                block(cin, channels if i != num_layers - 1 else out_channels),
             )
             cin = channels
         self._layers = layers
-        
+
         self._config = {
             "channels": channels,
             "activation": activation,
             "num_layers": num_layers,
-            "out_channels": out_channels
+            "out_channels": out_channels,
         }
 
     def export_config(self):
@@ -253,13 +258,13 @@ class _Head(nn.Module):
 
 class _WaveNet(nn.Module):
     def __init__(
-        self, 
+        self,
         layers_configs: Sequence[Dict],
-        head_config: Optional[Dict]=None,
-        head_scale: float=1.0
+        head_config: Optional[Dict] = None,
+        head_scale: float = 1.0,
     ):
         super().__init__()
-        
+
         self._layers = nn.ModuleList([_Layers(**lc) for lc in layers_configs])
         self._head = None if head_config is None else _Head(**head_config)
         self._head_scale = head_scale
@@ -272,7 +277,7 @@ class _WaveNet(nn.Module):
         return {
             "layers": [layers.export_config() for layers in self._layers],
             "head": None if self._head is None else self._head.export_config(),
-            "head_scale": self._head_scale
+            "head_scale": self._head_scale,
         }
 
     def export_weights(self) -> np.ndarray:
@@ -314,7 +319,7 @@ class WaveNet(BaseNet):
         with TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             WaveNet.export(self, Path(tmpdir))  # Hacky...need to work w/ CatWaveNet
-            with open(Path(tmpdir, "config.json"), "r") as fp:
+            with open(Path(tmpdir, "model.nam"), "r") as fp:
                 _c = json.load(fp)
             version = _c["version"]
             config = _c["config"]
@@ -333,10 +338,12 @@ class WaveNet(BaseNet):
                 s_lap_line = (
                     f'  wavenet::LayerArrayParams({lc["input_size"]}, '
                     f'{lc["condition_size"]}, {lc["head_size"]}, {lc["channels"]}, '
-                    f'{lc["kernel_size"]}, std::vector<int> ' '{' 
-                    + ", ".join([str(d) for d in lc["dilations"]]) + "}, "
+                    f'{lc["kernel_size"]}, std::vector<int> '
+                    "{"
+                    + ", ".join([str(d) for d in lc["dilations"]])
+                    + "}, "
                     + (
-                        f'\"{lc["activation"]}\", {str(lc["gated"]).lower()}, '
+                        f'"{lc["activation"]}", {str(lc["gated"]).lower()}, '
                         f'{str(lc["head_bias"]).lower()})'
                     )
                 )
@@ -364,9 +371,7 @@ class WaveNet(BaseNet):
                     + s_parametric
                     + (
                         "std::vector<float> PARAMS{"
-                        + ", ".join(
-                            [f"{w:.16f}f" for w in np.load(Path(tmpdir, "weights.npy"))]
-                        )
+                        + ", ".join([f"{w:.16f}f" for w in _c["weights"]])
                         + "};\n",
                     )
                 )

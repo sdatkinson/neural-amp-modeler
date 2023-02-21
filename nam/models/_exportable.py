@@ -4,6 +4,7 @@
 
 import abc
 import json
+import logging
 from pathlib import Path
 from typing import Tuple
 
@@ -12,13 +13,15 @@ import numpy as np
 from .._version import __version__
 from ..data import np_to_wav
 
+logger = logging.getLogger(__name__)
+
 
 class Exportable(abc.ABC):
     """
     Interface for my custon export format for use in the plugin.
     """
 
-    def export(self, outdir: Path):
+    def export(self, outdir: Path, include_snapshot: bool = False):
         """
         Interface for exporting.
         You should create at least a `config.json` containing the two fields:
@@ -27,25 +30,32 @@ class Exportable(abc.ABC):
         * "config": (dict w/ other necessary data like tensor shapes etc)
 
         :param outdir: Assumed to exist. Can be edited inside at will.
+        :param include_snapshots: If True, outputs `input.npy` and `output.npy`
+            Containing an example input/output pair that the model creates. This
+            Can be used to debug e.g. the implementation of the model in the
+            plugin.
         """
         training = self.training
         self.eval()
-        with open(Path(outdir, "config.json"), "w") as fp:
+        with open(Path(outdir, "model.nam"), "w") as fp:
             json.dump(
                 {
                     "version": __version__,
                     "architecture": self.__class__.__name__,
                     "config": self._export_config(),
+                    "weights": self._export_weights().tolist(),
                 },
                 fp,
                 indent=4,
             )
-        np.save(Path(outdir, "weights.npy"), self._export_weights())
-        x, y = self._export_input_output()
-        np.save(Path(outdir, "inputs.npy"), x)
-        np.save(Path(outdir, "outputs.npy"), y)
-        np_to_wav(x, Path(outdir, "input.wav"))
-        np_to_wav(y, Path(outdir, "output.wav"))
+        if include_snapshot:
+            x, y = self._export_input_output()
+            x_path = Path(outdir, "test_inputs.npy")
+            y_path = Path(outdir, "test_outputs.npy")
+            logger.debug(f"Saving snapshot input to {x_path}")
+            np.save(x_path, x)
+            logger.debug(f"Saving snapshot output to {y_path}")
+            np.save(y_path, y)
 
         # And resume training state
         self.train(training)
@@ -58,10 +68,19 @@ class Exportable(abc.ABC):
         """
         pass
 
+    def export_onnx(self, filename: Path):
+        """
+        Export model in format for ONNX Runtime
+        """
+        raise NotImplementedError(
+            "Exporting to ONNX is not supported for models of type "
+            f"{self.__class__.__name__}"
+        )
+
     @abc.abstractmethod
     def _export_config(self):
         """
-        Creates the JSON of the model's archtecture hyperparameters (number of layers, 
+        Creates the JSON of the model's archtecture hyperparameters (number of layers,
         number of units, etc)
 
         :return: a JSON serializable object

@@ -57,10 +57,10 @@ class _CatMixin(ParametricBaseNet):
         # ._export_input_output()
         pass  # HACK
 
-    def export(self, outdir: Path, parametric_config: Dict[str, Param]):
+    def export(self, outdir: Path, parametric_config: Dict[str, Param], **kwargs):
         """
         Interface for exporting.
-        You should create at least a `config.json` containing the two fields:
+        You should create at least a `config.json` containing the fields:
         * "version" (str)
         * "architecture" (str)
         * "config": (dict w/ other necessary data like tensor shapes etc)
@@ -68,7 +68,7 @@ class _CatMixin(ParametricBaseNet):
         :param outdir: Assumed to exist. Can be edited inside at will.
         """
         with self._use_parametric_config(parametric_config):
-            return super().export(outdir)
+            return super().export(outdir, **kwargs)
 
     def export_cpp_header(self, filename: Path, parametric_config: Dict[str, Param]):
         with self._use_parametric_config(parametric_config):

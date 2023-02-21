@@ -6,6 +6,7 @@
 Hide the mess in Colab to make things look pretty for users.
 """
 
+
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -15,7 +16,7 @@ import numpy as np
 from ..data import REQUIRED_RATE, wav_to_np
 
 from ._version import Version
-from .gui import export, train
+from .gui import _Architecture, export, train
 
 
 _INPUT_BASENAMES = ((Version(1, 1, 1), "v1_1_1.wav"), (Version(1, 0, 0), "v1.wav"))
@@ -66,12 +67,10 @@ def _get_valid_export_directory():
 def run(
     epochs: int = 100,
     delay: Optional[int] = None,
-    stage_1_channels: int = 16,
-    stage_2_channels: int = 8,
-    head_scale: float = 0.02,
-    lr: float = 0.004,
-    lr_decay: float = 0.007,
-    seed: Optional[int] = 0,
+    architecture: str = "standard",
+    lr: float=0.004,
+    lr_decay: float=0.007,
+    seed: Optional[int]=0,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -90,11 +89,10 @@ def run(
         input_basename,
         _OUTPUT_BASENAME,
         _TRAIN_PATH,
+        input_version=input_version,
         epochs=epochs,
         delay=delay,
-        stage_1_channels=stage_1_channels,
-        stage_2_channels=stage_2_channels,
-        head_scale=head_scale,
+        architecture=architecture,
         lr=lr,
         lr_decay=lr_decay,
         seed=seed,

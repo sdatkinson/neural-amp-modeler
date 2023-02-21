@@ -21,6 +21,7 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
+from .losses import esr
 from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
@@ -30,12 +31,12 @@ from .wavenet import WaveNet
 class ValidationLoss(Enum):
     """
     mse: mean squared error
-    esr: error signal ratio (Eq. (10) from 
+    esr: error signal ratio (Eq. (10) from
         https://www.mdpi.com/2076-3417/10/3/766/htm
-        NOTE: Be careful when computing ESR on minibatches! The average ESR over 
-        a minibatch of data not the same as the ESR of all of the same data in 
-        the minibatch calculated over at once (because of the denominator). 
-        (Hint: think about what happens if one item in the minibatch is all 
+        NOTE: Be careful when computing ESR on minibatches! The average ESR over
+        a minibatch of data not the same as the ESR of all of the same data in
+        the minibatch calculated over at once (because of the denominator).
+        (Hint: think about what happens if one item in the minibatch is all
         zeroes...)
     """
 
@@ -49,7 +50,7 @@ class LossConfig(InitializableFromConfig):
     :param mask_first: How many of the first samples to ignore when comptuing the loss.
     :param dc_weight: Weight for the DC loss term. If 0, ignored.
     :params val_loss: Which loss to track for the best model checkpoint.
-    :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from 
+    :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from
         https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
     """
 
@@ -68,11 +69,11 @@ class LossConfig(InitializableFromConfig):
         pre_emph_coef = config.get("pre_emph_coef")
         pre_emph_weight = config.get("pre_emph_weight")
         return {
-            "mask_first": mask_first, 
-            "dc_weight": dc_weight, 
-            "val_loss": val_loss, 
+            "mask_first": mask_first,
+            "dc_weight": dc_weight,
+            "val_loss": val_loss,
             "pre_emph_coef": pre_emph_coef,
-            "pre_emph_weight": pre_emph_weight
+            "pre_emph_weight": pre_emph_weight,
         }
 
     def apply_mask(self, *args):
@@ -120,8 +121,8 @@ class Model(pl.LightningModule, InitializableFromConfig):
     @classmethod
     def parse_config(cls, config):
         """
-        e.g. 
-        
+        e.g.
+
         {
             "net": {
                 "name": "ConvNet",
@@ -144,7 +145,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
                 },
                 "monitor": "val_loss"
             }
-        }    
+        }
         """
         config = super().parse_config(config)
         net_config = config["net"]
@@ -230,16 +231,23 @@ class Model(pl.LightningModule, InitializableFromConfig):
         self.log_dict({"MSE": mse_loss, "ESR": esr_loss, "val_loss": val_loss})
         return val_loss
 
-    def _esr_loss(self, preds, targets):
+    def _esr_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
         Error signal ratio aka ESR loss.
 
         Eq. (10), from
         https://www.mdpi.com/2076-3417/10/3/766/htm
-        """
-        return nn.MSELoss()(preds, targets) / nn.MSELoss()(targets, 0.0 * targets)
 
-    def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float]=None):
+        B: Batch size
+        L: Sequence length
+
+        :param preds: (B,L)
+        :param targets: (B,L)
+        :return: ()
+        """
+        return esr(preds, targets)
+
+    def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float] = None):
         if pre_emph_coef is not None:
             preds, targets = [
                 z[..., 1:] - pre_emph_coef * z[..., :-1] for z in (preds, targets)

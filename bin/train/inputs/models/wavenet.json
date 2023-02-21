@@ -4,10 +4,10 @@
         "config": {
             "layers_configs": [
                 {
-                    "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 8,
+                    "input_size": 1,
                     "channels": 16,
+                    "head_size": 8,
                     "kernel_size": 3,
                     "dilations": [1,2,4,8,16,32,64,128,256,512],
                     "activation": "Tanh",
@@ -15,21 +15,22 @@
                     "head_bias": false
                 },
                 {
-                    "input_size": 16,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "input_size": 16,
                     "channels": 8,
+                    "head_size": 1,
                     "kernel_size": 3,
                     "dilations": [1,2,4,8,16,32,64,128,256,512],
                     "activation": "Tanh",
                     "gated": false,
                     "head_bias": true
                 }
-            ]
+            ],
+            "head_scale": 0.02
         }
     },
     "optimizer": {
-        "lr": 0.003
+        "lr": 0.004
     },
     "lr_scheduler": {
         "class": "ExponentialLR",

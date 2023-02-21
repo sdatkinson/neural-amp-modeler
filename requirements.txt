@@ -6,6 +6,8 @@ black
 flake8
 matplotlib
 numpy
+onnx
+onnxruntime
 pip
 pre-commit
 pytest
