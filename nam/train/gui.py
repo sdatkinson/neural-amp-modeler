@@ -9,7 +9,7 @@ Functions used by the GUI trainer.
 import hashlib
 from enum import Enum
 from time import time
-from typing import Optional
+from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +22,7 @@ from ..models import Model
 from ._version import Version
 
 
-class _Architecture(Enum):
+class Architecture(Enum):
     STANDARD = "standard"
     LITE = "lite"
     FEATHER = "feather"
@@ -117,7 +117,7 @@ def _calibrate_delay(
 
 def _get_wavenet_config(architecture):
     return {
-        _Architecture.STANDARD: {
+        Architecture.STANDARD: {
             "layers_configs": [
                 {
                     "input_size": 1,
@@ -144,7 +144,7 @@ def _get_wavenet_config(architecture):
             ],
             "head_scale": 0.02,
         },
-        _Architecture.LITE: {
+        Architecture.LITE: {
             "layers_configs": [
                 {
                     "input_size": 1,
@@ -171,7 +171,7 @@ def _get_wavenet_config(architecture):
             ],
             "head_scale": 0.02,
         },
-        _Architecture.FEATHER: {
+        Architecture.FEATHER: {
             "layers_configs": [
                 {
                     "input_size": 1,
@@ -206,7 +206,7 @@ def _get_configs(
     output_basename: str,
     delay: int,
     epochs: int,
-    architecture: _Architecture,
+    architecture: Architecture,
     lr: float,
     lr_decay: float,
 ):
@@ -300,9 +300,7 @@ def train(
     input_version: Optional[Version] = None,
     epochs=100,
     delay=None,
-    stage_1_channels=16,
-    stage_2_channels=8,
-    head_scale: float = 0.02,
+    architecture: Union[Architecture, str]=Architecture.STANDARD,
     lr=0.004,
     lr_decay=0.007,
     seed: Optional[int] = 0,
@@ -320,9 +318,7 @@ def train(
         output_path,
         delay,
         epochs,
-        stage_1_channels,
-        stage_2_channels,
-        head_scale,
+        Architecture(architecture),
         lr,
         lr_decay,
     )

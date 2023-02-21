@@ -16,7 +16,7 @@ import numpy as np
 from ..data import REQUIRED_RATE, wav_to_np
 
 from ._version import Version
-from .gui import _Architecture, export, train
+from .gui import Architecture, export, train
 
 
 _INPUT_BASENAMES = ((Version(1, 1, 1), "v1_1_1.wav"), (Version(1, 0, 0), "v1.wav"))
