@@ -17,6 +17,7 @@ from typing import Callable, Optional, Sequence
 try:
     from nam.models.base import Model
     from nam.train import gui as _gui
+    from nam import __version__
 
     _install_is_valid = True
 except ImportError:
@@ -107,7 +108,8 @@ class _PathButton(object):
 
 class GUI(object):
     def __init__(self):
-        self._root = tk.Tk()  # TODO Title?
+        self._root = tk.Tk()
+        self._root.title(f"NAM Trainer - v{__version__}")
 
         # Buttons for paths:
         self._frame_input_path = tk.Frame(self._root)
@@ -244,7 +246,9 @@ class _LabeledOptionMenu(object):
     Label (left) and radio buttons (right)
     """
 
-    def __init__(self, frame: tk.Frame, label: str, choices: Enum, default: Optional[Enum]=None):
+    def __init__(
+        self, frame: tk.Frame, label: str, choices: Enum, default: Optional[Enum] = None
+    ):
         """
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
@@ -277,6 +281,7 @@ class _LabeledOptionMenu(object):
             *[choice.value for choice in choices],  #  if choice.value!=default],
             command=self._set,
         )
+        self._menu.config(width=_ADVANCED_OPTIONS_RIGHT_WIDTH)
         self._menu.pack(side=tk.RIGHT)
         # Initialize
         self._set(default)
@@ -327,12 +332,12 @@ class _LabeledText(object):
 
         self._type = type
 
-        # if default is not None:
-        #     self._text.insert(0, str(default))
+        if default is not None:
+            self._text.insert("1.0", str(default))
 
     def get(self):
         try:
-            val = self._text.get(0)
+            val = self._text.get("1.0", tk.END)  # Line 1, character zero (wat)
             if self._type is not None:
                 val = self._type(val)
             return val
@@ -348,12 +353,16 @@ class _AdvancedOptionsGUI(object):
     def __init__(self, parent: GUI):
         self._parent = parent
         self._root = tk.Tk()
+        self._root.title("Advanced Options")
 
         # Architecture: radio buttons
         self._frame_architecture = tk.Frame(self._root)
         self._frame_architecture.pack()
         self._architecture = _LabeledOptionMenu(
-            self._frame_architecture, "Architecture", _gui.Architecture, default=self._parent.advanced_options.architecture
+            self._frame_architecture,
+            "Architecture",
+            _gui.Architecture,
+            default=self._parent.advanced_options.architecture,
         )
 
         # Number of epochs: text box
@@ -369,7 +378,7 @@ class _AdvancedOptionsGUI(object):
         self._epochs = _LabeledText(
             self._frame_epochs,
             "Epochs",
-            default=self._parent.advanced_options.num_epochs,
+            default=str(self._parent.advanced_options.num_epochs),
             type=non_negative_int,
         )
 
@@ -378,13 +387,18 @@ class _AdvancedOptionsGUI(object):
         self._frame_delay.pack()
 
         def int_or_null(val):
+            val = val.rstrip()
             if val == "null":
                 return val
             return int(val)
+
+        def int_or_null_inv(val):
+            return "null" if val is None else str(val)
+
         self._delay = _LabeledText(
             self._frame_delay,
             "Delay",
-            default=self._parent.advanced_options.delay,
+            default=int_or_null_inv(self._parent.advanced_options.delay),
             type=int_or_null,
         )
 
@@ -418,24 +432,10 @@ class _AdvancedOptionsGUI(object):
             self._parent.advanced_options.delay = None if delay == "null" else delay
         self._root.destroy()
 
-    def _set_architecture(self, val: _gui.Architecture):
-        # val = _gui.Architecture.STANDARD  # TODO
-        print(f"Set architecture as {val.value}")
-        self._parent.advanced_options.architecture = val
-
-    def _set_num_epochs(self):
-        val = 100  # TODO
-        print(f"Set num_epochs to {val}")
-        self._parent.advanced_options.num_epochs = val
-
-    def _set_delay(self):
-        val = None  # TODO
-        print(f"Set delay as to {val}")
-        self._parent.advanced_options.delay = val
-
 
 def _install_error():
     window = tk.Tk()
+    window.title("ERROR")
     label = tk.Label(
         window,
         width=45,
