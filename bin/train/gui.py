@@ -104,7 +104,7 @@ class _PathButton(object):
 
 class GUI(object):
     def __init__(self):
-        self._root = tk.Tk("NAM Trainer")
+        self._root = tk.Tk()  # TODO Title?
 
         # Buttons for paths:
         self._frame_input_path = tk.Frame(self._root)
@@ -145,17 +145,17 @@ class GUI(object):
             default_architecture, default_num_epochs, default_delay
         )
         # Window to edit them:
-        # self._frame_advanced_options = tk.Frame(self._root)
-        # self._frame_advanced_options.pack()
-        # self._button_advanced_options = tk.Button(
-        #     self._frame_advanced_options,
-        #     text="Advanced options...",
-        #     width=BUTTON_WIDTH,
-        #     height=BUTTON_HEIGHT,
-        #     fg="black",
-        #     command=self._open_advanced_options,
-        # )
-        # self._button_advanced_options.pack()
+        self._frame_advanced_options = tk.Frame(self._root)
+        self._frame_advanced_options.pack()
+        self._button_advanced_options = tk.Button(
+            self._frame_advanced_options,
+            text="Advanced options...",
+            width=BUTTON_WIDTH,
+            height=BUTTON_HEIGHT,
+            fg="black",
+            command=self._open_advanced_options,
+        )
+        self._button_advanced_options.pack()
 
         # Train button
         self._frame_train = tk.Frame(self._root)
@@ -238,89 +238,62 @@ _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
 
 
-class _LabeledRadio(object):
+class _LabeledOptionMenu(object):
     """
     Label (left) and radio buttons (right)
     """
 
-    def __init__(
-        self, frame: tk.Frame, label: str, choices: Enum, command: Callable[[Enum], None]
-    ):
+    def __init__(self, frame: tk.Frame, label: str, choices: Enum):
         """
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
         """
         self._frame = frame
-        height_per_option = 1  # BUTTON_HEIGHT
-        height = height_per_option * len(choices)
+        self._choices = choices
+        height = BUTTON_HEIGHT
+        bg = None
+        fg = "black"
         self._label = tk.Label(
             frame,
             width=_ADVANCED_OPTIONS_LEFT_WIDTH,
             height=height,
-            fg="black",
-            bg=None,
+            fg=fg,
+            bg=bg,
             anchor="w",
             text=label,
         )
         self._label.pack(side=tk.LEFT)
 
-        frame_radios = tk.Frame(frame)
-        frame_radios.pack(side=tk.RIGHT)
+        frame_menu = tk.Frame(frame)
+        frame_menu.pack(side=tk.RIGHT)
 
-        # One Radiobutton per option?
-        self._radios = {}
-        for i, choice in enumerate(choices):
-            self._radios[choice] = tk.Radiobutton(
-                frame_radios,
-                width=_ADVANCED_OPTIONS_RIGHT_WIDTH,
-                height=height_per_option,
-                text=choice.value,
-                command=partial(self._command, choice),
-                # justify=tk.LEFT,
-                anchor="w",
-                # state=tk.ACTIVE if i == 0 else tk.DISABLED
-            )
-            self._radios[choice].pack()
-            if i > 0:
-                self._radios[choice].deselect()
+        self._selected_value = None
+        self._menu = tk.OptionMenu(
+            frame_menu,
+            tk.StringVar(master=frame, value=list(choices)[0].value, name=label),
+            *[choice.value for choice in choices],
+            command=self._set,
+        )
+        self._menu.pack(side=tk.RIGHT)
+        # Initialize
+        self._set(list(self._choices)[0].value)
 
-        # All in a single Radiobutton?
-        # self._radio = tk.Radiobutton(
-        #     frame_radios,
-        #     width=60,  # _ADVANCED_OPTIONS_RIGHT_WIDTH,
-        #     height=height,  #height_per_option,
-        #     # text={choice.value: choice.value for choice in choices},
-        #     textvariable=[choice.value for choice in choices],
-        #     command=command,
-        #     anchor="w"
-        # )
-        # self._radio.pack()
+    def get(self) -> Enum:
+        return self._selected_value
 
-        print("Radios initialized")
-        self._hook = command
+    def _set(self, val: str):
+        """
+        Set the value selected
+        """
+        self._selected_value = self._choices(val)
 
-    def get(self):
-        # FIXME
-        choice = list(self._radios.keys())[0]
-        return choice
-
-    def _command(self, selected):
-        for key, val in self._radios.items():
-            if key == selected:
-                val["state"] = tk.NORMAL
-            else:
-                val["state"] = tk.DISABLED
-        self._hook(selected)
-        
 
 class _LabeledText(object):
     """
     Label (left) and text input (right)
     """
 
-    def __init__(
-        self, frame: tk.Frame, label: str, default=None, type=None
-    ):
+    def __init__(self, frame: tk.Frame, label: str, default=None, type=None):
         """
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
@@ -345,13 +318,11 @@ class _LabeledText(object):
             width=_ADVANCED_OPTIONS_RIGHT_WIDTH,
             height=text_height,
             fg="black",
-            bg=None
+            bg=None,
         )
         self._text.pack(side=tk.RIGHT)
         # if default is not None:
         #     self._text.insert(0, str(default))
-
-        print("Text initialized")
 
     def get(self):
         try:
@@ -375,28 +346,36 @@ class _AdvancedOptionsGUI(object):
         # Architecture: radio buttons
         self._frame_architecture = tk.Frame(self._root)
         self._frame_architecture.pack()
-        self._architecture = _LabeledRadio(
-            self._frame_architecture,
-            "Architecture",
-            _gui.Architecture,
-            self._set_architecture,
+        self._architecture = _LabeledOptionMenu(
+            self._frame_architecture, "Architecture", _gui.Architecture
         )
 
         # Number of epochs: text box
         self._frame_epochs = tk.Frame(self._root)
         self._frame_epochs.pack()
+
         def non_negative_int(val):
             val = int(val)
             if val < 0:
                 val = 0
             return val
 
-        self._epochs = _LabeledText(self._frame_epochs, "Epochs", default=self._parent.advanced_options.num_epochs, type=non_negative_int)
+        self._epochs = _LabeledText(
+            self._frame_epochs,
+            "Epochs",
+            default=self._parent.advanced_options.num_epochs,
+            type=non_negative_int,
+        )
 
         # Delay: text box
         self._frame_delay = tk.Frame(self._root)
         self._frame_delay.pack()
-        self._delay = _LabeledText(self._frame_delay, "Delay", default=self._parent.advanced_options.delay, type=int)
+        self._delay = _LabeledText(
+            self._frame_delay,
+            "Delay",
+            default=self._parent.advanced_options.delay,
+            type=int,
+        )
 
         # "Ok": apply and destory
         self._frame_ok = tk.Frame(self._root)
@@ -419,8 +398,8 @@ class _AdvancedOptionsGUI(object):
         Set values to parent and destroy this object
         """
         self._parent.advanced_options.architecture = self._architecture.get()
-        self._parent.advanced_options.num_epochs = self._epochs.get()
-        self._parent.advanced_options.delay = self._delay.get()
+        self._parent.advanced_options.num_epochs = 100  # self._epochs.get()
+        self._parent.advanced_options.delay = None  # self._delay.get()
         self._root.destroy()
 
     def _set_architecture(self, val: _gui.Architecture):
@@ -441,7 +420,12 @@ class _AdvancedOptionsGUI(object):
 
 def _install_error():
     window = tk.Tk()
-    label = tk.Label(window, width=45, height=2, text="The NAM training software has not been installed correctly.")
+    label = tk.Label(
+        window,
+        width=45,
+        height=2,
+        text="The NAM training software has not been installed correctly.",
+    )
     label.pack()
     button = tk.Button(window, width=10, height=2, text="Quit", command=window.destroy)
     button.pack()
