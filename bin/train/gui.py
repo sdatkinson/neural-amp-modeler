@@ -26,6 +26,9 @@ BUTTON_WIDTH = 20
 BUTTON_HEIGHT = 2
 TEXT_WIDTH = 70
 
+_DEFAULT_NUM_EPOCHS = 100
+_DEFAULT_DELAY = None
+
 
 @dataclass
 class _AdvancedOptions(object):
@@ -139,10 +142,8 @@ class GUI(object):
 
         # Advanced options for training
         default_architecture = _gui.Architecture.STANDARD
-        default_num_epochs = 100
-        default_delay = None
         self.advanced_options = _AdvancedOptions(
-            default_architecture, default_num_epochs, default_delay
+            default_architecture, _DEFAULT_NUM_EPOCHS, _DEFAULT_DELAY
         )
         # Window to edit them:
         self._frame_advanced_options = tk.Frame(self._root)
@@ -243,7 +244,7 @@ class _LabeledOptionMenu(object):
     Label (left) and radio buttons (right)
     """
 
-    def __init__(self, frame: tk.Frame, label: str, choices: Enum):
+    def __init__(self, frame: tk.Frame, label: str, choices: Enum, default: Optional[Enum]=None):
         """
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
@@ -268,15 +269,17 @@ class _LabeledOptionMenu(object):
         frame_menu.pack(side=tk.RIGHT)
 
         self._selected_value = None
+        default = (list(choices)[0] if default is None else default).value
         self._menu = tk.OptionMenu(
             frame_menu,
-            tk.StringVar(master=frame, value=list(choices)[0].value, name=label),
-            *[choice.value for choice in choices],
+            tk.StringVar(master=frame, value=default, name=label),
+            # default,
+            *[choice.value for choice in choices],  #  if choice.value!=default],
             command=self._set,
         )
         self._menu.pack(side=tk.RIGHT)
         # Initialize
-        self._set(list(self._choices)[0].value)
+        self._set(default)
 
     def get(self) -> Enum:
         return self._selected_value
@@ -321,6 +324,9 @@ class _LabeledText(object):
             bg=None,
         )
         self._text.pack(side=tk.RIGHT)
+
+        self._type = type
+
         # if default is not None:
         #     self._text.insert(0, str(default))
 
@@ -347,7 +353,7 @@ class _AdvancedOptionsGUI(object):
         self._frame_architecture = tk.Frame(self._root)
         self._frame_architecture.pack()
         self._architecture = _LabeledOptionMenu(
-            self._frame_architecture, "Architecture", _gui.Architecture
+            self._frame_architecture, "Architecture", _gui.Architecture, default=self._parent.advanced_options.architecture
         )
 
         # Number of epochs: text box
@@ -370,11 +376,16 @@ class _AdvancedOptionsGUI(object):
         # Delay: text box
         self._frame_delay = tk.Frame(self._root)
         self._frame_delay.pack()
+
+        def int_or_null(val):
+            if val == "null":
+                return val
+            return int(val)
         self._delay = _LabeledText(
             self._frame_delay,
             "Delay",
             default=self._parent.advanced_options.delay,
-            type=int,
+            type=int_or_null,
         )
 
         # "Ok": apply and destory
@@ -398,8 +409,13 @@ class _AdvancedOptionsGUI(object):
         Set values to parent and destroy this object
         """
         self._parent.advanced_options.architecture = self._architecture.get()
-        self._parent.advanced_options.num_epochs = 100  # self._epochs.get()
-        self._parent.advanced_options.delay = None  # self._delay.get()
+        epochs = self._epochs.get()
+        if epochs is not None:
+            self._parent.advanced_options.num_epochs = epochs
+        delay = self._delay.get()
+        # Value None is returned as "null" to disambiguate from non-set.
+        if delay is not None:
+            self._parent.advanced_options.delay = None if delay == "null" else delay
         self._root.destroy()
 
     def _set_architecture(self, val: _gui.Architecture):
