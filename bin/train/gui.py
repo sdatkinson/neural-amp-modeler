@@ -144,17 +144,18 @@ class GUI(object):
         self.advanced_options = _AdvancedOptions(
             default_architecture, default_num_epochs, default_delay
         )
-        self._frame_advanced_options = tk.Frame(self._root)
-        self._frame_advanced_options.pack()
-        self._button_advanced_options = tk.Button(
-            self._frame_advanced_options,
-            text="Advanced options...",
-            width=BUTTON_WIDTH,
-            height=BUTTON_HEIGHT,
-            fg="black",
-            command=self._open_advanced_options,
-        )
-        self._button_advanced_options.pack()
+        # Window to edit them:
+        # self._frame_advanced_options = tk.Frame(self._root)
+        # self._frame_advanced_options.pack()
+        # self._button_advanced_options = tk.Button(
+        #     self._frame_advanced_options,
+        #     text="Advanced options...",
+        #     width=BUTTON_WIDTH,
+        #     height=BUTTON_HEIGHT,
+        #     fg="black",
+        #     command=self._open_advanced_options,
+        # )
+        # self._button_advanced_options.pack()
 
         # Train button
         self._frame_train = tk.Frame(self._root)
