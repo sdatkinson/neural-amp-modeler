@@ -308,10 +308,15 @@ def train(
     if seed is not None:
         torch.manual_seed(seed)
 
+    # This needs more thought...
+    # 1. Does the user want me to calibrate the delay?
+    # 2. Does the user want to see what the chosen (by them or me) delay looks like?
     if delay is None:
         if input_version is None:
             input_version = _detect_input_version(input_path)
-    delay = _calibrate_delay(delay, input_version, input_path, output_path)
+        delay = _calibrate_delay(delay, input_version, input_path, output_path)
+    else:
+        print(f"Delay provided as {delay}; skip calibration")
 
     data_config, model_config, learning_config = _get_configs(
         input_path,
