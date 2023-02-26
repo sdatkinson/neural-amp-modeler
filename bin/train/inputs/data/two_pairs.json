@@ -2,7 +2,7 @@
     "train": {
         "x_path": "C:\\path\\to\\train\\source.wav",
         "y_path": "C:\\path\\to\\train\\target.wav",
-        "ny": 1024
+        "ny": 8192
     },
     "validation": {
         "x_path": "C:\\path\\to\\validation\\source.wav",
