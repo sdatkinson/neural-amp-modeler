@@ -10,13 +10,8 @@ Hide the mess in Colab to make things look pretty for users.
 from pathlib import Path
 from typing import Optional, Tuple
 
-import matplotlib.pyplot as plt
-import numpy as np
-
-from ..data import REQUIRED_RATE, wav_to_np
-
 from ._version import Version
-from .gui import Architecture, export, train
+from .core import train
 
 
 _INPUT_BASENAMES = ((Version(1, 1, 1), "v1_1_1.wav"), (Version(1, 0, 0), "v1.wav"))

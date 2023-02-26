@@ -1,371 +1,457 @@
-# File: gui.py
-# Created Date: Tuesday December 20th 2022
+# File: __init__.py
+# Created Date: Saturday February 25th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-Functions used by the GUI trainer.
+GUI for training
+
+Usage:
+>>> import nam.train.gui
 """
 
-import hashlib
+import tkinter as tk
+from dataclasses import dataclass
 from enum import Enum
-from time import time
-from typing import Optional, Union
+from pathlib import Path
+from tkinter import filedialog
+from typing import Callable, Optional, Sequence
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pytorch_lightning as pl
-import torch
-from torch.utils.data import DataLoader
+try:
+    from ... import __version__
+    from .. import core
 
-from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np
-from ..models import Model
-from ._version import Version
+    _install_is_valid = True
+except ImportError:
+    _install_is_valid = False
+
+_BUTTON_WIDTH = 20
+_BUTTON_HEIGHT = 2
+_TEXT_WIDTH = 70
+
+_DEFAULT_NUM_EPOCHS = 100
+_DEFAULT_DELAY = None
 
 
-class Architecture(Enum):
-    STANDARD = "standard"
-    LITE = "lite"
-    FEATHER = "feather"
+@dataclass
+class _AdvancedOptions(object):
+    architecture: core.Architecture
+    num_epochs: int
+    delay: Optional[int]
 
 
-def _detect_input_version(input_path) -> Version:
+class _PathType(Enum):
+    FILE = "file"
+    DIRECTORY = "directory"
+
+
+class _PathButton(object):
     """
-    Check to see if the input matches any of the known inputs
+    Button and the path
     """
-    md5 = hashlib.md5()
-    buffer_size = 65536
-    with open(input_path, "rb") as f:
-        while True:
-            data = f.read(buffer_size)
-            if not data:
-                break
-            md5.update(data)
-    file_hash = md5.hexdigest()
 
-    version = {
-        "4d54a958861bf720ec4637f43d44a7ef": Version(1, 0, 0),
-        "7c3b6119c74465f79d96c761a0e27370": Version(1, 1, 1),
-    }.get(file_hash)
-    if version is None:
-        raise RuntimeError(
-            f"Provided input file {input_path} does not match any known standard input "
-            "files."
+    def __init__(
+        self,
+        frame: tk.Frame,
+        button_text,
+        info_str: str,
+        path_type: _PathType,
+        hooks: Optional[Sequence[Callable[[], None]]] = None,
+    ):
+        self._info_str = info_str
+        self._path: Optional[Path] = None
+        self._path_type = path_type
+        self._button = tk.Button(
+            frame,
+            text=button_text,
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            fg="black",
+            command=self._set_val,
         )
-    return version
-
-
-def _calibrate_delay_v1(input_path, output_path) -> int:
-    safety_factor = 4
-    # Locations of blips in v1 signal file:
-    i1, i2 = 12_000, 36_000
-    j1_start_looking = i1 - 1_000
-    j2_start_looking = i2 - 1_000
-
-    y = wav_to_np(output_path)[:48_000]
-
-    background_level = np.max(np.abs(y[:6_000]))
-    trigger_threshold = max(background_level + 0.01, 1.01 * background_level)
-    j1 = np.where(np.abs(y[j1_start_looking:j2_start_looking]) > trigger_threshold)[0][
-        0
-    ]
-    j2 = np.where(np.abs(y[j2_start_looking:]) > trigger_threshold)[0][0]
-
-    delay_1 = (j1 + j1_start_looking) - i1
-    delay_2 = (j2 + j2_start_looking) - i2
-    print(f"Delays: {delay_1}, {delay_2}")
-    delay = int(np.min([delay_1, delay_2])) - safety_factor
-    print(f"Final delay is {delay}")
-    return delay
-
-
-def _plot_delay_v1(delay: int, input_path: str, output_path: str):
-    print("Plotting the delay for manual inspection...")
-    x = wav_to_np(input_path)[:48_000]
-    y = wav_to_np(output_path)[:48_000]
-    i = np.where(np.abs(x) > 0.1)[0][0]  # In case resampled poorly
-    di = 20
-    plt.figure()
-    # plt.plot(x[i - di : i + di], ".-", label="Input")
-    plt.plot(
-        np.arange(-di, di),
-        y[i - di + delay : i + di + delay],
-        ".-",
-        label="Output",
-    )
-    plt.axvline(x=0, linestyle="--", color="C1")
-    plt.legend()
-    plt.show()  # This doesn't freeze the notebook
-
-
-def _calibrate_delay(
-    delay: Optional[int], input_version: Version, input_path: str, output_path: str,
-) -> int:
-    if input_version.major == 1:
-        calibrate, plot = _calibrate_delay_v1, _plot_delay_v1
-    else:
-        raise NotImplementedError(
-            f"Input calibration not implemented for input version {input_version}"
+        self._button.pack(side=tk.LEFT)
+        self._label = tk.Label(
+            frame,
+            width=_TEXT_WIDTH,
+            height=_BUTTON_HEIGHT,
+            fg="black",
+            bg=None,
+            anchor="w",
         )
-    if delay is not None:
-        print(f"Delay is specified as {delay}")
-    else:
-        print("Delay wasn't provided; attempting to calibrate automatically...")
-        delay = calibrate(input_path, output_path)
-    plot(delay, input_path, output_path)
-    return delay
+        self._label.pack(side=tk.RIGHT)
+        self._hooks = hooks
+        self._set_text()
+
+    @property
+    def val(self) -> Optional[Path]:
+        return self._path
+
+    def _set_text(self):
+        if self._path is None:
+            self._label["fg"] = "red"
+            self._label["text"] = f"{self._info_str} is not set!"
+        else:
+            self._label["fg"] = "black"
+            self._label["text"] = f"{self._info_str} set to {self.val}"
+
+    def _set_val(self):
+        res = {
+            _PathType.FILE: filedialog.askopenfilename,
+            _PathType.DIRECTORY: filedialog.askdirectory,
+        }[self._path_type]()
+        if res != "":
+            self._path = res
+        self._set_text()
+
+        if self._hooks is not None:
+            for h in self._hooks:
+                h()
 
 
-def _get_wavenet_config(architecture):
-    return {
-        Architecture.STANDARD: {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "channels": 16,
-                    "head_size": 8,
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": False,
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 16,
-                    "channels": 8,
-                    "head_size": 1,
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": True,
-                },
-            ],
-            "head_scale": 0.02,
-        },
-        Architecture.LITE: {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "channels": 12,
-                    "head_size": 6,
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": False,
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 12,
-                    "channels": 6,
-                    "head_size": 1,
-                    "kernel_size": 3,
-                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": True,
-                },
-            ],
-            "head_scale": 0.02,
-        },
-        Architecture.FEATHER: {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "channels": 8,
-                    "head_size": 4,
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": False,
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 8,
-                    "channels": 4,
-                    "head_size": 1,
-                    "kernel_size": 3,
-                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": True,
-                },
-            ],
-            "head_scale": 0.02,
-        },
-    }[architecture]
+class _GUI(object):
+    def __init__(self):
+        self._root = tk.Tk()
+        self._root.title(f"NAM Trainer - v{__version__}")
 
-
-def _get_configs(
-    input_basename: str,
-    output_basename: str,
-    delay: int,
-    epochs: int,
-    architecture: Architecture,
-    lr: float,
-    lr_decay: float,
-):
-    val_seconds = 9
-    train_val_split = -val_seconds * REQUIRED_RATE
-    data_config = {
-        "train": {"ny": 8192, "stop": train_val_split},
-        "validation": {"ny": None, "start": train_val_split},
-        "common": {
-            "x_path": input_basename,
-            "y_path": output_basename,
-            "delay": delay,
-        },
-    }
-    model_config = {
-        "net": {
-            "name": "WaveNet",
-            # This should do decently. If you really want a nice model, try turning up
-            # "channels" in the first block and "input_size" in the second from 12 to 16.
-            "config": _get_wavenet_config(architecture)
-        },
-        "loss": {"val_loss": "esr"},
-        "optimizer": {"lr": lr},
-        "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 1.0 - lr_decay}},
-    }
-    if torch.cuda.is_available():
-        device_config = {"accelerator": "gpu", "devices": 1}
-    else:
-        print("WARNING: No GPU was found. Training will be very slow!")
-        device_config = {}
-    learning_config = {
-        "train_dataloader": {
-            "batch_size": 16,
-            "shuffle": True,
-            "pin_memory": True,
-            "drop_last": True,
-            "num_workers": 0,
-        },
-        "val_dataloader": {},
-        "trainer": {"max_epochs": epochs, **device_config},
-    }
-    return data_config, model_config, learning_config
-
-
-def _esr(pred: torch.Tensor, target: torch.Tensor) -> float:
-    return (
-        torch.mean(torch.square(pred - target)).item()
-        / torch.mean(torch.square(target)).item()
-    )
-
-
-def _plot(
-    model, ds, window_start: Optional[int] = None, window_end: Optional[int] = None
-):
-    print("Plotting a comparison of your model with the target output...")
-    with torch.no_grad():
-        tx = len(ds.x) / 48_000
-        print(f"Run (t={tx:.2f} sec)")
-        t0 = time()
-        output = model(ds.x).flatten().cpu().numpy()
-        t1 = time()
-        print(f"Took {t1 - t0:.2f} sec ({tx / (t1 - t0):.2f}x)")
-
-    esr = _esr(torch.Tensor(output), ds.y)
-    # Trying my best to put numbers to it...
-    if esr < 0.01:
-        esr_comment = "Great!"
-    elif esr < 0.035:
-        esr_comment = "Not bad!"
-    elif esr < 0.1:
-        esr_comment = "...This *might* sound ok!"
-    elif esr < 0.3:
-        esr_comment = "...This probably won't sound great :("
-    else:
-        esr_comment = "...Something seems to have gone wrong."
-    print(f"Error-signal ratio = {esr:.3f}")
-    print(esr_comment)
-
-    plt.figure(figsize=(16, 5))
-    plt.plot(output[window_start:window_end], label="Prediction")
-    plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    plt.title(f"ESR={esr:.3f}")
-    plt.legend()
-    plt.show()
-
-
-def train(
-    input_path: str,
-    output_path: str,
-    train_path: str,
-    input_version: Optional[Version] = None,
-    epochs=100,
-    delay=None,
-    architecture: Union[Architecture, str]=Architecture.STANDARD,
-    lr=0.004,
-    lr_decay=0.007,
-    seed: Optional[int] = 0,
-):
-    if seed is not None:
-        torch.manual_seed(seed)
-
-    # This needs more thought...
-    # 1. Does the user want me to calibrate the delay?
-    # 2. Does the user want to see what the chosen (by them or me) delay looks like?
-    if delay is None:
-        if input_version is None:
-            input_version = _detect_input_version(input_path)
-        delay = _calibrate_delay(delay, input_version, input_path, output_path)
-    else:
-        print(f"Delay provided as {delay}; skip calibration")
-
-    data_config, model_config, learning_config = _get_configs(
-        input_path,
-        output_path,
-        delay,
-        epochs,
-        Architecture(architecture),
-        lr,
-        lr_decay,
-    )
-
-    print("Starting training. Let's rock!")
-    model = Model.init_from_config(model_config)
-    data_config["common"]["nx"] = model.net.receptive_field
-    dataset_train = init_dataset(data_config, Split.TRAIN)
-    dataset_validation = init_dataset(data_config, Split.VALIDATION)
-    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
-    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
-
-    trainer = pl.Trainer(
-        callbacks=[
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4f}_{MSE:.3e}",
-                save_top_k=3,
-                monitor="val_loss",
-                every_n_epochs=1,
-            ),
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_last_{epoch:04d}_{step}", every_n_epochs=1
-            ),
-        ],
-        default_root_dir=train_path,
-        **learning_config["trainer"],
-    )
-    trainer.fit(model, train_dataloader, val_dataloader)
-
-    # Go to best checkpoint
-    best_checkpoint = trainer.checkpoint_callback.best_model_path
-    if best_checkpoint != "":
-        model = Model.load_from_checkpoint(
-            trainer.checkpoint_callback.best_model_path,
-            **Model.parse_config(model_config),
+        # Buttons for paths:
+        self._frame_input_path = tk.Frame(self._root)
+        self._frame_input_path.pack()
+        self._path_button_input = _PathButton(
+            self._frame_input_path,
+            "Input Audio",
+            "Input audio",
+            _PathType.FILE,
+            hooks=[self._check_button_states],
         )
-    model.eval()
 
-    _plot(
-        model,
-        dataset_validation,
-        window_start=100_000,  # Start of the plotting window, in samples
-        window_end=101_000,  # End of the plotting window, in samples
+        self._frame_output_path = tk.Frame(self._root)
+        self._frame_output_path.pack()
+        self._path_button_output = _PathButton(
+            self._frame_output_path,
+            "Output Audio",
+            "Output audio",
+            _PathType.FILE,
+            hooks=[self._check_button_states],
+        )
+
+        self._frame_train_destination = tk.Frame(self._root)
+        self._frame_train_destination.pack()
+        self._path_button_train_destination = _PathButton(
+            self._frame_train_destination,
+            "Train Destination",
+            "Train destination",
+            _PathType.DIRECTORY,
+            hooks=[self._check_button_states],
+        )
+
+        # Advanced options for training
+        default_architecture = core.Architecture.STANDARD
+        self.advanced_options = _AdvancedOptions(
+            default_architecture, _DEFAULT_NUM_EPOCHS, _DEFAULT_DELAY
+        )
+        # Window to edit them:
+        self._frame_advanced_options = tk.Frame(self._root)
+        self._frame_advanced_options.pack()
+        self._button_advanced_options = tk.Button(
+            self._frame_advanced_options,
+            text="Advanced options...",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            fg="black",
+            command=self._open_advanced_options,
+        )
+        self._button_advanced_options.pack()
+
+        # Train button
+        self._frame_train = tk.Frame(self._root)
+        self._frame_train.pack()
+        self._button_train = tk.Button(
+            self._frame_train,
+            text="Train",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            fg="black",
+            command=self._train,
+        )
+        self._button_train.pack()
+
+        self._check_button_states()
+
+    def mainloop(self):
+        self._root.mainloop()
+
+    def _open_advanced_options(self):
+        """
+        Open advanced options
+        """
+        ao = _AdvancedOptionsGUI(self)
+        # I should probably disable the main GUI...
+        ao.mainloop()
+        # ...and then re-enable it once it gets closed.
+
+    def _train(self):
+        # Advanced options:
+        num_epochs = self.advanced_options.num_epochs
+        architecture = self.advanced_options.architecture
+        delay = self.advanced_options.delay
+
+        # Advanced-er options
+        # If you're poking around looking for these, then maybe it's time to learn to
+        # use the command-line scripts ;)
+        lr = 0.004
+        lr_decay = 0.007
+        seed = 0
+
+        # Run it
+        trained_model = core.train(
+            self._path_button_input.val,
+            self._path_button_output.val,
+            self._path_button_train_destination.val,
+            epochs=num_epochs,
+            delay=delay,
+            architecture=architecture,
+            lr=lr,
+            lr_decay=lr_decay,
+            seed=seed,
+        )
+        print("Model training complete!")
+        print("Exporting...")
+        outdir = self._path_button_train_destination.val
+        print(f"Exporting trained model to {outdir}...")
+        trained_model.net.export(outdir)
+        print("Done!")
+
+    def _check_button_states(self):
+        """
+        Determine if any buttons should be disabled
+        """
+        # Train button is diabled unless all paths are set
+        if any(
+            pb.val is None
+            for pb in (
+                self._path_button_input,
+                self._path_button_output,
+                self._path_button_train_destination,
+            )
+        ):
+            self._button_train["state"] = tk.DISABLED
+            return
+        self._button_train["state"] = tk.NORMAL
+
+
+_ADVANCED_OPTIONS_LEFT_WIDTH = 12
+_ADVANCED_OPTIONS_RIGHT_WIDTH = 12
+
+
+class _LabeledOptionMenu(object):
+    """
+    Label (left) and radio buttons (right)
+    """
+
+    def __init__(
+        self, frame: tk.Frame, label: str, choices: Enum, default: Optional[Enum] = None
+    ):
+        """
+        :param command: Called to propagate option selection. Is provided with the
+            value corresponding to the radio button selected.
+        """
+        self._frame = frame
+        self._choices = choices
+        height = _BUTTON_HEIGHT
+        bg = None
+        fg = "black"
+        self._label = tk.Label(
+            frame,
+            width=_ADVANCED_OPTIONS_LEFT_WIDTH,
+            height=height,
+            fg=fg,
+            bg=bg,
+            anchor="w",
+            text=label,
+        )
+        self._label.pack(side=tk.LEFT)
+
+        frame_menu = tk.Frame(frame)
+        frame_menu.pack(side=tk.RIGHT)
+
+        self._selected_value = None
+        default = (list(choices)[0] if default is None else default).value
+        self._menu = tk.OptionMenu(
+            frame_menu,
+            tk.StringVar(master=frame, value=default, name=label),
+            # default,
+            *[choice.value for choice in choices],  #  if choice.value!=default],
+            command=self._set,
+        )
+        self._menu.config(width=_ADVANCED_OPTIONS_RIGHT_WIDTH)
+        self._menu.pack(side=tk.RIGHT)
+        # Initialize
+        self._set(default)
+
+    def get(self) -> Enum:
+        return self._selected_value
+
+    def _set(self, val: str):
+        """
+        Set the value selected
+        """
+        self._selected_value = self._choices(val)
+
+
+class _LabeledText(object):
+    """
+    Label (left) and text input (right)
+    """
+
+    def __init__(self, frame: tk.Frame, label: str, default=None, type=None):
+        """
+        :param command: Called to propagate option selection. Is provided with the
+            value corresponding to the radio button selected.
+        :param type: If provided, casts value to given type
+        """
+        self._frame = frame
+        label_height = 2
+        text_height = 1
+        self._label = tk.Label(
+            frame,
+            width=_ADVANCED_OPTIONS_LEFT_WIDTH,
+            height=label_height,
+            fg="black",
+            bg=None,
+            anchor="w",
+            text=label,
+        )
+        self._label.pack(side=tk.LEFT)
+
+        self._text = tk.Text(
+            frame,
+            width=_ADVANCED_OPTIONS_RIGHT_WIDTH,
+            height=text_height,
+            fg="black",
+            bg=None,
+        )
+        self._text.pack(side=tk.RIGHT)
+
+        self._type = type
+
+        if default is not None:
+            self._text.insert("1.0", str(default))
+
+    def get(self):
+        try:
+            val = self._text.get("1.0", tk.END)  # Line 1, character zero (wat)
+            if self._type is not None:
+                val = self._type(val)
+            return val
+        except tk.TclError:
+            return None
+
+
+class _AdvancedOptionsGUI(object):
+    """
+    A window to hold advanced options (Architecture and number of epochs)
+    """
+
+    def __init__(self, parent: _GUI):
+        self._parent = parent
+        self._root = tk.Tk()
+        self._root.title("Advanced Options")
+
+        # Architecture: radio buttons
+        self._frame_architecture = tk.Frame(self._root)
+        self._frame_architecture.pack()
+        self._architecture = _LabeledOptionMenu(
+            self._frame_architecture,
+            "Architecture",
+            core.Architecture,
+            default=self._parent.advanced_options.architecture,
+        )
+
+        # Number of epochs: text box
+        self._frame_epochs = tk.Frame(self._root)
+        self._frame_epochs.pack()
+
+        def non_negative_int(val):
+            val = int(val)
+            if val < 0:
+                val = 0
+            return val
+
+        self._epochs = _LabeledText(
+            self._frame_epochs,
+            "Epochs",
+            default=str(self._parent.advanced_options.num_epochs),
+            type=non_negative_int,
+        )
+
+        # Delay: text box
+        self._frame_delay = tk.Frame(self._root)
+        self._frame_delay.pack()
+
+        def int_or_null(val):
+            val = val.rstrip()
+            if val == "null":
+                return val
+            return int(val)
+
+        def int_or_null_inv(val):
+            return "null" if val is None else str(val)
+
+        self._delay = _LabeledText(
+            self._frame_delay,
+            "Delay",
+            default=int_or_null_inv(self._parent.advanced_options.delay),
+            type=int_or_null,
+        )
+
+        # "Ok": apply and destory
+        self._frame_ok = tk.Frame(self._root)
+        self._frame_ok.pack()
+        self._button_ok = tk.Button(
+            self._frame_ok,
+            text="Ok",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            fg="black",
+            command=self._apply_and_destroy,
+        )
+        self._button_ok.pack()
+
+    def mainloop(self):
+        self._root.mainloop()
+
+    def _apply_and_destroy(self):
+        """
+        Set values to parent and destroy this object
+        """
+        self._parent.advanced_options.architecture = self._architecture.get()
+        epochs = self._epochs.get()
+        if epochs is not None:
+            self._parent.advanced_options.num_epochs = epochs
+        delay = self._delay.get()
+        # Value None is returned as "null" to disambiguate from non-set.
+        if delay is not None:
+            self._parent.advanced_options.delay = None if delay == "null" else delay
+        self._root.destroy()
+
+
+def _install_error():
+    window = tk.Tk()
+    window.title("ERROR")
+    label = tk.Label(
+        window,
+        width=45,
+        height=2,
+        text="The NAM training software has not been installed correctly.",
     )
-    return model
+    label.pack()
+    button = tk.Button(window, width=10, height=2, text="Quit", command=window.destroy)
+    button.pack()
+    window.mainloop()
+
+
+def run():
+    if _install_is_valid:
+        _gui = _GUI()
+        _gui.mainloop()
+    else:
+        _install_error()
