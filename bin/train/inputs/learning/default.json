@@ -6,12 +6,10 @@
         "drop_last": true,
         "num_workers": 0
     },
-    "val_dataloader": {
-    },
+    "val_dataloader": {},
     "trainer": {
         "gpus": 1,
-        "max_epochs": 1000
+        "max_epochs": 100
     },
-    "trainer_fit_kwargs": {
-    }
+    "trainer_fit_kwargs": {}
 }
