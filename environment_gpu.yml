@@ -2,7 +2,7 @@
 # Created Date: Saturday February 13th 2021
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-name: nam-test
+name: nam
 channels:
   - pytorch
   - nvidia
@@ -24,7 +24,7 @@ dependencies:
   - wheel
   - pip:
       - onnx
-      - onnxruntime  # TODO GPU...
+      - onnxruntime # TODO GPU...
       - pre-commit
       - pytorch_lightning
       - sounddevice
