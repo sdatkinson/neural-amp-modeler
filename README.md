@@ -55,15 +55,17 @@ conda activate nam
 ```
 
 ### Train models (GUI)
-Open a GUI trainer with:
+Open a GUI trainer by running
 
 ```bash
-python bin/train/gui.py
+nam
 ```
 
+from the terminal.
+
 ### Train models (Python script)
-For users looking to gt even more fine-grained control over the modeling 
-process, NAM includes a training script that can be run from the terminal, e.g.:
+For users looking to get more fine-grained control over the modeling process, 
+NAM includes a training script that can be run from the terminal, e.g.:
 
 ```bash
 python bin/train/main.py \
