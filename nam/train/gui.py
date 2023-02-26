@@ -17,8 +17,8 @@ from tkinter import filedialog
 from typing import Callable, Optional, Sequence
 
 try:
-    from ... import __version__
-    from .. import core
+    from .. import __version__
+    from . import core
 
     _install_is_valid = True
 except ImportError:
