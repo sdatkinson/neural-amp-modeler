@@ -55,7 +55,7 @@ conda activate nam
 ```
 
 ### Train models (GUI)
-Open a GUI trainer by running
+After installing, you can open a GUI trainer by running
 
 ```bash
 nam
