@@ -53,7 +53,7 @@ def _get_valid_export_directory():
     def get_path(version):
         return Path("exported_models", f"version_{version}")
 
-    version = 1
+    version = 0
     while get_path(version).exists():
         version += 1
     return get_path(version)
@@ -63,9 +63,9 @@ def run(
     epochs: int = 100,
     delay: Optional[int] = None,
     architecture: str = "standard",
-    lr: float=0.004,
-    lr_decay: float=0.007,
-    seed: Optional[int]=0,
+    lr: float = 0.004,
+    lr_decay: float = 0.007,
+    seed: Optional[int] = 0,
 ):
     """
     :param epochs: How amny epochs we'll train for.
