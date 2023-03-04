@@ -37,6 +37,7 @@ class WavInfo:
 
 def wav_to_np(
     filename: Union[str, Path],
+    rate: Optional[int] = REQUIRED_RATE,
     require_match: Optional[Union[str, Path]] = None,
     required_shape: Optional[Tuple[int]] = None,
     required_wavinfo: Optional[WavInfo] = None,
@@ -49,7 +50,11 @@ def wav_to_np(
     x_wav = wavio.read(str(filename))
     assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
     assert x_wav.sampwidth == _REQUIRED_SAMPWIDTH, "24-bit"
-    assert x_wav.rate == REQUIRED_RATE, "48 kHz"
+    if rate is not None and x_wav.rate != rate:
+        raise RuntimeError(
+            f"Explicitly expected sample rate of {rate}, but found {x_wav.rate} in "
+            f"file {filename}!"
+        )
 
     if require_match is not None:
         assert required_shape is None
