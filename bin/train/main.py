@@ -2,9 +2,22 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+# Hack to recover graceful shutdowns in Windows.
+# This has to happen ASAP
+# See:
+# https://github.com/sdatkinson/neural-amp-modeler/issues/105
+# https://stackoverflow.com/a/44822794
+def _ensure_graceful_shutdowns():
+    import os
+
+    if os.name == "nt":  # OS is Windows
+        os.environ["FOR_DISABLE_CONSOLE_CTRL_HANDLER"] = "1"
+
+
+_ensure_graceful_shutdowns()
+
 import json
 from argparse import ArgumentParser
-from datetime import datetime
 from pathlib import Path
 from time import time
 from typing import Optional, Union
@@ -18,13 +31,9 @@ from torch.utils.data import DataLoader
 
 from nam.data import ConcatDataset, ParametricDataset, Split, init_dataset
 from nam.models import Model
+from nam.util import timestamp
 
 torch.manual_seed(0)
-
-
-def timestamp() -> str:
-    t = datetime.now()
-    return f"{t.year:04d}-{t.month:02d}-{t.day:02d}-{t.hour:02d}-{t.minute:02d}-{t.second:02d}"
 
 
 def ensure_outdir(outdir: str) -> Path:
@@ -72,7 +81,7 @@ def plot(
         return
     with torch.no_grad():
         tx = len(ds.x) / 48_000
-        print(f"Run (t={tx})")
+        print(f"Run (t={tx:.2f})")
         t0 = time()
         args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
         output = model(*args).flatten().cpu().numpy()
@@ -105,7 +114,11 @@ def _create_callbacks(learning_config):
             "every_n_train_steps": learning_config["trainer"]["val_check_interval"]
         }
     else:
-        kwargs = {"every_n_epochs": learning_config["trainer"].get("check_val_every_n_epoch", 1)}
+        kwargs = {
+            "every_n_epochs": learning_config["trainer"].get(
+                "check_val_every_n_epoch", 1
+            )
+        }
 
     checkpoint_best = pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
@@ -113,6 +126,7 @@ def _create_callbacks(learning_config):
         monitor="val_loss",
         **kwargs,
     )
+    # The last validation pass, whether at the end of an epoch or not
     checkpoint_last = pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
     )
@@ -128,6 +142,12 @@ def main(args):
         model_config = json.load(fp)
     with open(args.learning_config_path, "r") as fp:
         learning_config = json.load(fp)
+    main_inner(data_config, model_config, learning_config, outdir, args.no_show)
+
+
+def main_inner(
+    data_config, model_config, learning_config, outdir, no_show, make_plots=True
+):
     # Write
     for basename, config in (
         ("data", data_config),
@@ -141,7 +161,9 @@ def main(args):
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
-        warn(f"Overriding data nx={data_config['common']['nx']} with model requried {model.net.receptive_field}")
+        warn(
+            f"Overriding data nx={data_config['common']['nx']} with model requried {model.net.receptive_field}"
+        )
     data_config["common"]["nx"] = model.net.receptive_field
 
     dataset_train = init_dataset(data_config, Split.TRAIN)
@@ -170,15 +192,16 @@ def main(args):
             **Model.parse_config(model_config),
         )
     model.eval()
-    plot(
-        model,
-        dataset_validation,
-        savefig=Path(outdir, "comparison.png"),
-        window_start=100_000,
-        window_end=110_000,
-        show=False,
-    )
-    plot(model, dataset_validation, show=not args.no_show)
+    if make_plots:
+        plot(
+            model,
+            dataset_validation,
+            savefig=Path(outdir, "comparison.png"),
+            window_start=100_000,
+            window_end=110_000,
+            show=False,
+        )
+        plot(model, dataset_validation, show=not no_show)
 
 
 if __name__ == "__main__":
