@@ -109,7 +109,8 @@ def _create_callbacks(learning_config):
     """
     # Checkpoints should be run every time the validation check is run.
     # So base it off of learning_config["trainer"]["val_check_interval"] if it's there.
-    if "val_check_interval" in learning_config["trainer"]:
+    validate_inside_epoch = "val_check_interval" in learning_config["trainer"]
+    if validate_inside_epoch:
         kwargs = {
             "every_n_train_steps": learning_config["trainer"]["val_check_interval"]
         }
@@ -126,11 +127,20 @@ def _create_callbacks(learning_config):
         monitor="val_loss",
         **kwargs,
     )
-    # The last validation pass, whether at the end of an epoch or not
-    checkpoint_last = pl.callbacks.model_checkpoint.ModelCheckpoint(
-        filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
+
+    # return [checkpoint_best, checkpoint_last]
+    # The last epoch that was finished.
+    checkpoint_epoch = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        filename="checkpoint_epoch_{epoch:04d}", every_n_epochs=1
     )
-    return [checkpoint_best, checkpoint_last]
+    if not validate_inside_epoch:
+        return [checkpoint_best, checkpoint_epoch]
+    else:
+        # The last validation pass, whether at the end of an epoch or not
+        checkpoint_last = pl.callbacks.model_checkpoint.ModelCheckpoint(
+            filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
+        )
+        return [checkpoint_best, checkpoint_last, checkpoint_epoch]
 
 
 def main(args):
