@@ -6,8 +6,23 @@
 GUI for training
 
 Usage:
->>> import nam.train.gui
+>>> from nam.train.gui import run
+>>> run()
 """
+
+# Hack to recover graceful shutdowns in Windows.
+# This has to happen ASAP
+# See:
+# https://github.com/sdatkinson/neural-amp-modeler/issues/105
+# https://stackoverflow.com/a/44822794
+def _ensure_graceful_shutdowns():
+    import os
+
+    if os.name == "nt":  # OS is Windows
+        os.environ["FOR_DISABLE_CONSOLE_CTRL_HANDLER"] = "1"
+
+
+_ensure_graceful_shutdowns()
 
 import tkinter as tk
 from dataclasses import dataclass
@@ -17,8 +32,8 @@ from tkinter import filedialog
 from typing import Callable, Optional, Sequence
 
 try:
-    from .. import __version__
-    from . import core
+    from nam import __version__
+    from nam.train import core
 
     _install_is_valid = True
 except ImportError:
@@ -455,3 +470,7 @@ def run():
         _gui.mainloop()
     else:
         _install_error()
+
+
+if __name__ == "__main__":
+    run()
