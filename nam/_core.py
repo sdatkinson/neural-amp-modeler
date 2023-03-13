@@ -2,6 +2,8 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+from copy import deepcopy
+
 
 class InitializableFromConfig(object):
     @classmethod
@@ -10,4 +12,4 @@ class InitializableFromConfig(object):
 
     @classmethod
     def parse_config(cls, config):
-        return config
+        return deepcopy(config)
