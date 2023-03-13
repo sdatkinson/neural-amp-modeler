@@ -58,26 +58,46 @@ _V1_BLIP_LOCATIONS = 12_000, 36_000
 
 
 def _calibrate_delay_v1(input_path, output_path) -> int:
+    lookahead = 1_000
+    lookback = 10_000
     safety_factor = 4
-    # Locations of blips in v1 signal file:
-    i1, i2 = _V1_BLIP_LOCATIONS
-    j1_start_looking = i1 - 1_000
-    j2_start_looking = i2 - 1_000
 
+    # Calibrate the trigger:
     y = wav_to_np(output_path)[:48_000]
-
     background_level = np.max(np.abs(y[:6_000]))
     trigger_threshold = max(background_level + 0.01, 1.01 * background_level)
-    j1 = np.where(np.abs(y[j1_start_looking:j2_start_looking]) > trigger_threshold)[0][
-        0
-    ]
-    j2 = np.where(np.abs(y[j2_start_looking:]) > trigger_threshold)[0][0]
 
-    delay_1 = (j1 + j1_start_looking) - i1
-    delay_2 = (j2 + j2_start_looking) - i2
-    print(f"Delays: {delay_1}, {delay_2}")
-    delay = int(np.min([delay_1, delay_2])) - safety_factor
-    print(f"Final delay is {delay}")
+    delays = []
+    for blip_index, i in enumerate(_V1_BLIP_LOCATIONS, 1):
+        
+        start_looking = i - lookahead
+        stop_looking = i + lookback
+        y_scan = y[start_looking:stop_looking]
+        triggered = np.where(np.abs(y_scan) > trigger_threshold)[
+            0
+        ]
+        if len(triggered) == 0:
+            msg = (
+                f"No response activated the trigger in response to blip "
+                f"{blip_index}. Is something wrong with the reamp?"
+            )
+            print(msg)
+            plt.figure()
+            plt.plot(np.arange(-lookahead, lookback), y_scan)
+            plt.axvline(x=0, color="C1", linestyle="--")
+            plt.axhline(y=-trigger_threshold, color="k", linestyle="--")
+            plt.axhline(y=trigger_threshold, color="k", linestyle="--")
+            plt.show()
+            raise RuntimeError(msg)
+        else:
+            j = triggered[0]
+            delays.append(j + start_looking - i)
+
+    print("Delays:")
+    for d in delays:
+        print(" {d}")
+    delay = int(np.min(delays)) - safety_factor
+    print(f"After aplying safety factor, final delay is {delay}")
     return delay
 
 
