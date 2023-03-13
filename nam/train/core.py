@@ -69,24 +69,29 @@ def _calibrate_delay_v1(input_path, output_path) -> int:
 
     delays = []
     for blip_index, i in enumerate(_V1_BLIP_LOCATIONS, 1):
-        
+
         start_looking = i - lookahead
         stop_looking = i + lookback
         y_scan = y[start_looking:stop_looking]
-        triggered = np.where(np.abs(y_scan) > trigger_threshold)[
-            0
-        ]
+        triggered = np.where(np.abs(y_scan) > trigger_threshold)[0]
         if len(triggered) == 0:
             msg = (
                 f"No response activated the trigger in response to blip "
                 f"{blip_index}. Is something wrong with the reamp?"
             )
             print(msg)
+            print("SHARE THIS PLOT IF YOU ASK FOR HELP")
             plt.figure()
-            plt.plot(np.arange(-lookahead, lookback), y_scan)
-            plt.axvline(x=0, color="C1", linestyle="--")
-            plt.axhline(y=-trigger_threshold, color="k", linestyle="--")
+            plt.plot(np.arange(-lookahead, lookback), y_scan, label="Signal")
+            plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
+            plt.axhline(
+                y=-trigger_threshold, color="k", linestyle="--", label="Threshold"
+            )
             plt.axhline(y=trigger_threshold, color="k", linestyle="--")
+            plt.xlim((-lookahead, lookback))
+            plt.xlabel("Samples")
+            plt.ylabel("Response")
+            plt.legend()
             plt.show()
             raise RuntimeError(msg)
         else:
