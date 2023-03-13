@@ -35,6 +35,26 @@ class WavInfo:
     rate: int
 
 
+class AudioShapeMismatchError(ValueError):
+    """
+    Exception where the shape (number of samples, number of channels) of two audio files
+    don't match but were supposed to.
+    """
+
+    def __init__(self, shape_expected, shape_actual, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._shape_expected = shape_expected
+        self._shape_actual = shape_actual
+
+    @property
+    def shape_expected(self):
+        return self._shape_expected
+
+    @property
+    def shape_actual(self):
+        return self._shape_actual
+
+
 def wav_to_np(
     filename: Union[str, Path],
     rate: Optional[int] = REQUIRED_RATE,
@@ -70,8 +90,11 @@ def wav_to_np(
     arr_premono = x_wav.data[preroll:] / (2.0 ** (8 * x_wav.sampwidth - 1))
     if required_shape is not None:
         if arr_premono.shape != required_shape:
-            raise ValueError(
-                f"Mismatched shapes {arr_premono.shape} versus {required_shape}"
+            raise AudioShapeMismatchError(
+                arr_premono.shape,
+                required_shape,
+                f"Mismatched shapes. Expected {required_shape}, but this is "
+                f"{arr_premono.shape}!",
             )
         # sampwidth fine--we're just casting to 32-bit float anyways
     arr = arr_premono[:, 0]
@@ -289,12 +312,44 @@ class Dataset(AbstractDataset, InitializableFromConfig):
     @classmethod
     def parse_config(cls, config):
         x, x_wavinfo = wav_to_tensor(config["x_path"], info=True)
-        y = wav_to_tensor(
-            config["y_path"],
-            preroll=config.get("y_preroll"),
-            required_shape=(len(x), 1),
-            required_wavinfo=x_wavinfo,
-        )
+        rate = x_wavinfo.rate
+        try:
+            y = wav_to_tensor(
+                config["y_path"],
+                rate=rate,
+                preroll=config.get("y_preroll"),
+                required_shape=(len(x), 1),
+                required_wavinfo=x_wavinfo,
+            )
+        except AudioShapeMismatchError as e:
+            # Really verbose message since users see this.
+            x_samples, x_channels = e.shape_expected
+            y_samples, y_channels = e.shape_actual
+            msg = "Your audio files aren't the same shape as each other!"
+            if x_channels != y_channels:
+                ctosm = {1: "mono", 2: "stereo"}
+                msg += f"\n * The input is {ctosm[x_channels]}, but the output is {ctosm[y_channels]}!"
+            if x_samples != y_samples:
+
+                def sample_to_time(s, rate):
+                    seconds = s // rate
+                    remainder = s % rate
+                    hours, minutes = 0, 0
+                    seconds_per_hour = 3600
+                    while seconds >= seconds_per_hour:
+                        hours += 1
+                        seconds -= seconds_per_hour
+                    seconds_per_minute = 60
+                    while seconds >= seconds_per_minute:
+                        minutes += 1
+                        seconds -= seconds_per_minute
+                    return (
+                        f"{hours}:{minutes:02d}:{seconds:02d} and {remainder} samples"
+                    )
+
+                msg += f"\n * The input is {sample_to_time(x_samples, rate)} long"
+                msg += f"\n * The output is {sample_to_time(y_samples, rate)} long"
+            raise ValueError(msg)
         return {
             "x": x,
             "y": y,
