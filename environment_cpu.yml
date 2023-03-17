@@ -9,6 +9,7 @@ dependencies:
   - black
   - flake8
   - h5py
+  - hydra-core
   - jupyter
   - matplotlib
   - numpy

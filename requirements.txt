@@ -4,6 +4,7 @@
 
 black
 flake8
+hydra-core
 matplotlib
 numpy
 onnx
