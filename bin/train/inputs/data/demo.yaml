@@ -1,0 +1,13 @@
+train:
+    start: null
+    stop: -432000
+    ny: 8192
+validation:
+    start: -432000
+    stop: null
+    ny: null
+common:
+    x_path: "C:\\path\\to\\source.wav"
+    y_path: "C:\\path\\to\\target.wav"
+    train_path: "C:\\path\\to\\train_folder"
+    delay: 
