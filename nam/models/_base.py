@@ -2,8 +2,15 @@
 # Created Date: Tuesday February 8th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+"""
+The foundation of the model without the PyTorch Lightning attributes (losses, training 
+steps)
+"""
+
 import abc
 import math
+import pkg_resources
+from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -11,7 +18,7 @@ import torch
 import torch.nn as nn
 
 from .._core import InitializableFromConfig
-from ..data import REQUIRED_RATE
+from ..data import REQUIRED_RATE, wav_to_tensor
 from ._exportable import Exportable
 
 
@@ -30,6 +37,21 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
     @abc.abstractmethod
     def forward(self, *args, **kwargs) -> torch.Tensor:
         pass
+
+    def _loudness(self, gain: float=1.0) -> float:
+        """
+        How loud is this model when given a standardized input?
+        In dB
+
+        :param gain: Multiplies input signal
+        """
+        x = wav_to_tensor(pkg_resources.resource_filename("nam", "models/_resources/loudness_input.wav"))
+        y = self._at_nominal_settings(gain * x)
+        return 10.0 * torch.log10(torch.mean(torch.square(y))).item()
+    
+    def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
+        # parametric?...
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def _forward(self, *args) -> torch.Tensor:
@@ -65,7 +87,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
             x.detach().cpu().numpy(), 
             self(*args, x, pad_start=True).detach().cpu().numpy()
         )
-
+    
 
 class BaseNet(_Base):
     def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None):
@@ -79,6 +101,9 @@ class BaseNet(_Base):
         if scalar:
             y = y[0]
         return y
+    
+    def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
+        return self(x)
 
     @abc.abstractmethod
     def _forward(self, x: torch.Tensor) -> torch.Tensor:

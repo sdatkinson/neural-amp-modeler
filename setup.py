@@ -31,6 +31,7 @@ setup(
     url="https://github.com/sdatkinson/",
     install_requires=requirements,
     packages=find_packages(),
+    include_package_data=True,
     entry_points={
         'console_scripts': [
             'nam = nam.train.gui:run',
