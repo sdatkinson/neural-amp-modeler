@@ -6,6 +6,7 @@
 Version utility
 """
 
+
 class Version:
     def __init__(self, major: int, minor: int, patch: int):
         self.major = major

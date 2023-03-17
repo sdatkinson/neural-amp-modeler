@@ -10,7 +10,6 @@ steps)
 import abc
 import math
 import pkg_resources
-from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -38,17 +37,21 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
     def forward(self, *args, **kwargs) -> torch.Tensor:
         pass
 
-    def _loudness(self, gain: float=1.0) -> float:
+    def _loudness(self, gain: float = 1.0) -> float:
         """
         How loud is this model when given a standardized input?
         In dB
 
         :param gain: Multiplies input signal
         """
-        x = wav_to_tensor(pkg_resources.resource_filename("nam", "models/_resources/loudness_input.wav"))
+        x = wav_to_tensor(
+            pkg_resources.resource_filename(
+                "nam", "models/_resources/loudness_input.wav"
+            )
+        )
         y = self._at_nominal_settings(gain * x)
         return 10.0 * torch.log10(torch.mean(torch.square(y))).item()
-    
+
     def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
         # parametric?...
         raise NotImplementedError()
@@ -59,7 +62,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         The true forward method.
 
         :param x: (N,L1)
-        :return: (N,L1-RF+1) 
+        :return: (N,L1-RF+1)
         """
         pass
 
@@ -84,10 +87,15 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         )
         # Use pad start to ensure same length as requested by ._export_input_output()
         return (
-            x.detach().cpu().numpy(), 
-            self(*args, x, pad_start=True).detach().cpu().numpy()
+            x.detach().cpu().numpy(),
+            self(*args, x, pad_start=True).detach().cpu().numpy(),
         )
-    
+
+    def _get_export_dict(self):
+        d = super()._get_export_dict()
+        d["metadata"] = {}
+        return d
+
 
 class BaseNet(_Base):
     def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None):
@@ -101,7 +109,7 @@ class BaseNet(_Base):
         if scalar:
             y = y[0]
         return y
-    
+
     def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
         return self(x)
 
@@ -111,9 +119,14 @@ class BaseNet(_Base):
         The true forward method.
 
         :param x: (N,L1)
-        :return: (N,L1-RF+1) 
+        :return: (N,L1-RF+1)
         """
         pass
+
+    def _get_export_dict(self):
+        d = super()._get_export_dict()
+        d["metadata"]["loudness"] = self._loudness()
+        return d
 
 
 class ParametricBaseNet(_Base):
@@ -143,6 +156,6 @@ class ParametricBaseNet(_Base):
 
         :param params: (N,D)
         :param x: (N,L1)
-        :return: (N,L1-RF+1) 
+        :return: (N,L1-RF+1)
         """
         pass

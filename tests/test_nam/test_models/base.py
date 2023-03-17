@@ -28,4 +28,3 @@ class Base(abc.ABC):
         args = args if args is not None else self._args
         kwargs = kwargs if kwargs is not None else self._kwargs
         return C(*args, **kwargs)
-
