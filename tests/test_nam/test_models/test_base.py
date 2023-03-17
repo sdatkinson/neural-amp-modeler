@@ -11,6 +11,7 @@ import torch
 
 from nam.models._base import BaseNet
 
+
 def test_loudness():
     class C(BaseNet):
         def __init__(self, gain: float, *args, **kwargs):
@@ -24,10 +25,10 @@ def test_loudness():
         @property
         def receptive_field(self) -> int:
             return 1
-        
+
         def export_cpp_header(self, filename: Path):
             pass
-        
+
         def _export_config(self):
             pass
 
@@ -36,7 +37,7 @@ def test_loudness():
 
         def _forward(self, x: torch.Tensor) -> torch.Tensor:
             return self.gain * x
-        
+
     obj = C(1.0)
     y = obj._loudness()
     obj.gain = 2.0
@@ -44,8 +45,6 @@ def test_loudness():
     assert isinstance(y, float)
     # 2x louder = +6dB
     assert y2 == pytest.approx(y + 20.0 * math.log10(2.0))
-
-
 
 
 if __name__ == "__main__":

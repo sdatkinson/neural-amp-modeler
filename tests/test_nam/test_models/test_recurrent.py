@@ -47,12 +47,14 @@ class TestLSTM(Base):
             ]
 
         input_names = [z.name for z in session.get_inputs()]
-        onnx_inputs = {i: z.detach().cpu().numpy() for i, z in zip(input_names, (x, hin, cin))}
+        onnx_inputs = {
+            i: z.detach().cpu().numpy() for i, z in zip(input_names, (x, hin, cin))
+        }
         y_actual, hout_actual, cout_actual = session.run([], onnx_inputs)
 
         def approx(val):
             return pytest.approx(val, rel=1.0e-6, abs=1.0e-6)
-            
+
         assert y_expected == approx(y_actual)
         assert hout_expected == approx(hout_actual)
         assert cout_expected == approx(cout_actual)
