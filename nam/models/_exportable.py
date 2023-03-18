@@ -21,7 +21,7 @@ class Exportable(abc.ABC):
     Interface for my custon export format for use in the plugin.
     """
 
-    def export(self, outdir: Path, include_snapshot: bool = False):
+    def export(self, outdir: Path, include_snapshot: bool = False, modelname: str = "model"):
         """
         Interface for exporting.
         You should create at least a `config.json` containing the two fields:
@@ -37,7 +37,7 @@ class Exportable(abc.ABC):
         """
         training = self.training
         self.eval()
-        with open(Path(outdir, "model.nam"), "w") as fp:
+        with open(Path(outdir, modelname + ".nam"), "w") as fp:
             json.dump(
                 {
                     "version": __version__,

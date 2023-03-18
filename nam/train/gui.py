@@ -9,6 +9,8 @@ Usage:
 >>> from nam.train.gui import run
 >>> run()
 """
+import os
+import re
 
 # Hack to recover graceful shutdowns in Windows.
 # This has to happen ASAP
@@ -57,6 +59,7 @@ class _AdvancedOptions(object):
 class _PathType(Enum):
     FILE = "file"
     DIRECTORY = "directory"
+    MULTIFILE = "multifile"
 
 
 class _PathButton(object):
@@ -112,6 +115,7 @@ class _PathButton(object):
         res = {
             _PathType.FILE: filedialog.askopenfilename,
             _PathType.DIRECTORY: filedialog.askdirectory,
+            _PathType.MULTIFILE: filedialog.askopenfilenames,
         }[self._path_type]()
         if res != "":
             self._path = res
@@ -144,7 +148,7 @@ class _GUI(object):
             self._frame_output_path,
             "Output Audio",
             "Output audio",
-            _PathType.FILE,
+            _PathType.MULTIFILE,
             hooks=[self._check_button_states],
         )
 
@@ -157,6 +161,9 @@ class _GUI(object):
             _PathType.DIRECTORY,
             hooks=[self._check_button_states],
         )
+
+        # This should probably be to the right somewhere
+        self.getAdditionalOptionsFrames()
 
         # Advanced options for training
         default_architecture = core.Architecture.STANDARD
@@ -191,6 +198,30 @@ class _GUI(object):
 
         self._check_button_states()
 
+    def getAdditionalOptionsFrames(self):
+
+        # Checkboxes
+        self._frame_silent = tk.Frame(self._root)
+        self._frame_silent.pack(side=tk.LEFT)
+
+        # Silent run (bypass popups)
+        self._silent = tk.BooleanVar()
+        self._chkbox_silent = tk.Checkbutton(
+            self._frame_silent,
+            text='Silent run',
+            variable=self._silent,
+            )
+        self._chkbox_silent.grid(row=1, column=1, sticky='W')
+
+        # Auto save the end plot
+        self._save_plot = tk.BooleanVar()
+        self._save_plot.set(True)  # default this to true
+        self._chkbox_save_plot = tk.Checkbutton(
+            self._frame_silent,
+            text='Save plot automatically',
+            variable=self._save_plot, )
+        self._chkbox_save_plot.grid(row=2, column=1, sticky='W')
+
     def mainloop(self):
         self._root.mainloop()
 
@@ -208,6 +239,7 @@ class _GUI(object):
         num_epochs = self.advanced_options.num_epochs
         architecture = self.advanced_options.architecture
         delay = self.advanced_options.delay
+        file_list = self._path_button_output.val
 
         # Advanced-er options
         # If you're poking around looking for these, then maybe it's time to learn to
@@ -217,23 +249,31 @@ class _GUI(object):
         seed = 0
 
         # Run it
-        trained_model = core.train(
-            self._path_button_input.val,
-            self._path_button_output.val,
-            self._path_button_train_destination.val,
-            epochs=num_epochs,
-            delay=delay,
-            architecture=architecture,
-            lr=lr,
-            lr_decay=lr_decay,
-            seed=seed,
-        )
-        print("Model training complete!")
-        print("Exporting...")
-        outdir = self._path_button_train_destination.val
-        print(f"Exporting trained model to {outdir}...")
-        trained_model.net.export(outdir)
-        print("Done!")
+        for file in file_list:
+
+            print ("Now training {}".format(file))
+            modelname = re.sub(r"\.wav$", '', file.split("/")[-1])
+
+            trained_model = core.train(
+                self._path_button_input.val,
+                file,
+                self._path_button_train_destination.val,
+                epochs=num_epochs,
+                delay=delay,
+                architecture=architecture,
+                lr=lr,
+                lr_decay=lr_decay,
+                seed=seed,
+                silent=self._silent.get(),
+                save_plot=True,
+                modelname=modelname
+            )
+            print("Model training complete!")
+            print("Exporting...")
+            outdir = self._path_button_train_destination.val
+            print(f"Exporting trained model to {outdir}...")
+            trained_model.net.export(outdir, modelname=modelname)
+            print("Done!")
 
     def _check_button_states(self):
         """
