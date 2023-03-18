@@ -100,7 +100,7 @@ def _calibrate_delay_v1(input_path, output_path) -> int:
 
     print("Delays:")
     for d in delays:
-        print(f" {d}")
+        print(" {d}")
     delay = int(np.min(delays)) - safety_factor
     print(f"After aplying safety factor, final delay is {delay}")
     return delay

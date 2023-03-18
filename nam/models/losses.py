@@ -31,17 +31,3 @@ def esr(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         torch.mean(torch.square(preds - targets), dim=1)
         / torch.mean(torch.square(targets), dim=1)
     )
-
-
-def mse_fft(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-    """
-    Fourier loss
-
-    :param preds: (N,) or (B,N)
-    :param targets: Same as preds
-    :return: ()
-    """
-    fp = torch.fft.fft(preds)
-    ft = torch.fft.fft(targets)
-    e = fp - ft
-    return torch.mean(torch.square(e.abs()))

@@ -21,7 +21,7 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
-from .losses import esr, mse_fft
+from .losses import esr
 from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
@@ -54,7 +54,6 @@ class LossConfig(InitializableFromConfig):
         https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
     """
 
-    fourier: bool = False
     mask_first: int = 0
     dc_weight: float = 0.0
     val_loss: ValidationLoss = ValidationLoss.MSE
@@ -64,14 +63,12 @@ class LossConfig(InitializableFromConfig):
     @classmethod
     def parse_config(cls, config):
         config = super().parse_config(config)
-        fourier = config.get("fourier", False)
         dc_weight = config.get("dc_weight", 0.0)
         val_loss = ValidationLoss(config.get("val_loss", "mse"))
         mask_first = config.get("mask_first", 0)
         pre_emph_coef = config.get("pre_emph_coef")
         pre_emph_weight = config.get("pre_emph_weight")
         return {
-            "fourier": fourier,
             "mask_first": mask_first,
             "dc_weight": dc_weight,
             "val_loss": val_loss,
@@ -201,10 +198,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
 
         loss = 0.0
         # Prediction aka MSE loss
-        if self._loss_config.fourier:
-            loss = loss + mse_fft(preds, targets)
-        else:
-            loss = loss + self._mse_loss(preds, targets)
+        loss = loss + self._mse_loss(preds, targets)
         # Pre-emphasized MSE
         if self._loss_config.pre_emph_weight is not None:
             if (self._loss_config.pre_emph_coef is None) != (
