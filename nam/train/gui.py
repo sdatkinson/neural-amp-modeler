@@ -9,8 +9,6 @@ Usage:
 >>> from nam.train.gui import run
 >>> run()
 """
-import os
-import re
 
 # Hack to recover graceful shutdowns in Windows.
 # This has to happen ASAP
@@ -26,6 +24,7 @@ def _ensure_graceful_shutdowns():
 
 _ensure_graceful_shutdowns()
 
+import re
 import tkinter as tk
 from dataclasses import dataclass
 from enum import Enum
@@ -40,7 +39,6 @@ try:
     _install_is_valid = True
 except ImportError:
     _install_is_valid = False
-
 _BUTTON_WIDTH = 20
 _BUTTON_HEIGHT = 2
 _TEXT_WIDTH = 70
@@ -108,8 +106,10 @@ class _PathButton(object):
             self._label["fg"] = "red"
             self._label["text"] = f"{self._info_str} is not set!"
         else:
+            val = self.val
+            val = val[0] if isinstance(val, tuple) and len(val) == 1 else val
             self._label["fg"] = "black"
-            self._label["text"] = f"{self._info_str} set to {self.val}"
+            self._label["text"] = f"{self._info_str} set to {val}"
 
     def _set_val(self):
         res = {
@@ -163,7 +163,7 @@ class _GUI(object):
         )
 
         # This should probably be to the right somewhere
-        self.getAdditionalOptionsFrames()
+        self._get_additional_options_frame()
 
         # Advanced options for training
         default_architecture = core.Architecture.STANDARD
@@ -198,8 +198,7 @@ class _GUI(object):
 
         self._check_button_states()
 
-    def getAdditionalOptionsFrames(self):
-
+    def _get_additional_options_frame(self):
         # Checkboxes
         self._frame_silent = tk.Frame(self._root)
         self._frame_silent.pack(side=tk.LEFT)
@@ -208,19 +207,20 @@ class _GUI(object):
         self._silent = tk.BooleanVar()
         self._chkbox_silent = tk.Checkbutton(
             self._frame_silent,
-            text='Silent run',
+            text="Silent run",
             variable=self._silent,
-            )
-        self._chkbox_silent.grid(row=1, column=1, sticky='W')
+        )
+        self._chkbox_silent.grid(row=1, column=1, sticky="W")
 
         # Auto save the end plot
         self._save_plot = tk.BooleanVar()
         self._save_plot.set(True)  # default this to true
         self._chkbox_save_plot = tk.Checkbutton(
             self._frame_silent,
-            text='Save plot automatically',
-            variable=self._save_plot, )
-        self._chkbox_save_plot.grid(row=2, column=1, sticky='W')
+            text="Save plot automatically",
+            variable=self._save_plot,
+        )
+        self._chkbox_save_plot.grid(row=2, column=1, sticky="W")
 
     def mainloop(self):
         self._root.mainloop()
@@ -250,9 +250,8 @@ class _GUI(object):
 
         # Run it
         for file in file_list:
-
-            print ("Now training {}".format(file))
-            modelname = re.sub(r"\.wav$", '', file.split("/")[-1])
+            print("Now training {}".format(file))
+            modelname = re.sub(r"\.wav$", "", file.split("/")[-1])
 
             trained_model = core.train(
                 self._path_button_input.val,
@@ -265,8 +264,8 @@ class _GUI(object):
                 lr_decay=lr_decay,
                 seed=seed,
                 silent=self._silent.get(),
-                save_plot=True,
-                modelname=modelname
+                save_plot=self._save_plot.get(),
+                modelname=modelname,
             )
             print("Model training complete!")
             print("Exporting...")
