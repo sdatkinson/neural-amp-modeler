@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 import torch
 
-from nam.models._base import BaseNet
+from nam.models import _base, base
 
 
-class _Mock(BaseNet):
+class _MockBaseNet(_base.BaseNet):
     def __init__(self, gain: float, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.gain = gain
@@ -39,13 +39,27 @@ class _Mock(BaseNet):
 
 
 def test_loudness():
-    obj = _Mock(1.0)
+    obj = _MockBaseNet(1.0)
     y = obj._loudness()
     obj.gain = 2.0
     y2 = obj._loudness()
     assert isinstance(y, float)
     # 2x louder = +6dB
     assert y2 == pytest.approx(y + 20.0 * math.log10(2.0))
+
+
+@pytest.mark.parametrize(
+    "batch_size,sequence_length", ((16, 8192), (3, 2048), (1, 4000))
+)
+def test_mrstft_loss(batch_size: int, sequence_length: int):
+    obj = base.Model(
+        _MockBaseNet(1.0), loss_config=base.LossConfig(mstft_weight=0.0002)
+    )
+    preds = torch.randn((batch_size, sequence_length))
+    targets = torch.randn(preds.shape)
+    loss = obj._mrstft_loss(preds, targets)
+    assert isinstance(loss, torch.Tensor)
+    assert loss.ndim == 0
 
 
 if __name__ == "__main__":
