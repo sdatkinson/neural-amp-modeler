@@ -11,6 +11,7 @@ with open(ver_path) as ver_file:
     exec(ver_file.read(), main_ns)
 
 requirements = [
+    "auraloss",
     "matplotlib",
     "numpy",
     "pytorch_lightning",
@@ -33,8 +34,8 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     entry_points={
-        'console_scripts': [
-            'nam = nam.train.gui:run',
+        "console_scripts": [
+            "nam = nam.train.gui:run",
         ]
-    }
+    },
 )
