@@ -118,23 +118,23 @@ def main(args: Namespace):
     aligned_output_wav_data, align_shift = align_wav(input_wav_data, output_wav_data)
     print('Shift: ', align_shift)
 
-    # # PLot before and after alignment
-    # plt.figure(figsize=(12, 4))
-    # plt.plot(input_wav_data)
-    # plt.plot(output_wav_data)
-    # plt.title('Output')
+    # PLot before and after alignment
+    plt.figure(figsize=(12, 4))
+    plt.plot(input_wav_data)
+    plt.plot(output_wav_data)
+    plt.title('Output')
 
-    # plt.figure(figsize=(12, 4))
-    # plt.plot(input_wav_data)
-    # plt.plot(aligned_output_wav_data)
-    # plt.title('Aligned Output')
+    plt.figure(figsize=(12, 4))
+    plt.plot(input_wav_data)
+    plt.plot(aligned_output_wav_data)
+    plt.title('Aligned Output')
 
-    # plt.figure(figsize=(12, 4))
-    # plt.plot(input_wav_data[:50000])
-    # plt.plot(aligned_output_wav_data[:50000])
-    # plt.title('Aligned Output Zoomed In')
+    plt.figure(figsize=(12, 4))
+    plt.plot(input_wav_data[:50000])
+    plt.plot(aligned_output_wav_data[:50000])
+    plt.title('Aligned Output Zoomed In')
 
-    # plt.show()
+    plt.show()
 
     # Write the aligned output wav file
     aligned_output_wav_path = output_wav_path.replace('.wav', '_aligned.wav')
