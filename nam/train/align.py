@@ -34,7 +34,7 @@ def read_wav(filename: str) -> Tuple[np.ndarray, int, int]:
     # Normalize the audio data to the range [-1, 1]
     audio_data = audio_data.astype(np.float32) / max_amplitude
 
-    # Return the audio data and sampling rate as a 2D NumPy array
+    # Return the audio data, sampling rate, and bit depth
     return audio_data, sample_rate, bitdepth
 
 
