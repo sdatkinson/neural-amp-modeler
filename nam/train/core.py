@@ -305,7 +305,7 @@ def _get_configs(
             "optimizer": {"lr": lr},
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 1.0 - lr_decay}},
         }
-    else
+    else:
         model_config = {
             "net": {
                 "name": "LSTM",
