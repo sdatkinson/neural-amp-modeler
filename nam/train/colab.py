@@ -62,6 +62,7 @@ def _get_valid_export_directory():
 def run(
     epochs: int = 100,
     delay: Optional[int] = None,
+    model_type: str = "WaveNet",
     architecture: str = "standard",
     lr: float = 0.004,
     lr_decay: float = 0.007,
@@ -87,6 +88,7 @@ def run(
         input_version=input_version,
         epochs=epochs,
         delay=delay,
+        model_type,
         architecture=architecture,
         lr=lr,
         lr_decay=lr_decay,
