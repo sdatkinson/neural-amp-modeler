@@ -88,7 +88,7 @@ def run(
         input_version=input_version,
         epochs=epochs,
         delay=delay,
-        model_type,
+        model_type=model_type,
         architecture=architecture,
         lr=lr,
         lr_decay=lr_decay,
