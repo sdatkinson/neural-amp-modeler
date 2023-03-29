@@ -405,7 +405,7 @@ def train(
     input_version: Optional[Version] = None,
     epochs=100,
     delay=None,
-    model_type: str,
+    model_type: str = "WaveNet",
     architecture: Union[Architecture, str] = Architecture.STANDARD,
     lr=0.004,
     lr_decay=0.007,
