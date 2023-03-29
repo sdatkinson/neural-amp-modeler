@@ -172,14 +172,14 @@ def _get_lstm_config(architecture):
             "train_truncate": 512,
         },
         Architecture.LITE: {
-            "num_layers": 3,
-            "hidden_size": 24,
+            "num_layers": 2,
+            "hidden_size": 16,
             "train_burn_in": 4096,
             "train_truncate": 512,
         },
         Architecture.FEATHER: {
-            "num_layers": 3,
-            "hidden_size": 24,
+            "num_layers": 1,
+            "hidden_size": 12,
             "train_burn_in": 4096,
             "train_truncate": 512,
         },
