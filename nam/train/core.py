@@ -184,7 +184,6 @@ def _get_lstm_config(architecture):
             "train_truncate": 512,
         },
     }[architecture]
-}
 
 def _get_wavenet_config(architecture):
     return {
