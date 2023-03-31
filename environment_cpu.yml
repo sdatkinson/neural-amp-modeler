@@ -4,6 +4,7 @@
 
 name: nam
 channels:
+  - conda-forge # pytest-mock
   - pytorch
 dependencies:
   - black
@@ -14,6 +15,7 @@ dependencies:
   - numpy
   - pip
   - pytest
+  - pytest-mock
   - pytorch
   - scipy
   - semver
