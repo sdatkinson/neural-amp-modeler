@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Optional, Tuple
 
 import auraloss
+import logging
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -22,11 +23,13 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
-from .losses import esr, mse_fft
+from .losses import esr, multi_resolution_stft_loss, mse_fft
 from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
 from .wavenet import WaveNet
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationLoss(Enum):
@@ -115,6 +118,10 @@ class Model(pl.LightningModule, InitializableFromConfig):
         self._scheduler_config = scheduler_config
         self._loss_config = LossConfig() if loss_config is None else loss_config
         self._mrstft = None  # Multi-resolution short-time Fourier transform loss
+        # Where to compute the MRSTFT.
+        # Keeping it on-device is preferable, but if that fails, then remember to drop
+        # it to cpu from then on.
+        self._mrstft_device: Optional[torch.device] = None
 
     @classmethod
     def init_from_config(cls, config):
@@ -292,9 +299,17 @@ class Model(pl.LightningModule, InitializableFromConfig):
         if self._mrstft is None:
             self._mrstft = auraloss.freq.MultiResolutionSTFTLoss()
 
-        # device = "cpu"  # not all platforms support this on gpu yet
-        # preds = preds.to(device)
-        # targets = targets.to(device)
+        backup_device = "cpu"
 
-        loss = self._mrstft(preds, targets)
-        return loss
+        try:
+            return multi_resolution_stft_loss(
+                preds, targets, self._mrstft, device=self._mrstft_device
+            )
+        except Exception as e:
+            if self._mrstft_device == backup_device:
+                raise e
+            logger.warning("MRSTFT failed on device; falling back to CPU")
+            self._mrstft_device = backup_device
+            return multi_resolution_stft_loss(
+                preds, targets, self._mrstft, device=self._mrstft_device
+            )

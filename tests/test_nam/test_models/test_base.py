@@ -4,10 +4,12 @@
 
 import math
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pytest
 import torch
+from auraloss.freq import MultiResolutionSTFTLoss
 
 from nam.models import _base, base
 
@@ -60,6 +62,39 @@ def test_mrstft_loss(batch_size: int, sequence_length: int):
     loss = obj._mrstft_loss(preds, targets)
     assert isinstance(loss, torch.Tensor)
     assert loss.ndim == 0
+
+
+def test_mrstft_loss_cpu_fallback(mocker):
+    """
+    Assert that fallback to CPU happens on failure
+    """
+
+    def mocked_loss(
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        loss_func: Optional[MultiResolutionSTFTLoss] = None,
+        device: Optional[torch.device] = None,
+    ) -> torch.Tensor:
+        """
+        As if the device doesn't support it
+        """
+        if device != "cpu":
+            raise RuntimeError("Trigger fallback")
+        return torch.tensor(1.0)
+
+    mocker.patch("nam.models.base.multi_resolution_stft_loss", mocked_loss)
+
+    batch_size = 3
+    sequence_length = 4096
+    obj = base.Model(
+        _MockBaseNet(1.0), loss_config=base.LossConfig(mrstft_weight=0.0002)
+    )
+    preds = torch.randn((batch_size, sequence_length))
+    targets = torch.randn(preds.shape)
+
+    assert obj._mrstft_device is None
+    obj._mrstft_loss(preds, targets)  # Should trigger fallback
+    assert obj._mrstft_device == "cpu"
 
 
 if __name__ == "__main__":

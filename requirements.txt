@@ -12,6 +12,7 @@ onnxruntime
 pip
 pre-commit
 pytest
+pytest-mock
 pytorch_lightning
 scipy
 sounddevice
