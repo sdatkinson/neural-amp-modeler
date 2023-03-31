@@ -53,7 +53,7 @@ def test_loudness():
 )
 def test_mrstft_loss(batch_size: int, sequence_length: int):
     obj = base.Model(
-        _MockBaseNet(1.0), loss_config=base.LossConfig(mstft_weight=0.0002)
+        _MockBaseNet(1.0), loss_config=base.LossConfig(mrstft_weight=0.0002)
     )
     preds = torch.randn((batch_size, sequence_length))
     targets = torch.randn(preds.shape)

@@ -55,7 +55,7 @@ class LossConfig(InitializableFromConfig):
         https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
     """
 
-    mstft_weight: float = 0.0  # 0.0 means no multiresolution stft loss, 2e-4 works pretty well if one wants to use it
+    mrstft_weight: float = 0.0  # 0.0 means no multiresolution stft loss, 2e-4 works pretty well if one wants to use it
     fourier: bool = False
     mask_first: int = 0
     dc_weight: float = 0.0
@@ -72,6 +72,7 @@ class LossConfig(InitializableFromConfig):
         mask_first = config.get("mask_first", 0)
         pre_emph_coef = config.get("pre_emph_coef")
         pre_emph_weight = config.get("pre_emph_weight")
+        mrstft_weight = config.get("mstft_weight", 0.0)
         return {
             "fourier": fourier,
             "mask_first": mask_first,
@@ -79,6 +80,7 @@ class LossConfig(InitializableFromConfig):
             "val_loss": val_loss,
             "pre_emph_coef": pre_emph_coef,
             "pre_emph_weight": pre_emph_weight,
+            "mrstft_weight": mrstft_weight,
         }
 
     def apply_mask(self, *args):
@@ -214,8 +216,8 @@ class Model(pl.LightningModule, InitializableFromConfig):
             loss = loss + mse_fft(preds, targets)
         else:
             loss = loss + self._mse_loss(preds, targets)
-        if self._loss_config.mstft_weight > 0.0:
-            loss = loss + self._loss_config.mstft_weight * self._mrstft_loss(
+        if self._loss_config.mrstft_weight > 0.0:
+            loss = loss + self._loss_config.mrstft_weight * self._mrstft_loss(
                 preds, targets
             )
         # Pre-emphasized MSE
@@ -248,7 +250,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
             self._loss_config.val_loss
         ]
         dict_to_log = {"MSE": mse_loss, "ESR": esr_loss, "val_loss": val_loss}
-        if self._loss_config.mstft_weight > 0.0 and self._mrstft is not None:
+        if self._loss_config.mrstft_weight > 0.0 and self._mrstft is not None:
             mrstft_loss = self._mrstft_loss(preds, targets)
             dict_to_log.update({"MRSTFT": mrstft_loss})
         self.log_dict(dict_to_log)
@@ -290,9 +292,9 @@ class Model(pl.LightningModule, InitializableFromConfig):
         if self._mrstft is None:
             self._mrstft = auraloss.freq.MultiResolutionSTFTLoss()
 
-        device = "cpu"  # not all platforms support this on gpu yet
-        preds_cpu = preds.to(device)
-        targets_cpu = targets.to(device)
+        # device = "cpu"  # not all platforms support this on gpu yet
+        # preds = preds.to(device)
+        # targets = targets.to(device)
 
-        loss = self._mrstft(preds_cpu, targets_cpu)
+        loss = self._mrstft(preds, targets)
         return loss
