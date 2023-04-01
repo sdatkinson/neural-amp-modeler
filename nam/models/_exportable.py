@@ -39,12 +39,7 @@ class Exportable(abc.ABC):
         self.eval()
         with open(Path(outdir, modelname + ".nam"), "w") as fp:
             json.dump(
-                {
-                    "version": __version__,
-                    "architecture": self.__class__.__name__,
-                    "config": self._export_config(),
-                    "weights": self._export_weights().tolist(),
-                },
+                self._get_export_dict(),
                 fp,
                 indent=4,
             )
@@ -103,3 +98,11 @@ class Exportable(abc.ABC):
         Flatten the weights out to a 1D array
         """
         pass
+
+    def _get_export_dict(self):
+        return {
+            "version": __version__,
+            "architecture": self.__class__.__name__,
+            "config": self._export_config(),
+            "weights": self._export_weights().tolist(),
+        }

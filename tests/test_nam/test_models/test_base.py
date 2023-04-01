@@ -40,6 +40,7 @@ class _MockBaseNet(_base.BaseNet):
         return self.gain * x
 
 
+
 def test_loudness():
     obj = _MockBaseNet(1.0)
     y = obj._loudness()
