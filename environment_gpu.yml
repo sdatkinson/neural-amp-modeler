@@ -4,6 +4,7 @@
 
 name: nam
 channels:
+  - conda-forge # pytest-mock
   - pytorch
   - nvidia
 dependencies:
@@ -15,6 +16,7 @@ dependencies:
   - numpy
   - pip
   - pytest
+  - pytest-mock
   - pytorch
   - pytorch-cuda=11.7
   - scipy
@@ -23,6 +25,7 @@ dependencies:
   - tqdm
   - wheel
   - pip:
+      - auraloss
       - onnx
       - onnxruntime # TODO GPU...
       - pre-commit

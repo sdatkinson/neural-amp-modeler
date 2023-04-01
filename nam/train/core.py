@@ -100,7 +100,7 @@ def _calibrate_delay_v1(input_path, output_path) -> int:
 
     print("Delays:")
     for d in delays:
-        print(" {d}")
+        print(f" {d}")
     delay = int(np.min(delays)) - safety_factor
     print(f"After aplying safety factor, final delay is {delay}")
     return delay
@@ -146,6 +146,7 @@ def _calibrate_delay(
     input_version: Version,
     input_path: str,
     output_path: str,
+    silent: bool=False
 ) -> int:
     if input_version.major == 1:
         calibrate, plot = _calibrate_delay_v1, _plot_delay_v1
@@ -158,7 +159,8 @@ def _calibrate_delay(
     else:
         print("Delay wasn't provided; attempting to calibrate automatically...")
         delay = calibrate(input_path, output_path)
-    plot(delay, input_path, output_path)
+    if not silent:
+        plot(delay, input_path, output_path)
     return delay
 
 
@@ -308,7 +310,12 @@ def _esr(pred: torch.Tensor, target: torch.Tensor) -> float:
 
 
 def _plot(
-    model, ds, window_start: Optional[int] = None, window_end: Optional[int] = None
+        model,
+        ds,
+        window_start: Optional[int] = None,
+        window_end: Optional[int] = None,
+        filepath: Optional[str] = None,
+        silent: bool = False
 ):
     print("Plotting a comparison of your model with the target output...")
     with torch.no_grad():
@@ -339,8 +346,10 @@ def _plot(
     plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
     plt.title(f"ESR={esr:.3f}")
     plt.legend()
-    plt.show()
-
+    if filepath is not None:
+        plt.savefig(filepath + ".png")
+    if not silent:
+        plt.show()
 
 def train(
     input_path: str,
@@ -353,6 +362,9 @@ def train(
     lr=0.004,
     lr_decay=0.007,
     seed: Optional[int] = 0,
+    save_plot: bool=False,
+    silent: bool=False,
+    modelname: str="model"
 ):
     if seed is not None:
         torch.manual_seed(seed)
@@ -363,7 +375,7 @@ def train(
     if delay is None:
         if input_version is None:
             input_version = _detect_input_version(input_path)
-        delay = _calibrate_delay(delay, input_version, input_path, output_path)
+        delay = _calibrate_delay(delay, input_version, input_path, output_path, silent=silent)
     else:
         print(f"Delay provided as {delay}; skip calibration")
 
@@ -416,5 +428,7 @@ def train(
         dataset_validation,
         window_start=100_000,  # Start of the plotting window, in samples
         window_end=101_000,  # End of the plotting window, in samples
+        filepath=train_path +'/'+ modelname if save_plot else None,
+        silent=silent
     )
     return model
