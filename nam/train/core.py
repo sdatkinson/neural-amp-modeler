@@ -338,13 +338,13 @@ def _plot(
         esr_comment = "...This probably won't sound great :("
     else:
         esr_comment = "...Something seems to have gone wrong."
-    print(f"Error-signal ratio = {esr:.3f}")
+    print(f"Error-signal ratio = {esr:.4f}")
     print(esr_comment)
 
     plt.figure(figsize=(16, 5))
     plt.plot(output[window_start:window_end], label="Prediction")
     plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    plt.title(f"ESR={esr:.3f}")
+    plt.title(f"ESR={esr:.4f}")
     plt.legend()
     if filepath is not None:
         plt.savefig(filepath + ".png")
