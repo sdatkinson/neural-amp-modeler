@@ -41,7 +41,6 @@ class Exportable(abc.ABC):
             json.dump(
                 self._get_export_dict(),
                 fp,
-                indent=4,
             )
         if include_snapshot:
             x, y = self._export_input_output()
