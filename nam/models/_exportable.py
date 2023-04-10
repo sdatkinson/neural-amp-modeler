@@ -46,7 +46,6 @@ class Exportable(abc.ABC):
                     "weights": self._export_weights().tolist(),
                 },
                 fp,
-                indent=4,
             )
         if include_snapshot:
             x, y = self._export_input_output()
