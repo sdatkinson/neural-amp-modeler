@@ -1,4 +1,4 @@
-# File: __init__.py
+# File: gui.py
 # Created Date: Saturday February 25th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
