@@ -1,4 +1,4 @@
-# File: gui.py
+# File: core.py
 # Created Date: Tuesday December 20th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
