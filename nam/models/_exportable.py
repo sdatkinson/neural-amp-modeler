@@ -103,5 +103,6 @@ class Exportable(abc.ABC):
             "version": __version__,
             "architecture": self.__class__.__name__,
             "config": self._export_config(),
+            "metadata": {},
             "weights": self._export_weights().tolist(),
         }
