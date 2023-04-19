@@ -132,3 +132,9 @@ dmypy.json
 
 # Training outputs
 ./bin/train/outputs/
+
+# Training Files
+training_files/
+
+# NAM config
+tui_config.json
