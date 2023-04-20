@@ -111,7 +111,7 @@ class _TUI(ttk.Frame):
         self.modelName = tk.StringVar(value=data_loaded[MODEL_NAME_KEY])
         self.outputFolderName = tk.StringVar(value=data_loaded[OUTPUT_FOLDER_KEY])
         self.inputSourceFile = tk.StringVar(value=data_loaded[INPUT_SOURCE_FILE_KEY])
-        self.architectures = [core.Architecture.STANDARD,core.Architecture.LITE,core.Architecture.FEATHER]
+        self.architectures = [core.Architecture.STANDARD.value,core.Architecture.LITE.value,core.Architecture.FEATHER.value]
         self.selectedArchitecture = tk.StringVar(value=data_loaded[SELECTED_ARCH_KEY])
         self.ampCapturesList = tk.Variable()
         self.captureFolderName = tk.StringVar(value=data_loaded[CAPTURE_FOLDER_KEY])
@@ -124,7 +124,7 @@ class _TUI(ttk.Frame):
 
         s = ttk.Style()
         self.systemThemes = s.theme_names()
-        
+
         self._createLeftAndRightFrames()
         self._createAmpCapturesFrame()
         self._createInputFrame()
@@ -274,7 +274,7 @@ class _TUI(ttk.Frame):
         self.executeFrame.columnconfigure( index=4, weight=1 )
         self.executeFrame.columnconfigure( index=5, weight=1 )
         
-        self.cancelButton = ttk.Button( self.executeFrame, text="Cancel", command=self.cancelCallback, width=1 )
+        self.cancelButton = ttk.Button( self.executeFrame, text="Close", command=self.cancelCallback, width=1 )
         self.cancelButton.grid( row=0, column=4, padx=10, pady=10, sticky="nsew" )
         
         self.trainButton = ttk.Button( self.executeFrame, text="Train", command=self.trainCallback, width=1 )
@@ -343,6 +343,8 @@ class _TUI(ttk.Frame):
             #print("Now training {}".format(file))
             #modelname = re.sub(r"\.wav$", "", file.split("/")[-1])
 
+        modelNameNoExt = self.modelName.get().split('.')[0]
+       
         trained_model = core.train(
             self.inputSourceFile.get(),
             os.path.join(self.captureFolderName.get(), self.selectedAmpCapture),
@@ -355,13 +357,13 @@ class _TUI(ttk.Frame):
             seed=seed,
             silent=self.silentrun.get(),
             save_plot=self.saveplot.get(),
-            modelname=self.modelName.get(),
+            modelname=modelNameNoExt,
         )
         print("Model training complete!")
         print("Exporting...")
         outdir = self.outputFolderName.get()
         print(f"Exporting trained model to {outdir}...")
-        trained_model.net.export(outdir, modelname=self.modelName.get())
+        trained_model.net.export(outdir, modelname=modelNameNoExt)
         print("Done!")
         
     def trainCallback(self):
@@ -424,10 +426,8 @@ class _TUI(ttk.Frame):
         # get all selected indices
         selected_indices = self.captureList.curselection()
         # get selected items
-        selected_langs = ",".join([self.captureList.get(i) for i in selected_indices])
-        #print(selected_langs)
-        self.selectedAmpCapture = selected_langs
-        #print( os.path.basename(self.selectedAmpCapture).split('.')[0] )
+        selected_items = ",".join([self.captureList.get(i) for i in selected_indices])
+        self.selectedAmpCapture = selected_items
         self.modelName.set(os.path.basename(self.selectedAmpCapture).split('.')[0] + ".nam")
         self._saveSettings()
         
@@ -461,7 +461,6 @@ def _install_error():
     button = tk.Button(window, width=10, height=2, text="Quit", command=window.destroy)
     button.pack()
     window.mainloop()
-
 
 def run():
     if _install_is_valid:
