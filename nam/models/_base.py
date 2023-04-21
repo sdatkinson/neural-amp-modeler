@@ -93,7 +93,6 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
 
     def _get_export_dict(self):
         d = super()._get_export_dict()
-        d["metadata"] = {}
         return d
 
 
