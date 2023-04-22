@@ -6,12 +6,13 @@ import abc
 import json
 import logging
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
 from .._version import __version__
 from ..data import np_to_wav
+from .metadata import Metadata
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,13 @@ class Exportable(abc.ABC):
     Interface for my custon export format for use in the plugin.
     """
 
-    def export(self, outdir: Path, include_snapshot: bool = False, modelname: str = "model"):
+    def export(
+        self, 
+        outdir: Path, 
+        include_snapshot: bool = False, 
+        basename: str = "model", 
+        metadata: Optional[Metadata]=None
+    ):
         """
         Interface for exporting.
         You should create at least a `config.json` containing the two fields:
@@ -35,11 +42,13 @@ class Exportable(abc.ABC):
             Can be used to debug e.g. the implementation of the model in the
             plugin.
         """
+        model_dict = self._get_export_dict()
+        model_dict["metadata"] = {} if metadata is None else metadata.dict()
         training = self.training
         self.eval()
-        with open(Path(outdir, modelname + ".nam"), "w") as fp:
+        with open(Path(outdir, f"{basename}.nam"), "w") as fp:
             json.dump(
-                self._get_export_dict(),
+                model_dict,
                 fp,
             )
         if include_snapshot:

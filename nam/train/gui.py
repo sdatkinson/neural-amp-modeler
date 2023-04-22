@@ -28,6 +28,7 @@ import re
 import tkinter as tk
 from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from tkinter import filedialog
 from typing import Callable, Optional, Sequence
@@ -35,6 +36,7 @@ from typing import Callable, Optional, Sequence
 try:
     from nam import __version__
     from nam.train import core
+    from nam.models.metadata import GearType, Metadata, ToneType
 
     _install_is_valid = True
 except ImportError:
@@ -45,6 +47,10 @@ _TEXT_WIDTH = 70
 
 _DEFAULT_NUM_EPOCHS = 100
 _DEFAULT_DELAY = None
+
+_ADVANCED_OPTIONS_LEFT_WIDTH = 12
+_ADVANCED_OPTIONS_RIGHT_WIDTH = 12
+_METADATA_RIGHT_WIDTH = 60
 
 
 @dataclass
@@ -162,6 +168,21 @@ class _GUI(object):
             hooks=[self._check_button_states],
         )
 
+        # Metadata
+        self.metadata = Metadata()
+        self._frame_metadata = tk.Frame(self._root)
+        self._frame_metadata.pack()
+        self._button_metadata = tk.Button(
+            self._frame_metadata,
+            text="Metadata...",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            fg="black",
+            command=self._open_metadata,
+        )
+        self._button_metadata.pack()
+        self._metadata_flag = False
+
         # This should probably be to the right somewhere
         self._get_additional_options_frame()
 
@@ -234,6 +255,16 @@ class _GUI(object):
         ao.mainloop()
         # ...and then re-enable it once it gets closed.
 
+    def _open_metadata(self):
+        """
+        Open dialog for metadata
+        """
+        mdata = _MetadataGUI(self)
+        # I should probably disable the main GUI...
+        mdata.mainloop()
+        # ...and then re-enable it once it gets closed.
+        self._metadata_flag = True
+
     def _train(self):
         # Advanced options:
         num_epochs = self.advanced_options.num_epochs
@@ -245,7 +276,7 @@ class _GUI(object):
         # If you're poking around looking for these, then maybe it's time to learn to
         # use the command-line scripts ;)
         lr = 0.004
-        lr_decay = 0.007
+        lr_decay = 0.05
         seed = 0
 
         # Run it
@@ -271,7 +302,8 @@ class _GUI(object):
             print("Exporting...")
             outdir = self._path_button_train_destination.val
             print(f"Exporting trained model to {outdir}...")
-            trained_model.net.export(outdir, modelname=modelname)
+            trained_model.net.export(outdir, modelname=modelname, metadata=self.metadata if self._metadata_flag else None)
+            self._metadata_flag = False
             print("Done!")
 
     def _check_button_states(self):
@@ -292,8 +324,25 @@ class _GUI(object):
         self._button_train["state"] = tk.NORMAL
 
 
-_ADVANCED_OPTIONS_LEFT_WIDTH = 12
-_ADVANCED_OPTIONS_RIGHT_WIDTH = 12
+# some typing functions
+def _non_negative_int(val):
+    val = int(val)
+    if val < 0:
+        val = 0
+    return val
+
+def _int_or_null(val):
+    val = val.rstrip()
+    if val == "null":
+        return val
+    return int(val)
+
+def _int_or_null_inv(val):
+    return "null" if val is None else str(val)
+
+
+def _rstripped_str(val):
+    return str(val).rstrip()
 
 
 class _LabeledOptionMenu(object):
@@ -356,7 +405,7 @@ class _LabeledText(object):
     Label (left) and text input (right)
     """
 
-    def __init__(self, frame: tk.Frame, label: str, default=None, type=None):
+    def __init__(self, frame: tk.Frame, label: str, default=None, type=None, left_width=_ADVANCED_OPTIONS_LEFT_WIDTH, right_width=_ADVANCED_OPTIONS_RIGHT_WIDTH):
         """
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
@@ -367,7 +416,7 @@ class _LabeledText(object):
         text_height = 1
         self._label = tk.Label(
             frame,
-            width=_ADVANCED_OPTIONS_LEFT_WIDTH,
+            width=left_width,
             height=label_height,
             fg="black",
             bg=None,
@@ -378,7 +427,7 @@ class _LabeledText(object):
 
         self._text = tk.Text(
             frame,
-            width=_ADVANCED_OPTIONS_RIGHT_WIDTH,
+            width=right_width,
             height=text_height,
             fg="black",
             bg=None,
@@ -424,37 +473,22 @@ class _AdvancedOptionsGUI(object):
         self._frame_epochs = tk.Frame(self._root)
         self._frame_epochs.pack()
 
-        def non_negative_int(val):
-            val = int(val)
-            if val < 0:
-                val = 0
-            return val
-
         self._epochs = _LabeledText(
             self._frame_epochs,
             "Epochs",
             default=str(self._parent.advanced_options.num_epochs),
-            type=non_negative_int,
+            type=_non_negative_int,
         )
 
         # Delay: text box
         self._frame_delay = tk.Frame(self._root)
         self._frame_delay.pack()
 
-        def int_or_null(val):
-            val = val.rstrip()
-            if val == "null":
-                return val
-            return int(val)
-
-        def int_or_null_inv(val):
-            return "null" if val is None else str(val)
-
         self._delay = _LabeledText(
             self._frame_delay,
             "Delay",
-            default=int_or_null_inv(self._parent.advanced_options.delay),
-            type=int_or_null,
+            default=_int_or_null_inv(self._parent.advanced_options.delay),
+            type=_int_or_null,
         )
 
         # "Ok": apply and destory
@@ -485,6 +519,102 @@ class _AdvancedOptionsGUI(object):
         # Value None is returned as "null" to disambiguate from non-set.
         if delay is not None:
             self._parent.advanced_options.delay = None if delay == "null" else delay
+        self._root.destroy()
+
+
+class _MetadataGUI(object):
+    # Things that are auto-filled:
+    # Model date
+    # gain
+    def __init__(self, parent: _GUI):
+        self._parent = parent
+        self._root = tk.Tk()
+        self._root.title("Metadata")
+
+        LabeledText = partial(_LabeledText, right_width=_METADATA_RIGHT_WIDTH)
+
+        # Name
+        self._frame_name = tk.Frame(self._root)
+        self._frame_name.pack()
+        self._name = LabeledText(
+            self._frame_name,
+            "NAM name",
+            default="",
+            type=_rstripped_str,
+        )
+        # Modeled by
+        self._frame_modeled_by = tk.Frame(self._root)
+        self._frame_modeled_by.pack()
+        self._modeled_by = LabeledText(
+            self._frame_modeled_by,
+            "Modeled by",
+            default="",
+            type=_rstripped_str,
+        )
+        # Gear make
+        self._frame_gear_make = tk.Frame(self._root)
+        self._frame_gear_make.pack()
+        self._gear_make = LabeledText(
+            self._frame_gear_make,
+            "Gear make",
+            default="",
+            type=_rstripped_str,
+        )
+        # Gear model
+        self._frame_gear_model = tk.Frame(self._root)
+        self._frame_gear_model.pack()
+        self._gear_model = LabeledText(
+            self._frame_gear_model,
+            "Gear model",
+            default="",
+            type=_rstripped_str,
+        )
+        # Gear type
+        self._frame_gear_type = tk.Frame(self._root)
+        self._frame_gear_type.pack()
+        self._gear_type = _LabeledOptionMenu(
+            self._frame_gear_type,
+            "Architecture",
+            GearType,
+            default=GearType.AMP,
+        )
+        # Tone type
+        self._frame_tone_type = tk.Frame(self._root)
+        self._frame_tone_type.pack()
+        self._tone_type = _LabeledOptionMenu(
+            self._frame_tone_type,
+            "Tone type",
+            ToneType,
+            default=ToneType.CLEAN,
+        )
+
+        # "Ok": apply and destory
+        self._frame_ok = tk.Frame(self._root)
+        self._frame_ok.pack()
+        self._button_ok = tk.Button(
+            self._frame_ok,
+            text="Ok",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            fg="black",
+            command=self._apply_and_destroy,
+        )
+        self._button_ok.pack()
+
+    def mainloop(self):
+        self._root.mainloop()
+
+    def _apply_and_destroy(self):
+        """
+        Set values to parent and destroy this object
+        """
+        self._parent.metadata.name = self._name.get()
+        self._parent.metadata.modeled_by = self._modeled_by.get()
+        self._parent.metadata.gear_make = self._gear_make.get()
+        self._parent.metadata.gear_model = self._gear_model.get()
+        self._parent.metadata.gear_type = self._gear_type.get()
+        self._parent.metadata.tone_type = self._tone_type.get()
+        
         self._root.destroy()
 
 
