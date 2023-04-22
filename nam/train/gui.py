@@ -1,4 +1,4 @@
-# File: __init__.py
+# File: gui.py
 # Created Date: Saturday February 25th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
@@ -9,6 +9,7 @@ Usage:
 >>> from nam.train.gui import run
 >>> run()
 """
+
 
 # Hack to recover graceful shutdowns in Windows.
 # This has to happen ASAP
@@ -74,11 +75,12 @@ class _PathButton(object):
     def __init__(
         self,
         frame: tk.Frame,
-        button_text,
+        button_text: str,
         info_str: str,
         path_type: _PathType,
         hooks: Optional[Sequence[Callable[[], None]]] = None,
     ):
+        self._button_text = button_text
         self._info_str = info_str
         self._path: Optional[Path] = None
         self._path_type = path_type
@@ -110,12 +112,12 @@ class _PathButton(object):
     def _set_text(self):
         if self._path is None:
             self._label["fg"] = "red"
-            self._label["text"] = f"{self._info_str} is not set!"
+            self._label["text"] = self._info_str
         else:
             val = self.val
             val = val[0] if isinstance(val, tuple) and len(val) == 1 else val
             self._label["fg"] = "black"
-            self._label["text"] = f"{self._info_str} set to {val}"
+            self._label["text"] = f"{self._button_text.capitalize()} set to {val}"
 
     def _set_val(self):
         res = {
@@ -143,7 +145,7 @@ class _GUI(object):
         self._path_button_input = _PathButton(
             self._frame_input_path,
             "Input Audio",
-            "Input audio",
+            "Select input DI file (eg: v1_1_1.wav)",
             _PathType.FILE,
             hooks=[self._check_button_states],
         )
@@ -153,7 +155,7 @@ class _GUI(object):
         self._path_button_output = _PathButton(
             self._frame_output_path,
             "Output Audio",
-            "Output audio",
+            "Select output (reamped) audio - choose multiple files to enable batch training",
             _PathType.MULTIFILE,
             hooks=[self._check_button_states],
         )
@@ -163,7 +165,7 @@ class _GUI(object):
         self._path_button_train_destination = _PathButton(
             self._frame_train_destination,
             "Train Destination",
-            "Train destination",
+            "Select training output directory",
             _PathType.DIRECTORY,
             hooks=[self._check_button_states],
         )
@@ -228,7 +230,7 @@ class _GUI(object):
         self._silent = tk.BooleanVar()
         self._chkbox_silent = tk.Checkbutton(
             self._frame_silent,
-            text="Silent run",
+            text="Silent run (suggested for batch training)",
             variable=self._silent,
         )
         self._chkbox_silent.grid(row=1, column=1, sticky="W")
@@ -238,7 +240,7 @@ class _GUI(object):
         self._save_plot.set(True)  # default this to true
         self._chkbox_save_plot = tk.Checkbutton(
             self._frame_silent,
-            text="Save plot automatically",
+            text="Save ESR plot automatically",
             variable=self._save_plot,
         )
         self._chkbox_save_plot.grid(row=2, column=1, sticky="W")

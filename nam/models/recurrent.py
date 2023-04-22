@@ -221,7 +221,7 @@ class LSTM(BaseNet):
         Only supports scalar inputs right now.
 
         N: Sequeence length
-        L: Nubmer of layers
+        L: Number of layers
         DH: Hidden state dimension
 
         :param x: (N,)
@@ -369,7 +369,7 @@ class _ONNXWrapped(nn.Module):
     ) -> Tuple[torch.Tensor, _LSTMHiddenType, _LSTMCellType]:
         """
         N: Sequeence length
-        L: Nubmer of layers
+        L: Number of layers
         DH: Hidden state dimension
 
         :param x: (N,)
