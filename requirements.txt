@@ -11,6 +11,7 @@ onnx
 onnxruntime
 pip
 pre-commit
+pydantic
 pytest
 pytest-mock
 pytorch_lightning

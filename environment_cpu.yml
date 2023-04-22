@@ -14,6 +14,7 @@ dependencies:
   - matplotlib
   - numpy
   - pip
+  - pydantic
   - pytest
   - pytest-mock
   - pytorch

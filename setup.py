@@ -14,6 +14,7 @@ requirements = [
     "auraloss",
     "matplotlib",
     "numpy",
+    "pydantic",
     "pytorch_lightning",
     "scipy",
     "sounddevice",
