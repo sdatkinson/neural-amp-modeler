@@ -309,10 +309,11 @@ class _GUI(object):
                 if self.user_metadata_flag
                 else UserMetadata(),
             )
-            # Metadata was only valid for 1 run, so make sure it's not used again unless
-            # the user re-visits the window and clicks "ok"
-            self.user_metadata_flag = False
             print("Done!")
+
+        # Metadata was only valid for 1 run, so make sure it's not used again unless
+        # the user re-visits the window and clicks "ok"
+        self.user_metadata_flag = False
 
     def _check_button_states(self):
         """
