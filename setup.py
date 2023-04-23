@@ -11,9 +11,10 @@ with open(ver_path) as ver_file:
     exec(ver_file.read(), main_ns)
 
 requirements = [
-    "auraloss",
+    "auraloss==0.3.0",
     "matplotlib",
     "numpy",
+    "pydantic",
     "pytorch_lightning",
     "scipy",
     "sounddevice",

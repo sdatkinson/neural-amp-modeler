@@ -40,12 +40,18 @@ class _MockBaseNet(_base.BaseNet):
         return self.gain * x
 
 
-
-def test_loudness():
+def test_metadata_gain():
     obj = _MockBaseNet(1.0)
-    y = obj._loudness()
+    g = obj._metadata_gain()
+    # It's linear, so gain is zero.
+    assert g == 0.0
+
+
+def test_metadata_loudness():
+    obj = _MockBaseNet(1.0)
+    y = obj._metadata_loudness()
     obj.gain = 2.0
-    y2 = obj._loudness()
+    y2 = obj._metadata_loudness()
     assert isinstance(y, float)
     # 2x louder = +6dB
     assert y2 == pytest.approx(y + 20.0 * math.log10(2.0))

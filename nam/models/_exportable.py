@@ -5,15 +5,30 @@
 import abc
 import json
 import logging
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
 from .._version import __version__
 from ..data import np_to_wav
+from .metadata import Date, UserMetadata
 
 logger = logging.getLogger(__name__)
+
+
+def _cast_enums(d: Dict[Any, Any]) -> Dict[Any, Any]:
+    """
+    Casts enum-type keys to their values
+    """
+    out = {}
+    for key, val in d.items():
+        if isinstance(val, Enum):
+            val = val.value
+        out[key] = val
+    return out
 
 
 class Exportable(abc.ABC):
@@ -21,7 +36,13 @@ class Exportable(abc.ABC):
     Interface for my custon export format for use in the plugin.
     """
 
-    def export(self, outdir: Path, include_snapshot: bool = False, modelname: str = "model"):
+    def export(
+        self,
+        outdir: Path,
+        include_snapshot: bool = False,
+        basename: str = "model",
+        user_metadata: Optional[UserMetadata] = None,
+    ):
         """
         Interface for exporting.
         You should create at least a `config.json` containing the two fields:
@@ -35,13 +56,15 @@ class Exportable(abc.ABC):
             Can be used to debug e.g. the implementation of the model in the
             plugin.
         """
+        model_dict = self._get_export_dict()
+        model_dict["metadata"].update(
+            {} if user_metadata is None else _cast_enums(user_metadata.dict())
+        )
+
         training = self.training
         self.eval()
-        with open(Path(outdir, modelname + ".nam"), "w") as fp:
-            json.dump(
-                self._get_export_dict(),
-                fp,
-            )
+        with open(Path(outdir, f"{basename}.nam"), "w") as fp:
+            json.dump(model_dict, fp)
         if include_snapshot:
             x, y = self._export_input_output()
             x_path = Path(outdir, "test_inputs.npy")
@@ -101,8 +124,24 @@ class Exportable(abc.ABC):
     def _get_export_dict(self):
         return {
             "version": __version__,
+            "metadata": self._get_non_user_metadata(),
             "architecture": self.__class__.__name__,
             "config": self._export_config(),
-            "metadata": {},
             "weights": self._export_weights().tolist(),
+        }
+
+    def _get_non_user_metadata(self) -> Dict[str, Union[str, int, float]]:
+        """
+        Get any metadata that's non-user-provided (date, loudness, gain)
+        """
+        t = datetime.now()
+        return {
+            "date": Date(
+                year=t.year,
+                month=t.month,
+                day=t.day,
+                hour=t.hour,
+                minute=t.minute,
+                second=t.second,
+            ).dict()
         }

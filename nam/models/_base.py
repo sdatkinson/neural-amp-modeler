@@ -10,7 +10,7 @@ steps)
 import abc
 import math
 import pkg_resources
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -37,7 +37,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
     def forward(self, *args, **kwargs) -> torch.Tensor:
         pass
 
-    def _loudness(self, gain: float = 1.0) -> float:
+    def _metadata_loudness(self, gain: float = 1.0, db: bool = True) -> float:
         """
         How loud is this model when given a standardized input?
         In dB
@@ -50,7 +50,33 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
             )
         )
         y = self._at_nominal_settings(gain * x)
-        return 10.0 * torch.log10(torch.mean(torch.square(y))).item()
+        loudness = torch.sqrt(torch.mean(torch.square(y)))
+        if db:
+            loudness = 20.0 * torch.log10(loudness)
+        return loudness.item()
+
+    def _metadata_gain(self) -> float:
+        """
+        Between 0 and 1, how much gain / compression does the model seem to have?
+        """
+        x = np.linspace(0.0, 1.0, 11)
+        y = np.array([self._metadata_loudness(gain=gain, db=False) for gain in x])
+        #
+        # O ^ o o o o o o
+        # u | o       x   +-------------------------------------+
+        # t | o     x     | x: Minimum gain (no compression)    |
+        # p | o   x       | o: Max gain     (100% compression)  |
+        # u | o x         +-------------------------------------+
+        # t | o
+        #   +------------->
+        #       Input
+        #
+        max_gain = y[-1] * len(x)  # "Square"
+        min_gain = 0.5 * max_gain  # "Triangle"
+        gain_range = max_gain - min_gain
+        this_gain = y.sum()
+        normalized_gain = (this_gain - min_gain) / gain_range
+        return np.clip(normalized_gain, 0.0, 1.0)
 
     def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
         # parametric?...
@@ -91,10 +117,6 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
             self(*args, x, pad_start=True).detach().cpu().numpy(),
         )
 
-    def _get_export_dict(self):
-        d = super()._get_export_dict()
-        return d
-
 
 class BaseNet(_Base):
     def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None):
@@ -122,9 +144,10 @@ class BaseNet(_Base):
         """
         pass
 
-    def _get_export_dict(self):
-        d = super()._get_export_dict()
-        d["metadata"]["loudness"] = self._loudness()
+    def _get_non_user_metadata(self) -> Dict[str, Union[str, int, float]]:
+        d = super()._get_non_user_metadata()
+        d["loudness"] = self._metadata_loudness()
+        d["gain"] = self._metadata_gain()
         return d
 
 

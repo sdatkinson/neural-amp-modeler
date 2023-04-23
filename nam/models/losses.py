@@ -11,6 +11,8 @@ from typing import Optional
 import torch
 from auraloss.freq import MultiResolutionSTFTLoss
 
+___all__ = ["esr", "multi_resolution_stft_loss"]
+
 
 def esr(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     """
