@@ -10,6 +10,7 @@ Hide the mess in Colab to make things look pretty for users.
 from pathlib import Path
 from typing import Optional, Tuple
 
+from ..models.metadata import UserMetadata
 from ._version import Version
 from .core import train
 
@@ -66,6 +67,7 @@ def run(
     lr: float = 0.004,
     lr_decay: float = 0.007,
     seed: Optional[int] = 0,
+    user_metadata: Optional[UserMetadata] = None,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -96,5 +98,5 @@ def run(
     print("Exporting your model...")
     model_export_outdir = _get_valid_export_directory()
     model_export_outdir.mkdir(parents=True, exist_ok=False)
-    model.net.export(model_export_outdir)
+    model.net.export(model_export_outdir, user_metadata=user_metadata)
     print(f"Model exported to {model_export_outdir}. Enjoy!")
