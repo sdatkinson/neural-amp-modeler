@@ -24,7 +24,7 @@ dependencies:
   - tqdm
   - wheel
   - pip:
-      - auraloss
+      - auraloss==0.3.0
       - onnx
       - onnxruntime
       - pre-commit

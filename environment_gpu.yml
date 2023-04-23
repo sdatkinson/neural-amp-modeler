@@ -26,7 +26,7 @@ dependencies:
   - tqdm
   - wheel
   - pip:
-      - auraloss
+      - auraloss==0.3.0
       - onnx
       - onnxruntime # TODO GPU...
       - pre-commit
