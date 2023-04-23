@@ -37,7 +37,7 @@ from typing import Callable, Optional, Sequence
 try:
     from nam import __version__
     from nam.train import core
-    from nam.models.metadata import GearType, Metadata, ToneType
+    from nam.models.metadata import GearType, UserMetadata, ToneType
 
     _install_is_valid = True
 except ImportError:
@@ -171,7 +171,7 @@ class _GUI(object):
         )
 
         # Metadata
-        self.metadata = Metadata()
+        self.user_metadata = UserMetadata()
         self._frame_metadata = tk.Frame(self._root)
         self._frame_metadata.pack()
         self._button_metadata = tk.Button(
@@ -183,7 +183,7 @@ class _GUI(object):
             command=self._open_metadata,
         )
         self._button_metadata.pack()
-        self._metadata_flag = False
+        self.user_metadata_flag = False
 
         # This should probably be to the right somewhere
         self._get_additional_options_frame()
@@ -261,11 +261,9 @@ class _GUI(object):
         """
         Open dialog for metadata
         """
-        mdata = _MetadataGUI(self)
+        mdata = _UserMetadataGUI(self)
         # I should probably disable the main GUI...
         mdata.mainloop()
-        # ...and then re-enable it once it gets closed.
-        self._metadata_flag = True
 
     def _train(self):
         # Advanced options:
@@ -284,7 +282,7 @@ class _GUI(object):
         # Run it
         for file in file_list:
             print("Now training {}".format(file))
-            modelname = re.sub(r"\.wav$", "", file.split("/")[-1])
+            basename = re.sub(r"\.wav$", "", file.split("/")[-1])
 
             trained_model = core.train(
                 self._path_button_input.val,
@@ -298,14 +296,22 @@ class _GUI(object):
                 seed=seed,
                 silent=self._silent.get(),
                 save_plot=self._save_plot.get(),
-                modelname=modelname,
+                modelname=basename,
             )
             print("Model training complete!")
             print("Exporting...")
             outdir = self._path_button_train_destination.val
             print(f"Exporting trained model to {outdir}...")
-            trained_model.net.export(outdir, modelname=modelname, metadata=self.metadata if self._metadata_flag else None)
-            self._metadata_flag = False
+            trained_model.net.export(
+                outdir,
+                basename=basename,
+                user_metadata=self.user_metadata
+                if self.user_metadata_flag
+                else UserMetadata(),
+            )
+            # Metadata was only valid for 1 run, so make sure it's not used again unless
+            # the user re-visits the window and clicks "ok"
+            self.user_metadata_flag = False
             print("Done!")
 
     def _check_button_states(self):
@@ -333,11 +339,13 @@ def _non_negative_int(val):
         val = 0
     return val
 
+
 def _int_or_null(val):
     val = val.rstrip()
     if val == "null":
         return val
     return int(val)
+
 
 def _int_or_null_inv(val):
     return "null" if val is None else str(val)
@@ -407,7 +415,15 @@ class _LabeledText(object):
     Label (left) and text input (right)
     """
 
-    def __init__(self, frame: tk.Frame, label: str, default=None, type=None, left_width=_ADVANCED_OPTIONS_LEFT_WIDTH, right_width=_ADVANCED_OPTIONS_RIGHT_WIDTH):
+    def __init__(
+        self,
+        frame: tk.Frame,
+        label: str,
+        default=None,
+        type=None,
+        left_width=_ADVANCED_OPTIONS_LEFT_WIDTH,
+        right_width=_ADVANCED_OPTIONS_RIGHT_WIDTH,
+    ):
         """
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
@@ -524,7 +540,7 @@ class _AdvancedOptionsGUI(object):
         self._root.destroy()
 
 
-class _MetadataGUI(object):
+class _UserMetadataGUI(object):
     # Things that are auto-filled:
     # Model date
     # gain
@@ -541,7 +557,7 @@ class _MetadataGUI(object):
         self._name = LabeledText(
             self._frame_name,
             "NAM name",
-            default="",
+            default=parent.user_metadata.name,
             type=_rstripped_str,
         )
         # Modeled by
@@ -550,7 +566,7 @@ class _MetadataGUI(object):
         self._modeled_by = LabeledText(
             self._frame_modeled_by,
             "Modeled by",
-            default="",
+            default=parent.user_metadata.modeled_by,
             type=_rstripped_str,
         )
         # Gear make
@@ -559,7 +575,7 @@ class _MetadataGUI(object):
         self._gear_make = LabeledText(
             self._frame_gear_make,
             "Gear make",
-            default="",
+            default=parent.user_metadata.gear_make,
             type=_rstripped_str,
         )
         # Gear model
@@ -568,7 +584,7 @@ class _MetadataGUI(object):
         self._gear_model = LabeledText(
             self._frame_gear_model,
             "Gear model",
-            default="",
+            default=parent.user_metadata.gear_model,
             type=_rstripped_str,
         )
         # Gear type
@@ -576,9 +592,9 @@ class _MetadataGUI(object):
         self._frame_gear_type.pack()
         self._gear_type = _LabeledOptionMenu(
             self._frame_gear_type,
-            "Architecture",
+            "Gear type",
             GearType,
-            default=GearType.AMP,
+            default=parent.user_metadata.gear_type,
         )
         # Tone type
         self._frame_tone_type = tk.Frame(self._root)
@@ -587,7 +603,7 @@ class _MetadataGUI(object):
             self._frame_tone_type,
             "Tone type",
             ToneType,
-            default=ToneType.CLEAN,
+            default=parent.user_metadata.tone_type,
         )
 
         # "Ok": apply and destory
@@ -610,13 +626,14 @@ class _MetadataGUI(object):
         """
         Set values to parent and destroy this object
         """
-        self._parent.metadata.name = self._name.get()
-        self._parent.metadata.modeled_by = self._modeled_by.get()
-        self._parent.metadata.gear_make = self._gear_make.get()
-        self._parent.metadata.gear_model = self._gear_model.get()
-        self._parent.metadata.gear_type = self._gear_type.get()
-        self._parent.metadata.tone_type = self._tone_type.get()
-        
+        self._parent.user_metadata.name = self._name.get()
+        self._parent.user_metadata.modeled_by = self._modeled_by.get()
+        self._parent.user_metadata.gear_make = self._gear_make.get()
+        self._parent.user_metadata.gear_model = self._gear_model.get()
+        self._parent.user_metadata.gear_type = self._gear_type.get()
+        self._parent.user_metadata.tone_type = self._tone_type.get()
+        self._parent.user_metadata_flag = True
+
         self._root.destroy()
 
 
