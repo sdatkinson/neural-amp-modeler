@@ -389,7 +389,7 @@ def train(
         lr_decay,
     )
 
-    print("Starting training. Let's rock!")
+    print("Starting training. It's time to kick ass and chew bubblegum!")
     model = Model.init_from_config(model_config)
     data_config["common"]["nx"] = model.net.receptive_field
     dataset_train = init_dataset(data_config, Split.TRAIN)
