@@ -421,6 +421,7 @@ def train(
             trainer.checkpoint_callback.best_model_path,
             **Model.parse_config(model_config),
         )
+    model.cpu()
     model.eval()
 
     _plot(
