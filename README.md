@@ -9,9 +9,9 @@ For playing trained models in real time in a standalone application or plugin, s
 If you don't have a good computer for training ML models, you use Google Colab to train
 in the cloud using the pre-made notebooks under `bin\train`.
 
-For the very easiest experience, simply go to
-[https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/easy_colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/easy_colab.ipynb) and follow the
-steps!
+For the very easiest experience, open 
+[`easy_colab.ipynb` on Google Colab](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/7c7b46b/bin/train/easy_colab.ipynb) 
+and follow the steps!
 
 For a little more visibility under the hood, you can use [colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/colab.ipynb) instead.
 
