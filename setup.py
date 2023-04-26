@@ -25,7 +25,7 @@ requirements = [
 ]
 
 setup(
-    name="nam",
+    name="neural-amp-modeler",
     version=main_ns["__version__"],
     description="Neural amp modeler",
     author="Steven Atkinson",
