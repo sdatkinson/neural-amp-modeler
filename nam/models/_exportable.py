@@ -12,11 +12,14 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
-from .._version import __version__
 from ..data import np_to_wav
 from .metadata import Date, UserMetadata
 
 logger = logging.getLogger(__name__)
+
+# Model version is independent from package version as of package version 0.5.2 so that
+# the API of the package can iterate at a different pace from that of the model files.
+_MODEL_VERSION = "0.5.1"
 
 
 def _cast_enums(d: Dict[Any, Any]) -> Dict[Any, Any]:
@@ -123,7 +126,7 @@ class Exportable(abc.ABC):
 
     def _get_export_dict(self):
         return {
-            "version": __version__,
+            "version": _MODEL_VERSION,
             "metadata": self._get_non_user_metadata(),
             "architecture": self.__class__.__name__,
             "config": self._export_config(),

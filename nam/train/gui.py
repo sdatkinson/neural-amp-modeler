@@ -276,7 +276,7 @@ class _GUI(object):
         # If you're poking around looking for these, then maybe it's time to learn to
         # use the command-line scripts ;)
         lr = 0.004
-        lr_decay = 0.05
+        lr_decay = 0.007
         seed = 0
 
         # Run it

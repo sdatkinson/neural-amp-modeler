@@ -14,6 +14,7 @@ from pydantic import BaseModel
 __all__ = ["GearType", "ToneType", "Date", "UserMetadata"]
 
 
+# Note: if you change this enum, you need to update the options in easy_colab.ipynb!
 class GearType(Enum):
     AMP = "amp"
     PEDAL = "pedal"
@@ -22,7 +23,7 @@ class GearType(Enum):
     PREAMP = "preamp"
     STUDIO = "studio"
 
-
+# Note: if you change this enum, you need to update the options in easy_colab.ipynb!
 class ToneType(Enum):
     CLEAN = "clean"
     OVERDRIVE = "overdrive"
