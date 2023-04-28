@@ -2,7 +2,7 @@
 name: Feature request
 about: Suggest an idea for this project
 title: "[FEATURE]"
-labels: enhancement, unread
+labels: enhancement, unread, priority:low
 assignees: ''
 
 ---
