@@ -15,7 +15,12 @@ from ._version import Version
 from .core import train
 
 
-_INPUT_BASENAMES = ((Version(1, 1, 1), "v1_1_1.wav"), (Version(1, 0, 0), "v1.wav"))
+_INPUT_BASENAMES = (
+    (Version(2, 0, 0), "v2_0_0.wav"),
+    (Version(1, 1, 1), "v1_1_1.wav"),
+    (Version(1, 0, 0), "v1.wav"),
+)
+_LATEST_VERSION = _INPUT_BASENAMES[0]
 _BUGGY_INPUT_BASENAMES = {
     # 1.1.0 has the spikes at the wrong spots.
     "v1_1_0.wav"
@@ -29,19 +34,20 @@ def _check_for_files() -> Tuple[Version, str]:
     for name in _BUGGY_INPUT_BASENAMES:
         if Path(name).exists():
             raise RuntimeError(
-                f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_INPUT_BASENAMES[0][1]}"
+                f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_LATEST_VERSION[1]}"
             )
-    for i, (input_version, input_basename) in enumerate(_INPUT_BASENAMES):
+    for input_version, input_basename in enumerate(_INPUT_BASENAMES):
         if Path(input_basename).exists():
-            if i > 0:
+            if input_version != _LATEST_VERSION[0]:
                 print(
                     f"WARNING: Using out-of-date input file {input_basename}. "
-                    "Recommend downloading and using the latest version."
+                    "Recommend downloading and using the latest version, "
+                    f"{_LATEST_VERSION[1]}."
                 )
             break
     else:
         raise FileNotFoundError(
-            f"Didn't find NAM's input audio file. Please upload {_INPUT_BASENAMES[0][1]}"
+            f"Didn't find NAM's input audio file. Please upload {_LATEST_VERSION[1]}"
         )
     if not Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
