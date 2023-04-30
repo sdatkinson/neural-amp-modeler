@@ -38,6 +38,7 @@ def main(args):
                 k: Param.init_from_config(v) for k, v in json.load(fp).items()
             }
         export_args = (outdir, param_config)
+    net.cpu()
     net.eval()
     outdir.mkdir(parents=True, exist_ok=True)
     net.export(*export_args, include_snapshot=args.snapshot)

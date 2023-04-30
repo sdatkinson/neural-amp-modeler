@@ -2,6 +2,7 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+
 # Hack to recover graceful shutdowns in Windows.
 # This has to happen ASAP
 # See:
@@ -201,6 +202,7 @@ def main_inner(
             trainer.checkpoint_callback.best_model_path,
             **Model.parse_config(model_config),
         )
+    model.cpu()
     model.eval()
     if make_plots:
         plot(
