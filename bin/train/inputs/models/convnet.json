@@ -1,4 +1,8 @@
 {
+    "_notes": [
+        "Dev note: Ensure that tests/test_bin/test_train/test_main.py's data is ",
+        "representative of this!"
+    ],
     "net": {
         "name": "ConvNet",
         "config": {

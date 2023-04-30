@@ -1,4 +1,8 @@
 {
+    "_notes": [
+        "Dev note: Ensure that tests/test_bin/test_train/test_main.py's data is ",
+        "representative of this!"
+    ],
     "train_dataloader": {
         "batch_size": 16,
         "shuffle": true,
@@ -8,7 +12,8 @@
     },
     "val_dataloader": {},
     "trainer": {
-        "gpus": 1,
+        "accelerator": "gpu",
+        "devices": 1,
         "max_epochs": 100
     },
     "trainer_fit_kwargs": {}
