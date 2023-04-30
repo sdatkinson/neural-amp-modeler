@@ -9,7 +9,10 @@
         "   1e-4 after 1000 epochs. I've found LSTMs to work with a pretty aggressive",
         "   learning rate that would be out of the question for other architectures.",
         " * Number of units between 8 and 96, layers from 1 to 5 all seem to be ok",
-        "   depending on the dataset, though bigger models might not make real-time."
+        "   depending on the dataset, though bigger models might not make real-time.",
+        "",
+        "Dev note: Ensure that tests/test_bin/test_train/test_main.py's data is ",
+        "representative of this!"
     ],
     "net": {
         "name": "LSTM",
