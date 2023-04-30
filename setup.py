@@ -21,7 +21,7 @@ requirements = [
     "tensorboard",
     "torch",
     "tqdm",
-    "wavio<=0.0.4",  # Breaking change in 0.0.5
+    "wavio>=0.0.5",  # Breaking change with older versions
 ]
 
 setup(
