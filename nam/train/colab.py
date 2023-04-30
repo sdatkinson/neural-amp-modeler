@@ -36,7 +36,7 @@ def _check_for_files() -> Tuple[Version, str]:
             raise RuntimeError(
                 f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_LATEST_VERSION[1]}"
             )
-    for input_version, input_basename in enumerate(_INPUT_BASENAMES):
+    for input_version, input_basename in _INPUT_BASENAMES:
         if Path(input_basename).exists():
             if input_version != _LATEST_VERSION[0]:
                 print(
