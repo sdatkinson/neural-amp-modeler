@@ -34,21 +34,17 @@ class Conv1d(nn.Conv1d):
         else:
             return torch.cat(tensors)
 
-    def import_weights(self, weights: Sequence[float], i: int) -> int:
+    def import_weights(self, weights: torch.Tensor, i: int) -> int:
         if self.weight is not None:
             n = self.weight.numel()
             self.weight.data = (
-                torch.Tensor(weights[i : i + n])
-                .reshape(self.weight.shape)
-                .to(self.weight.device)
+                weights[i : i + n].reshape(self.weight.shape).to(self.weight.device)
             )
             i += n
         if self.bias is not None:
             n = self.bias.numel()
             self.bias.data = (
-                torch.Tensor(weights[i : i + n])
-                .reshape(self.bias.shape)
-                .to(self.bias.device)
+                weights[i : i + n].reshape(self.bias.shape).to(self.bias.device)
             )
             i += n
         return i
@@ -129,7 +125,7 @@ class _Layer(nn.Module):
             post_activation[:, :, -out_length:],
         )
 
-    def import_weights(self, weights: Sequence[float], i: int) -> int:
+    def import_weights(self, weights: torch.Tensor, i: int) -> int:
         i = self.conv.import_weights(weights, i)
         i = self._input_mixer.import_weights(weights, i)
         return self._1x1.import_weights(weights, i)
@@ -200,7 +196,7 @@ class _Layers(nn.Module):
             + [self._head_rechannel.export_weights()]
         )
 
-    def import_weights(self, weights: Sequence[float], i: int) -> int:
+    def import_weights(self, weights: torch.Tensor, i: int) -> int:
         i = self._rechannel.import_weights(weights, i)
         for layer in self._layers:
             i = layer.import_weights(weights, i)
@@ -285,7 +281,7 @@ class _Head(nn.Module):
     def forward(self, *args, **kwargs):
         return self._layers(*args, **kwargs)
 
-    def import_weights(self, weights: Sequence[float], i: int) -> int:
+    def import_weights(self, weights: torch.Tensor, i: int) -> int:
         for layer in self._layers:
             i = layer[1].import_weights(weights, i)
         return i
@@ -325,7 +321,7 @@ class _WaveNet(nn.Module):
         weights = torch.cat([weights, torch.Tensor([self._head_scale])])
         return weights.detach().cpu().numpy()
 
-    def import_weights(self, weights: Sequence[float]):
+    def import_weights(self, weights: torch.Tensor):
         i = 0
         for layer in self._layers:
             i = layer.import_weights(weights, i)
@@ -417,6 +413,8 @@ class WaveNet(BaseNet):
                 )
 
     def import_weights(self, weights: Sequence[float]):
+        if not isinstance(weights, torch.Tensor):
+            weights = torch.Tensor(weights)
         self._net.import_weights(weights)
 
     def _export_config(self):
