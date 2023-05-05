@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -95,6 +95,15 @@ class Exportable(abc.ABC):
         raise NotImplementedError(
             "Exporting to ONNX is not supported for models of type "
             f"{self.__class__.__name__}"
+        )
+
+    def import_weights(self, weights: Sequence[float]):
+        """
+        Inverse of `._export_weights()
+        """
+        raise NotImplementedError(
+            f"Importing weights for models of type {self.__class__.__name__} isn't "
+            "implemented yet."
         )
 
     @abc.abstractmethod
