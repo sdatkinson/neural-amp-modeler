@@ -250,6 +250,27 @@ def _calibrate_delay(
         plot(delay, input_path, output_path)
     return delay
 
+def _get_lstm_config(architecture):
+    return {
+        Architecture.STANDARD: {
+            "num_layers": 3,
+            "hidden_size": 24,
+            "train_burn_in": 4096,
+            "train_truncate": 512,
+        },
+        Architecture.LITE: {
+            "num_layers": 2,
+            "hidden_size": 16,
+            "train_burn_in": 4096,
+            "train_truncate": 512,
+        },
+        Architecture.FEATHER: {
+            "num_layers": 1,
+            "hidden_size": 12,
+            "train_burn_in": 4096,
+            "train_truncate": 512,
+        },
+    }[architecture]
 
 def _check_v1(*args, **kwargs):
     return True
@@ -407,6 +428,7 @@ def _get_configs(
     output_basename: str,
     delay: int,
     epochs: int,
+    model_type: str,
     architecture: Architecture,
     ny: int,
     lr: float,
@@ -442,17 +464,42 @@ def _get_configs(
             "delay": delay,
         },
     }
-    model_config = {
-        "net": {
-            "name": "WaveNet",
-            # This should do decently. If you really want a nice model, try turning up
-            # "channels" in the first block and "input_size" in the second from 12 to 16.
-            "config": _get_wavenet_config(architecture),
-        },
-        "loss": {"val_loss": "esr"},
-        "optimizer": {"lr": lr},
-        "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 1.0 - lr_decay}},
-    }
+    
+    if model_type == "WaveNet":
+        model_config = {
+            "net": {
+                "name": "WaveNet",
+                # This should do decently. If you really want a nice model, try turning up
+                # "channels" in the first block and "input_size" in the second from 12 to 16.
+                "config": _get_wavenet_config(architecture),
+            },
+            "loss": {"val_loss": "esr"},
+            "optimizer": {"lr": lr},
+            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 1.0 - lr_decay}},
+        }
+    else:
+        model_config = {
+            "net": {
+                "name": "LSTM",
+                "config": _get_lstm_config(architecture),
+            },
+            "loss": {
+                "val_loss": "mse",
+                "mask_first": 4096,    
+                "pre_emph_weight": 1.0,
+                "pre_emph_coef": 0.85
+            },
+            "optimizer": {
+            "lr": 0.01
+            },
+            "lr_scheduler": {
+                "class": "ExponentialLR",
+                "kwargs": {
+                    "gamma": 0.995
+                }
+            }
+        }    
+
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
     elif torch.backends.mps.is_available():
@@ -531,6 +578,7 @@ def train(
     input_version: Optional[Version] = None,
     epochs=100,
     delay=None,
+    model_type: str = "WaveNet",
     architecture: Union[Architecture, str] = Architecture.STANDARD,
     batch_size: int = 16,
     ny: int = 8192,
@@ -563,6 +611,7 @@ def train(
         output_path,
         delay,
         epochs,
+        model_type,
         Architecture(architecture),
         ny,
         lr,
