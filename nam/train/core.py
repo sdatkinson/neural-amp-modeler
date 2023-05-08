@@ -609,7 +609,7 @@ def train(
     delay=None,
     model_type: str = "WaveNet",
     architecture: Union[Architecture, str] = Architecture.STANDARD,
-    custom_model_config: Optional[Dict] = None,
+    custom_model_config: Optional[dict] = None,
     batch_size: int = 16,
     ny: int = 8192,
     lr=0.004,
