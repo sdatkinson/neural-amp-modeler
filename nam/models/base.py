@@ -75,7 +75,7 @@ class LossConfig(InitializableFromConfig):
         mask_first = config.get("mask_first", 0)
         pre_emph_coef = config.get("pre_emph_coef")
         pre_emph_weight = config.get("pre_emph_weight")
-        mrstft_weight = config.get("mstft_weight", 0.0)
+        mrstft_weight = config.get("mrstft_weight", 0.0)
         return {
             "fourier": fourier,
             "mask_first": mask_first,
