@@ -75,7 +75,7 @@ class LossConfig(InitializableFromConfig):
         mask_first = config.get("mask_first", 0)
         pre_emph_coef = config.get("pre_emph_coef")
         pre_emph_weight = config.get("pre_emph_weight")
-        mrstft_weight = config.get("mrstft_weight", 0.0)
+        mrstft_weight = cls._get_mrstft_weight(config)
         return {
             "fourier": fourier,
             "mask_first": mask_first,
@@ -92,6 +92,17 @@ class LossConfig(InitializableFromConfig):
         :return: (L-M,) or (B, L-M)
         """
         return tuple(a[..., self.mask_first :] for a in args)
+
+    @classmethod
+    def _get_mrstft_weight(cls, config) -> float:
+        key = "mrstft_weight"
+        wrong_key = "mstft_key"  # Backward compatibility
+        if key in config and "mstft_weight" in config:
+            raise ValueError(
+                f"Received loss configuration with both '{key}' and "
+                f"'{wrong_key}'. Provide only '{key}'."
+            )
+        return config.get(key, config.get(wrong_key, 0.0))
 
 
 class Model(pl.LightningModule, InitializableFromConfig):
