@@ -97,12 +97,21 @@ class LossConfig(InitializableFromConfig):
     def _get_mrstft_weight(cls, config) -> float:
         key = "mrstft_weight"
         wrong_key = "mstft_key"  # Backward compatibility
-        if key in config and "mstft_weight" in config:
-            raise ValueError(
-                f"Received loss configuration with both '{key}' and "
-                f"'{wrong_key}'. Provide only '{key}'."
+        if key in config:
+            if "mstft_weight" in config:
+                raise ValueError(
+                    f"Received loss configuration with both '{key}' and "
+                    f"'{wrong_key}'. Provide only '{key}'."
+                )
+            return config[key]
+        elif wrong_key in config:
+            logger.warning(
+                f"Use of '{wrong_key}' is deprecated and will be removed in a future "
+                f"version. Use '{key}' instead."
             )
-        return config.get(key, config.get(wrong_key, 0.0))
+            return config[wrong_key]
+        else:
+            return 0.0
 
 
 class Model(pl.LightningModule, InitializableFromConfig):
