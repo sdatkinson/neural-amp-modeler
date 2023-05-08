@@ -71,7 +71,7 @@ def run(
     delay: Optional[int] = None,
     model_type: str = "WaveNet",
     architecture: str = "standard",
-    custom_model_config: Optional[Dict] = None,
+    custom_model_config: Optional[dict] = None,
     lr: float = 0.004,
     lr_decay: float = 0.007,
     seed: Optional[int] = 0,
