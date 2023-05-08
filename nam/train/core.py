@@ -609,6 +609,7 @@ def train(
     delay=None,
     model_type: str = "WaveNet",
     architecture: Union[Architecture, str] = Architecture.STANDARD,
+    custom_model_config: Optional[Dict] = None,
     batch_size: int = 16,
     ny: int = 8192,
     lr=0.004,
@@ -647,6 +648,9 @@ def train(
         lr_decay,
         batch_size,
     )
+    
+    if custom_model_config is not None:
+      model_config["net"]["config"] = custom_model_config;
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
     model = Model.init_from_config(model_config)
