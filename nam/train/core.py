@@ -250,6 +250,7 @@ def _calibrate_delay(
         plot(delay, input_path, output_path)
     return delay
 
+
 def _get_lstm_config(architecture):
     return {
         Architecture.STANDARD: {
@@ -272,11 +273,12 @@ def _get_lstm_config(architecture):
         },
     }[architecture]
 
+
 def _check_v1(*args, **kwargs):
     return True
 
 
-def _check_v2(input_path, output_path) -> bool:
+def _check_v2(input_path, output_path, delay: int) -> bool:
     with torch.no_grad():
         print("V2 checks...")
         rate = REQUIRED_RATE
@@ -288,14 +290,18 @@ def _check_v2(input_path, output_path) -> bool:
 
         # Do the blips line up?
         # If the ESR is too bad, then flag it.
+        print("Checking blips...")
+
         def get_blips(y):
             """
             :return: [start/end,replicate]
             """
             i0, i1 = rate // 4, 3 * rate // 4
             j0, j1 = -3 * rate // 4, -rate // 4
-            start = -1000
-            end = 4000
+
+            i0, i1, j0, j1 = [i + delay for i in (i0, i1, j0, j1)]
+            start = -10
+            end = 1000
             blips = torch.stack(
                 [
                     torch.stack([y[i0 + start : i0 + end], y[i1 + start : i1 + end]]),
@@ -310,7 +316,13 @@ def _check_v2(input_path, output_path) -> bool:
         esr_cross_0 = esr(blips[0][0], blips[1][0]).item()  # 1st repeat, start vs end
         esr_cross_1 = esr(blips[0][1], blips[1][1]).item()  # 2nd repeat, start vs end
 
-        esr_threshold = 1.0e-3
+        print("  ESRs:")
+        print(f"    Start     : {esr_0}")
+        print(f"    End       : {esr_1}")
+        print(f"    Cross (1) : {esr_cross_0}")
+        print(f"    Cross (2) : {esr_cross_1}")
+
+        esr_threshold = 1.0e-2
 
         def plot_esr_blip_error(msg, arrays, labels):
             plt.figure()
@@ -349,7 +361,9 @@ def _check_v2(input_path, output_path) -> bool:
         return True
 
 
-def _check(input_path: str, output_path: str, input_version: Version) -> bool:
+def _check(
+    input_path: str, output_path: str, input_version: Version, delay: int
+) -> bool:
     """
     Ensure that everything should go smoothly
 
@@ -362,7 +376,7 @@ def _check(input_path: str, output_path: str, input_version: Version) -> bool:
     else:
         print(f"Checks not implemented for input version {input_version}; skip")
         return True
-    return f(input_path, output_path)
+    return f(input_path, output_path, delay)
 
 
 def _get_wavenet_config(architecture):
@@ -493,7 +507,7 @@ def _get_configs(
             "delay": delay,
         },
     }
-    
+
     if model_type == "WaveNet":
         model_config = {
             "net": {
@@ -504,7 +518,10 @@ def _get_configs(
             },
             "loss": {"val_loss": "esr"},
             "optimizer": {"lr": lr},
-            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 1.0 - lr_decay}},
+            "lr_scheduler": {
+                "class": "ExponentialLR",
+                "kwargs": {"gamma": 1.0 - lr_decay},
+            },
         }
     else:
         model_config = {
@@ -514,20 +531,13 @@ def _get_configs(
             },
             "loss": {
                 "val_loss": "mse",
-                "mask_first": 4096,    
+                "mask_first": 4096,
                 "pre_emph_weight": 1.0,
-                "pre_emph_coef": 0.85
+                "pre_emph_coef": 0.85,
             },
-            "optimizer": {
-            "lr": 0.01
-            },
-            "lr_scheduler": {
-                "class": "ExponentialLR",
-                "kwargs": {
-                    "gamma": 0.995
-                }
-            }
-        }    
+            "optimizer": {"lr": 0.01},
+            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
+        }
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
@@ -617,7 +627,8 @@ def train(
     save_plot: bool = False,
     silent: bool = False,
     modelname: str = "model",
-):
+    ignore_checks: bool = False,
+) -> Optional[Model]:
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -630,9 +641,15 @@ def train(
     else:
         print(f"Delay provided as {delay}; skip calibration")
 
-    if not _check(input_path, output_path, input_version):
-        print("Failed checks; exit training")
-        return
+    if not _check(input_path, output_path, input_version, delay):
+        print("Failed checks!")
+        if ignore_checks:
+            print(
+                "WARNING: You are ignoring the checks! Your model will probably turn out poorly! I warned you!"
+            )
+        else:
+            print("Exiting...")
+            return
 
     data_config, model_config, learning_config = _get_configs(
         input_version,

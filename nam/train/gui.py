@@ -312,6 +312,9 @@ class _GUI(object):
                 save_plot=self._save_plot.get(),
                 modelname=basename,
             )
+            if trained_model is None:
+                print("Model training failed! Skip exporting...")
+                continue
             print("Model training complete!")
             print("Exporting...")
             outdir = self._path_button_train_destination.val
