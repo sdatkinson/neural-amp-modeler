@@ -75,6 +75,7 @@ def run(
     lr_decay: float = 0.007,
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
+    ignore_checks: bool = False,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -85,6 +86,8 @@ def run(
     :param lr: The initial learning rate
     :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
+    :param user_metadata: To include in the exported model
+    :param ignore_checks: Ignores the data quality checks and YOLOs it
     """
 
     input_version, input_basename = _check_for_files()
@@ -101,6 +104,8 @@ def run(
         lr=lr,
         lr_decay=lr_decay,
         seed=seed,
+        local=False,
+        ignore_checks=ignore_checks,
     )
 
     print("Exporting your model...")
