@@ -704,12 +704,12 @@ def train(
                 _nasty_checks_modal()
             else:
                 _print_nasty_checks_warning()
-            if not local:
-                print(
-                    "(To disable this check, run AT YOUR OWN RISK with "
-                    "`ignore_checks=True`.)"
-                )
-        else:
+        elif not local:  # And not ignore_checks
+            print(
+                "(To disable this check, run AT YOUR OWN RISK with "
+                "`ignore_checks=True`.)"
+            )
+        if not ignore_checks:
             print("Exiting core training...")
             return
 
