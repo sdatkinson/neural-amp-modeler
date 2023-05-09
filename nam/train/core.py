@@ -704,8 +704,13 @@ def train(
                 _nasty_checks_modal()
             else:
                 _print_nasty_checks_warning()
+            if not local:
+                print(
+                    "(To disable this check, run AT YOUR OWN RISK with "
+                    "`ignore_checks=True`.)"
+                )
         else:
-            print("Exiting...")
+            print("Exiting core training...")
             return
 
     data_config, model_config, learning_config = _get_configs(

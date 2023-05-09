@@ -108,8 +108,11 @@ def run(
         ignore_checks=ignore_checks,
     )
 
-    print("Exporting your model...")
-    model_export_outdir = _get_valid_export_directory()
-    model_export_outdir.mkdir(parents=True, exist_ok=False)
-    model.net.export(model_export_outdir, user_metadata=user_metadata)
-    print(f"Model exported to {model_export_outdir}. Enjoy!")
+    if model is None:
+        print("No model returned; skip exporting!")
+    else:
+        print("Exporting your model...")
+        model_export_outdir = _get_valid_export_directory()
+        model_export_outdir.mkdir(parents=True, exist_ok=False)
+        model.net.export(model_export_outdir, user_metadata=user_metadata)
+        print(f"Model exported to {model_export_outdir}. Enjoy!")
