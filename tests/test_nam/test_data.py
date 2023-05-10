@@ -233,7 +233,7 @@ class TestDataset(object):
         return x_out, y_out
 
 
-class TestWav:
+class TestWav(object):
 
     tolerance = 1e-7
 
