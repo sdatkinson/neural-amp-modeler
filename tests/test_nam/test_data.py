@@ -233,5 +233,40 @@ class TestDataset(object):
         return x_out, y_out
 
 
+class TestWav:
+
+    tolerance = 1e-7
+
+    def test_np_to_wav_to_np(self):
+        # Create random numpy array
+        x = np.random.rand(1000)
+        # Save numpy array as wav file
+        data.np_to_wav(x, "test.wav")
+        # Load wav file
+        y = data.wav_to_np("test.wav")
+        # Check if the two arrays are equal
+        assert np.sqrt(np.mean((x - y) ** 2)) < self.tolerance
+
+    def test_np_to_wav_to_np_44khz(self):
+        # Create random numpy array
+        x = np.random.rand(1000)
+        # Save numpy array as wav file
+        data.np_to_wav(x, "test.wav", rate=44100)
+        # Load wav file
+        y = data.wav_to_np("test.wav", rate=44100)
+        # Check if the two arrays are equal
+        assert np.sqrt(np.mean((x - y) ** 2)) < self.tolerance
+
+    def test_np_to_wav_to_np_scale_arg(self):
+        # Create random numpy array
+        x = np.random.rand(100)
+        # Save numpy array as wav file
+        data.np_to_wav(x, "test.wav", scale=None)
+        # Load wav file
+        y = data.wav_to_np("test.wav")
+        # Check if the two arrays are equal
+        assert np.sqrt(np.mean((x - y) ** 2)) < self.tolerance
+
+
 if __name__ == "__main__":
     pytest.main()

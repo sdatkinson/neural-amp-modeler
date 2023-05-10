@@ -19,5 +19,5 @@ scipy
 sounddevice
 torch
 tqdm
-wavio>=0.0.5  # Breaking change with older versions
+wavio
 wheel
