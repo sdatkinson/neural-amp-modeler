@@ -36,7 +36,7 @@ def _check_for_files() -> Tuple[Version, str]:
             raise RuntimeError(
                 f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_LATEST_VERSION[1]}"
             )
-    for input_version, input_basename in enumerate(_INPUT_BASENAMES):
+    for input_version, input_basename in _INPUT_BASENAMES:
         if Path(input_basename).exists():
             if input_version != _LATEST_VERSION[0]:
                 print(
@@ -69,11 +69,13 @@ def _get_valid_export_directory():
 def run(
     epochs: int = 100,
     delay: Optional[int] = None,
+    model_type: str = "WaveNet",
     architecture: str = "standard",
     lr: float = 0.004,
     lr_decay: float = 0.007,
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
+    ignore_checks: bool = False,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -84,6 +86,8 @@ def run(
     :param lr: The initial learning rate
     :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
+    :param user_metadata: To include in the exported model
+    :param ignore_checks: Ignores the data quality checks and YOLOs it
     """
 
     input_version, input_basename = _check_for_files()
@@ -95,14 +99,20 @@ def run(
         input_version=input_version,
         epochs=epochs,
         delay=delay,
+        model_type=model_type,
         architecture=architecture,
         lr=lr,
         lr_decay=lr_decay,
         seed=seed,
+        local=False,
+        ignore_checks=ignore_checks,
     )
 
-    print("Exporting your model...")
-    model_export_outdir = _get_valid_export_directory()
-    model_export_outdir.mkdir(parents=True, exist_ok=False)
-    model.net.export(model_export_outdir, user_metadata=user_metadata)
-    print(f"Model exported to {model_export_outdir}. Enjoy!")
+    if model is None:
+        print("No model returned; skip exporting!")
+    else:
+        print("Exporting your model...")
+        model_export_outdir = _get_valid_export_directory()
+        model_export_outdir.mkdir(parents=True, exist_ok=False)
+        model.net.export(model_export_outdir, user_metadata=user_metadata)
+        print(f"Model exported to {model_export_outdir}. Enjoy!")

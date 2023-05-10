@@ -7,7 +7,10 @@
         "   non-parametric version, even if you're modeling a fair number of knobs.",
         " * You'll probably have a much larger dataset, so validating every so often ",
         "   in steps instead of epochs helps. Make sure to also set val_check_interval",
-        "   under the trainer dict in your learning config JSON."
+        "   under the trainer dict in your learning config JSON.",
+        "",
+        "Dev note: Ensure that tests/test_bin/test_train/test_main.py's data is ",
+        "representative of this!"
     ],
     "net": {
         "name": "CatLSTM",
