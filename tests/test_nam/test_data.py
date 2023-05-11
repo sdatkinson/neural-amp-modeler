@@ -4,6 +4,8 @@
 
 import math
 from enum import Enum
+import os
+from tempfile import TemporaryDirectory
 from typing import Tuple
 
 import numpy as np
@@ -234,38 +236,45 @@ class TestDataset(object):
 
 
 class TestWav(object):
+    tolerance = 1e-6
 
-    tolerance = 1e-7
+    @pytest.fixture(scope="class")
+    def tmpdir(self):
+        with TemporaryDirectory() as tmp:
+            yield tmp
 
-    def test_np_to_wav_to_np(self):
+    def test_np_to_wav_to_np(self, tmpdir):
         # Create random numpy array
         x = np.random.rand(1000)
-        # Save numpy array as wav file
-        data.np_to_wav(x, "test.wav")
-        # Load wav file
-        y = data.wav_to_np("test.wav")
+        # Save numpy array as WAV file
+        filename = os.path.join(tmpdir, "test.wav")
+        data.np_to_wav(x, filename)
+        # Load WAV file
+        y = data.wav_to_np(filename)
         # Check if the two arrays are equal
-        assert np.sqrt(np.mean((x - y) ** 2)) < self.tolerance
+        assert y == pytest.approx(x, abs=self.tolerance)
 
-    def test_np_to_wav_to_np_44khz(self):
+    def test_np_to_wav_to_np_44khz(self, tmpdir):
         # Create random numpy array
         x = np.random.rand(1000)
-        # Save numpy array as wav file
-        data.np_to_wav(x, "test.wav", rate=44100)
-        # Load wav file
-        y = data.wav_to_np("test.wav", rate=44100)
+        # Save numpy array as WAV file with sampling rate of 44 kHz
+        filename = os.path.join(tmpdir, "test.wav")
+        data.np_to_wav(x, filename, rate=44100)
+        # Load WAV file with sampling rate of 44 kHz
+        y = data.wav_to_np(filename, rate=44100)
         # Check if the two arrays are equal
-        assert np.sqrt(np.mean((x - y) ** 2)) < self.tolerance
+        assert y == pytest.approx(x, abs=self.tolerance)
 
-    def test_np_to_wav_to_np_scale_arg(self):
+    def test_np_to_wav_to_np_scale_arg(self, tmpdir):
         # Create random numpy array
         x = np.random.rand(100)
-        # Save numpy array as wav file
-        data.np_to_wav(x, "test.wav", scale=None)
-        # Load wav file
-        y = data.wav_to_np("test.wav")
+        # Save numpy array as WAV file with scaling
+        filename = os.path.join(tmpdir, "test.wav")
+        data.np_to_wav(x, filename, scale=None)
+        # Load WAV file
+        y = data.wav_to_np(filename)
         # Check if the two arrays are equal
-        assert np.sqrt(np.mean((x - y) ** 2)) < self.tolerance
+        assert y == pytest.approx(x, abs=self.tolerance)
 
 
 if __name__ == "__main__":
