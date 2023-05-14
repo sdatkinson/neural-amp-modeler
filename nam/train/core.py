@@ -7,21 +7,23 @@ Functions used by the GUI trainer.
 """
 
 import hashlib
+from copy import deepcopy
 from enum import Enum
 from time import time
-from typing import Optional, Sequence, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np, wav_to_tensor
-from ..models import Model
+from ..models import Model, WithIR
 from ..models.losses import esr
 from ._version import Version
+
+# from .ir import fit as _fit_ir_inner  # TODO
 
 
 class Architecture(Enum):
@@ -465,6 +467,7 @@ def _get_configs(
     lr: float,
     lr_decay: float,
     batch_size: int,
+    fit_ir: bool,
 ):
     def get_kwargs():
         val_seconds = 9
@@ -527,6 +530,9 @@ def _get_configs(
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
 
+    if fit_ir:
+        model_config["ir"] = {"length": 1024}
+
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
     elif torch.backends.mps.is_available():
@@ -546,6 +552,61 @@ def _get_configs(
         "trainer": {"max_epochs": epochs, **device_config},
     }
     return data_config, model_config, learning_config
+
+
+def _get_dataloaders(
+    data_config: Dict, learning_config: Dict, model: Model
+) -> Tuple[DataLoader, DataLoader]:
+    data_config, learning_config = [deepcopy(c) for c in (data_config, learning_config)]
+    data_config["common"]["nx"] = model.net.receptive_field
+    dataset_train = init_dataset(data_config, Split.TRAIN)
+    dataset_validation = init_dataset(data_config, Split.VALIDATION)
+    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
+    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    return train_dataloader, val_dataloader
+
+
+def _fit_ir(model: Model, dataset, data_version: Version) -> WithIR:
+    """
+    Fits an IR to the sine sweep contained in the data based on the provided version.
+    """
+
+    def validate_data(data_version: Version) -> bool:
+        if data_version < Version(2, 0, 0):
+            raise RuntimeError(
+                f"Input version {data_version} is not suitable for IR modeling."
+            )
+
+    def validate_model(model):
+        if not isinstance(model.net, WithIR):
+            raise RuntimeError(
+                f"Model is not an instance of WithIR (found {model.net.__class__.__name__} instead)"
+            )
+
+    def get_start_stop(version: Version):
+        if data_version == Version(2, 0, 0):
+            rate = REQUIRED_RATE
+            pad = 4_800
+            start, stop = 1 * rate + pad, 2 * rate - pad
+        else:
+            raise ValueError(version)
+        return start, stop
+
+    validate_data(data_version)
+    validate_model(model)
+    start, stop = get_start_stop(data_version)
+    x = dataset.x[start:stop]
+    y = dataset.y[start:stop]
+
+    # FIXME
+    def _fit_ir_inner(x, y, ir_length, jitter=0.0):
+        print("FIXME fit IR")
+        ir = torch.zeros((ir_length,))
+        ir[0] = 1.0
+        return ir
+
+    ir = _fit_ir_inner(x, y, model.net.ir_length, jitter=0.1)
+    model.net.set_ir(ir)
 
 
 def _esr(pred: torch.Tensor, target: torch.Tensor) -> float:
@@ -615,7 +676,12 @@ def train(
     save_plot: bool = False,
     silent: bool = False,
     modelname: str = "model",
+    fit_ir: bool = False,
 ):
+    """
+    :param fit_ir: If true, attempts to fit an IR using the sine sweeps at the start of
+        the training file. Raises a RuntimeError if the input file isn't suitable.
+    """
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -644,15 +710,17 @@ def train(
         lr,
         lr_decay,
         batch_size,
+        fit_ir,
     )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
     model = Model.init_from_config(model_config)
-    data_config["common"]["nx"] = model.net.receptive_field
-    dataset_train = init_dataset(data_config, Split.TRAIN)
-    dataset_validation = init_dataset(data_config, Split.VALIDATION)
-    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
-    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    train_dataloader, val_dataloader = _get_dataloaders(
+        data_config, learning_config, model
+    )
+
+    if fit_ir:
+        _fit_ir(model, train_dataloader.dataset, input_version)
 
     trainer = pl.Trainer(
         callbacks=[
@@ -701,7 +769,7 @@ def train(
 
     _plot(
         model,
-        dataset_validation,
+        val_dataloader.dataset,
         filepath=train_path + "/" + modelname if save_plot else None,
         silent=silent,
         **window_kwargs(input_version),
