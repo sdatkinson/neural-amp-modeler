@@ -8,7 +8,7 @@ channels:
   - pytorch
   - nvidia
 dependencies:
-  - python=3.10.10
+  - python<3.11 # onnxruntime
   - black
   - flake8
   - h5py
