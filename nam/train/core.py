@@ -250,6 +250,7 @@ def _calibrate_delay(
         plot(delay, input_path, output_path)
     return delay
 
+
 def _get_lstm_config(architecture):
     return {
         Architecture.STANDARD: {
@@ -271,6 +272,7 @@ def _get_lstm_config(architecture):
             "train_truncate": 512,
         },
     }[architecture]
+
 
 def _check_v1(*args, **kwargs):
     return True
@@ -493,7 +495,7 @@ def _get_configs(
             "delay": delay,
         },
     }
-    
+
     if model_type == "WaveNet":
         model_config = {
             "net": {
@@ -504,7 +506,10 @@ def _get_configs(
             },
             "loss": {"val_loss": "esr"},
             "optimizer": {"lr": lr},
-            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 1.0 - lr_decay}},
+            "lr_scheduler": {
+                "class": "ExponentialLR",
+                "kwargs": {"gamma": 1.0 - lr_decay},
+            },
         }
     else:
         model_config = {
@@ -514,20 +519,13 @@ def _get_configs(
             },
             "loss": {
                 "val_loss": "mse",
-                "mask_first": 4096,    
+                "mask_first": 4096,
                 "pre_emph_weight": 1.0,
-                "pre_emph_coef": 0.85
+                "pre_emph_coef": 0.85,
             },
-            "optimizer": {
-            "lr": 0.01
-            },
-            "lr_scheduler": {
-                "class": "ExponentialLR",
-                "kwargs": {
-                    "gamma": 0.995
-                }
-            }
-        }    
+            "optimizer": {"lr": 0.01},
+            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
+        }
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
