@@ -75,6 +75,7 @@ def run(
     lr_decay: float = 0.007,
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
+    cab_modeling: bool = False,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -85,6 +86,8 @@ def run(
     :param lr: The initial learning rate
     :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
+    :param user_metadata: User-specified metadata to include in the .nam file.
+    :param cab_modeling: If True, include a cab in the model.
     """
 
     input_version, input_basename = _check_for_files()
@@ -101,6 +104,7 @@ def run(
         lr=lr,
         lr_decay=lr_decay,
         seed=seed,
+        fit_ir=cab_modeling,
     )
 
     print("Exporting your model...")
