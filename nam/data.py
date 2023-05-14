@@ -298,11 +298,21 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         return self._ny
 
     @property
-    def x(self):
+    def x(self) -> torch.Tensor:
+        """
+        The input audio data
+
+        :return: (N,)
+        """
         return self._x
 
     @property
-    def y(self):
+    def y(self) -> torch.Tensor:
+        """
+        The output audio data
+
+        :return: (N,)
+        """
         return self._y
 
     @property
