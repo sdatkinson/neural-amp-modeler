@@ -9,9 +9,9 @@ For playing trained models in real time in a standalone application or plugin, s
 If you don't have a good computer for training ML models, you use Google Colab to train
 in the cloud using the pre-made notebooks under `bin\train`.
 
-For the very easiest experience, simply go to
-[https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/easy_colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/easy_colab.ipynb) and follow the
-steps!
+For the very easiest experience, open 
+[`easy_colab.ipynb` on Google Colab](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/b1aa204/bin/train/easy_colab.ipynb) 
+and follow the steps!
 
 For a little more visibility under the hood, you can use [colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/colab.ipynb) instead.
 
@@ -54,50 +54,63 @@ Then activate the environment you've created with
 conda activate nam
 ```
 
-### Things you can do
-
-Here are the primary ways this is meant to be used:
-
-#### Train a model
-
-You'll need at least two mono wav files: the input (DI) and the amped sound (without the cab).
-You can either record enough to have a training and validation set in the same file and
-split the file, or you can use 4 files (input/output for train/test).
-Also, you can provide _multiple_ file pairs for training (or validation).
-
-For the first option, Modify `bin/train/inputs/config_data_single_pair.json` to point at the audio files, and set the
-start/stop to the point (in samples) where the training segment ends and the validation
-starts.
-For the second option, modify and use `bin/train/inputs/config_data_two_pairs.json`.
-
-Then run:
+### Train models (GUI)
+After installing, you can open a GUI trainer by running
 
 ```bash
+nam
+```
+
+from the terminal.
+
+### Train models (Python script)
+For users looking to get more fine-grained control over the modeling process, 
+NAM includes a training script that can be run from the terminal. In order to run it
+#### Download audio files
+Download the [v1_1_1.wav](https://drive.google.com/file/d/1v2xFXeQ9W2Ks05XrqsMCs2viQcKPAwBk/view?usp=share_link) and [overdrive.wav](https://drive.google.com/file/d/14w2utgL16NozmESzAJO_I0_VCt-5Wgpv/view?usp=share_link) to a folder of your choice 
+
+#### Update data configuration 
+Edit `bin/train/data/single_pair.json` to point to relevant audio files 
+```json
+    "common": {
+        "x_path": "C:\\path\\to\\v1_1_1.wav",
+        "y_path": "C:\\path\\to\\overdrive.wav",
+        "delay": 0
+    }
+```
+
+#### Run training script
+Open up a terminal. Activate your nam environment and call the training with
+```bash
 python bin/train/main.py \
-bin/train/inputs/config_data.json \
-bin/train/inputs/config_model.json \
-bin/train/inputs/config_learning.json \
+bin/train/inputs/data/single_pair.json \
+bin/train/inputs/models/demonet.json \
+bin/train/inputs/learning/demo.json \
 bin/train/outputs/MyAmp
 ```
 
-#### Run a model on an input signal ("reamping")
+`data/single_pair.json` contains the information about the data you're training
+on   
+`models/demonet.json` contains information about the model architecture that
+is being trained. The example used here uses a `feather` configured `wavenet`.  
+`learning/demo.json` contains information about the training run itself (e.g. number of epochs).
 
-Handy if you want to just check it out without going through the trouble of building the
-plugin.
-
-For example:
+The configuration above runs a short (demo) training. For a real training you may prefer to run something like,
 
 ```bash
-python bin/run.py \
-path/to/source.wav \
-path/to/config_model.json \
-path/to/checkpoints/epoch=123_val_loss=0.000010.ckpt \
-path/to/output.wav
+python bin/train/main.py \
+bin/train/inputs/data/single_pair.json \
+bin/train/inputs/models/wavenet.json \
+bin/train/inputs/learning/default.json \
+bin/train/outputs/MyAmp
 ```
 
-#### Export a model (to use with [the plugin](https://github.com/sdatkinson/iPlug2))
+As a side note, NAM uses [PyTorch Lightning](https://lightning.ai/pages/open-source/) 
+under the hood as a modeling framework, and you can control many of the Pytorch Lightning configuration options from `bin/train/inputs/learning/default.json`
 
-Let's get ready to rock!
+#### Export a model (to use with [the plugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin))
+Exporting the trained model to a `.nam` file for use with the plugin can be done
+with:
 
 ```bash
 python bin/export.py \
@@ -106,14 +119,18 @@ path/to/checkpoints/epoch=123_val_loss=0.000010.ckpt \
 path/to/exported_models/MyAmp
 ```
 
-Then point the plugin at the exported model directory and you're good to go!
+Then, point the plugin at the exported `model.nam` file and you're good to go!
 
-## Advanced usage
+### Other utilities
 
-The model architectures and cofigurations in `bin/train/inputs/models` should work plenty well out of the box.
-However, feel free to play around with it; sometimes some tweaks can help improve performance.
+#### Run a model on an input signal ("reamping")
 
-Also, you can train for shorter or longer.
-1000 epochs is typically overkill, but how little you can get away with depends on the model you're using.
-I recommend watching the checkpoints and keeping an eye out for when the ESR drops below
-0.01--usually it'll sound pretty good by that point.
+Handy if you want to just check it out without needing to use the plugin:
+
+```bash
+python bin/run.py \
+path/to/source.wav \
+path/to/config_model.json \
+path/to/checkpoints/epoch=123_val_loss=0.000010.ckpt \
+path/to/output.wav
+```

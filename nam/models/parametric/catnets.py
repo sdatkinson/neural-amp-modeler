@@ -8,6 +8,7 @@ input samples
 """
 
 import abc
+import logging
 from enum import Enum
 from contextlib import contextmanager
 from pathlib import Path
@@ -20,6 +21,8 @@ from .._base import ParametricBaseNet
 from ..recurrent import LSTM
 from ..wavenet import WaveNet
 from .params import Param
+
+logger = logging.getLogger(__name__)
 
 
 class _ShapeType(Enum):
@@ -49,7 +52,7 @@ class _CatMixin(ParametricBaseNet):
 
     @abc.abstractproperty
     def _single_class(self):
-        """"
+        """ "
         The class for the non-parametric model that this is extending
         """
         # TODO verify that single class satisfies requirements
@@ -99,8 +102,11 @@ class _CatMixin(ParametricBaseNet):
     def _export_cpp_header_parametric(self, config):
         if config is None:
             return self._single_class._export_cpp_head_parametric(self, config)
-        s_parametric = ['nlohmann::json PARAMETRIC = nlohmann::json::parse(R"(\n', "  {\n"]
-        for i, (key, val) in  enumerate(config.items(), 1):
+        s_parametric = [
+            'nlohmann::json PARAMETRIC = nlohmann::json::parse(R"(\n',
+            "  {\n",
+        ]
+        for i, (key, val) in enumerate(config.items(), 1):
             s_parametric.append(f'    "{key}": ' "{\n")
             for j, (k2, v2) in enumerate(val.items(), 1):
                 v_str = f'"{v2}"' if isinstance(v2, str) else str(v2)
@@ -111,7 +117,6 @@ class _CatMixin(ParametricBaseNet):
         s_parametric.append("  }\n")
         s_parametric.append(')");\n')
         return tuple(s_parametric)
-
 
     def _export_input_output_args(self) -> Tuple[torch.Tensor]:
         return (self._sidedoor_params_to_tensor(),)
@@ -186,6 +191,15 @@ class CatLSTM(_CatMixin, LSTM):
             dim=2,
         )
 
+    def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
+        if self._input_size != 1:
+            logger.warning(
+                "Nominal settings aren't defined for parametric models; outputting unity"
+            )
+            return x
+        params = torch.zeros(()).to(x.device)
+        return self(params, x)
+
     def _get_initial_state(self) -> Tuple[torch.Tensor, torch.Tensor]:
         inputs = self._append_default_params(torch.zeros((1, 48_000)))
         return super()._get_initial_state(inputs=inputs)
@@ -199,4 +213,3 @@ class CatWaveNet(_CatMixin, WaveNet):
     @property
     def _single_class(self):
         return WaveNet
-        

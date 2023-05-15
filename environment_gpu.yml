@@ -2,8 +2,9 @@
 # Created Date: Saturday February 13th 2021
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-name: nam-test
+name: nam
 channels:
+  - conda-forge # pytest-mock
   - pytorch
   - nvidia
 dependencies:
@@ -14,7 +15,9 @@ dependencies:
   - matplotlib
   - numpy
   - pip
+  - pydantic
   - pytest
+  - pytest-mock
   - pytorch
   - pytorch-cuda=11.7
   - scipy
@@ -23,6 +26,9 @@ dependencies:
   - tqdm
   - wheel
   - pip:
+      - auraloss==0.3.0
+      - onnx
+      - onnxruntime # TODO GPU...
       - pre-commit
       - pytorch_lightning
       - sounddevice

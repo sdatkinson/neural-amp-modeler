@@ -8,23 +8,23 @@
         "config": {
             "layers_configs": [
                 {
-                    "condition_size": 1,
                     "input_size": 1,
-                    "channels": 16,
-                    "head_size": 8,
+                    "condition_size": 1,
+                    "channels": 8,
+                    "head_size": 4,
                     "kernel_size": 3,
-                    "dilations": [1,2,4,8,16,32,64,128,256,512],
+                    "dilations": [1, 2, 4, 8, 16, 32, 64],
                     "activation": "Tanh",
                     "gated": false,
                     "head_bias": false
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 16,
-                    "channels": 8,
+                    "input_size": 8,
+                    "channels": 4,
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [1,2,4,8,16,32,64,128,256,512],
+                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
                     "gated": false,
                     "head_bias": true

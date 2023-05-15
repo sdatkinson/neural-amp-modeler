@@ -2,13 +2,18 @@
 # Created Date: 2021-01-24
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+auraloss==0.3.0  # 0.4.0 changes API for MRSTFT loss
 black
 flake8
 matplotlib
 numpy
+onnx
+onnxruntime
 pip
 pre-commit
+pydantic
 pytest
+pytest-mock
 pytorch_lightning
 scipy
 sounddevice

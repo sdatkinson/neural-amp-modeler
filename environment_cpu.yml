@@ -4,6 +4,7 @@
 
 name: nam
 channels:
+  - conda-forge # pytest-mock
   - pytorch
 dependencies:
   - black
@@ -13,7 +14,9 @@ dependencies:
   - matplotlib
   - numpy
   - pip
+  - pydantic
   - pytest
+  - pytest-mock
   - pytorch
   - scipy
   - semver
@@ -21,6 +24,9 @@ dependencies:
   - tqdm
   - wheel
   - pip:
+      - auraloss==0.3.0
+      - onnx
+      - onnxruntime
       - pre-commit
       - pytorch_lightning
       - sounddevice

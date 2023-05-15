@@ -12,8 +12,10 @@ For the base *PyTorch* model containing the actual architecture, see `._base`.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Optional, Tuple
 
+import auraloss
+import logging
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -21,11 +23,14 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
-from .losses import esr
+from .losses import esr, multi_resolution_stft_loss, mse_fft
 from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
 from .wavenet import WaveNet
+from ._with_ir import WithIR
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationLoss(Enum):
@@ -54,6 +59,8 @@ class LossConfig(InitializableFromConfig):
         https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
     """
 
+    mrstft_weight: float = 0.0  # 0.0 means no multiresolution stft loss, 2e-4 works pretty well if one wants to use it
+    fourier: bool = False
     mask_first: int = 0
     dc_weight: float = 0.0
     val_loss: ValidationLoss = ValidationLoss.MSE
@@ -63,17 +70,21 @@ class LossConfig(InitializableFromConfig):
     @classmethod
     def parse_config(cls, config):
         config = super().parse_config(config)
+        fourier = config.get("fourier", False)
         dc_weight = config.get("dc_weight", 0.0)
         val_loss = ValidationLoss(config.get("val_loss", "mse"))
         mask_first = config.get("mask_first", 0)
         pre_emph_coef = config.get("pre_emph_coef")
         pre_emph_weight = config.get("pre_emph_weight")
+        mrstft_weight = config.get("mstft_weight", 0.0)
         return {
+            "fourier": fourier,
             "mask_first": mask_first,
             "dc_weight": dc_weight,
             "val_loss": val_loss,
             "pre_emph_coef": pre_emph_coef,
             "pre_emph_weight": pre_emph_weight,
+            "mrstft_weight": mrstft_weight,
         }
 
     def apply_mask(self, *args):
@@ -107,6 +118,11 @@ class Model(pl.LightningModule, InitializableFromConfig):
         self._optimizer_config = {} if optimizer_config is None else optimizer_config
         self._scheduler_config = scheduler_config
         self._loss_config = LossConfig() if loss_config is None else loss_config
+        self._mrstft = None  # Multi-resolution short-time Fourier transform loss
+        # Where to compute the MRSTFT.
+        # Keeping it on-device is preferable, but if that fails, then remember to drop
+        # it to cpu from then on.
+        self._mrstft_device: Optional[torch.device] = None
 
     @classmethod
     def init_from_config(cls, config):
@@ -158,6 +174,13 @@ class Model(pl.LightningModule, InitializableFromConfig):
             "LSTM": LSTM.init_from_config,
             "WaveNet": WaveNet.init_from_config,
         }[net_config["name"]](net_config["config"])
+        ir_config = config.get("ir")
+        if ir_config is not None:
+            net = WithIR(
+                net,
+                torch.eye(1, ir_config["length"])[0],
+                trainable_ir=ir_config.get("trainable", False),
+            )
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
             "net": net,
@@ -185,9 +208,15 @@ class Model(pl.LightningModule, InitializableFromConfig):
             return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
 
     def forward(self, *args, **kwargs):
-        return self.net(*args, **kwargs)
+        return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
 
-    def _shared_step(self, batch):
+    def _shared_step(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        B: Batch size
+        L: Sequence length
+
+        :return: (B,L), (B,L)
+        """
         args, targets = batch[:-1], batch[-1]
         preds = self(*args, pad_start=False)
 
@@ -198,7 +227,14 @@ class Model(pl.LightningModule, InitializableFromConfig):
 
         loss = 0.0
         # Prediction aka MSE loss
-        loss = loss + self._mse_loss(preds, targets)
+        if self._loss_config.fourier:
+            loss = loss + mse_fft(preds, targets)
+        else:
+            loss = loss + self._mse_loss(preds, targets)
+        if self._loss_config.mrstft_weight > 0.0:
+            loss = loss + self._loss_config.mrstft_weight * self._mrstft_loss(
+                preds, targets
+            )
         # Pre-emphasized MSE
         if self._loss_config.pre_emph_weight is not None:
             if (self._loss_config.pre_emph_coef is None) != (
@@ -228,7 +264,11 @@ class Model(pl.LightningModule, InitializableFromConfig):
         val_loss = {ValidationLoss.MSE: mse_loss, ValidationLoss.ESR: esr_loss}[
             self._loss_config.val_loss
         ]
-        self.log_dict({"MSE": mse_loss, "ESR": esr_loss, "val_loss": val_loss})
+        dict_to_log = {"MSE": mse_loss, "ESR": esr_loss, "val_loss": val_loss}
+        if self._loss_config.mrstft_weight > 0.0 and self._mrstft is not None:
+            mrstft_loss = self._mrstft_loss(preds, targets)
+            dict_to_log.update({"MRSTFT": mrstft_loss})
+        self.log_dict(dict_to_log)
         return val_loss
 
     def _esr_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -253,3 +293,31 @@ class Model(pl.LightningModule, InitializableFromConfig):
                 z[..., 1:] - pre_emph_coef * z[..., :-1] for z in (preds, targets)
             ]
         return nn.MSELoss()(preds, targets)
+
+    def _mrstft_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Experimental Multi Resolution Short Time Fourier Transform Loss using auraloss implementation.
+        B: Batch size
+        L: Sequence length
+
+        :param preds: (B,L)
+        :param targets: (B,L)
+        :return: ()
+        """
+        if self._mrstft is None:
+            self._mrstft = auraloss.freq.MultiResolutionSTFTLoss()
+
+        backup_device = "cpu"
+
+        try:
+            return multi_resolution_stft_loss(
+                preds, targets, self._mrstft, device=self._mrstft_device
+            )
+        except Exception as e:
+            if self._mrstft_device == backup_device:
+                raise e
+            logger.warning("MRSTFT failed on device; falling back to CPU")
+            self._mrstft_device = backup_device
+            return multi_resolution_stft_loss(
+                preds, targets, self._mrstft, device=self._mrstft_device
+            )

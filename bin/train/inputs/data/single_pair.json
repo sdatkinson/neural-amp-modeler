@@ -1,11 +1,15 @@
 {
+    "_notes": [
+        "Dev note: Ensure that tests/test_bin/test_train/test_main.py's data is ",
+        "representative of this!"
+    ],
     "train": {
         "start": null,
-        "stop": 36576000,
-        "ny": 1024
+        "stop": -432000,
+        "ny": 8192
     },
     "validation": {
-        "start": 36576000,
+        "start": -432000,
         "stop": null,
         "ny": null
     },
