@@ -76,6 +76,7 @@ def run(
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
     cab_modeling: bool = False,
+    ignore_checks: bool = False,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -88,6 +89,7 @@ def run(
     :param seed: RNG seed for reproducibility.
     :param user_metadata: User-specified metadata to include in the .nam file.
     :param cab_modeling: If True, include a cab in the model.
+    :param ignore_checks: Ignores the data quality checks and YOLOs it
     """
 
     input_version, input_basename = _check_for_files()
@@ -105,10 +107,15 @@ def run(
         lr_decay=lr_decay,
         seed=seed,
         fit_ir=cab_modeling,
+        local=False,
+        ignore_checks=ignore_checks,
     )
 
-    print("Exporting your model...")
-    model_export_outdir = _get_valid_export_directory()
-    model_export_outdir.mkdir(parents=True, exist_ok=False)
-    model.net.export(model_export_outdir, user_metadata=user_metadata)
-    print(f"Model exported to {model_export_outdir}. Enjoy!")
+    if model is None:
+        print("No model returned; skip exporting!")
+    else:
+        print("Exporting your model...")
+        model_export_outdir = _get_valid_export_directory()
+        model_export_outdir.mkdir(parents=True, exist_ok=False)
+        model.net.export(model_export_outdir, user_metadata=user_metadata)
+        print(f"Model exported to {model_export_outdir}. Enjoy!")

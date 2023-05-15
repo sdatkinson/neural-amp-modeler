@@ -7,6 +7,7 @@ Functions used by the GUI trainer.
 """
 
 import hashlib
+import tkinter as tk
 from copy import deepcopy
 from enum import Enum
 from time import time
@@ -279,7 +280,7 @@ def _check_v1(*args, **kwargs):
     return True
 
 
-def _check_v2(input_path, output_path) -> bool:
+def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
     with torch.no_grad():
         print("V2 checks...")
         rate = REQUIRED_RATE
@@ -291,14 +292,18 @@ def _check_v2(input_path, output_path) -> bool:
 
         # Do the blips line up?
         # If the ESR is too bad, then flag it.
+        print("Checking blips...")
+
         def get_blips(y):
             """
             :return: [start/end,replicate]
             """
             i0, i1 = rate // 4, 3 * rate // 4
             j0, j1 = -3 * rate // 4, -rate // 4
-            start = -1000
-            end = 4000
+
+            i0, i1, j0, j1 = [i + delay for i in (i0, i1, j0, j1)]
+            start = -10
+            end = 1000
             blips = torch.stack(
                 [
                     torch.stack([y[i0 + start : i0 + end], y[i1 + start : i1 + end]]),
@@ -313,25 +318,39 @@ def _check_v2(input_path, output_path) -> bool:
         esr_cross_0 = esr(blips[0][0], blips[1][0]).item()  # 1st repeat, start vs end
         esr_cross_1 = esr(blips[0][1], blips[1][1]).item()  # 2nd repeat, start vs end
 
-        esr_threshold = 1.0e-3
+        print("  ESRs:")
+        print(f"    Start     : {esr_0}")
+        print(f"    End       : {esr_1}")
+        print(f"    Cross (1) : {esr_cross_0}")
+        print(f"    Cross (2) : {esr_cross_1}")
 
-        def plot_esr_blip_error(msg, arrays, labels):
-            plt.figure()
-            [plt.plot(array, label=label) for array, label in zip(arrays, labels)]
-            plt.xlabel("Sample")
-            plt.ylabel("Output")
-            plt.legend()
-            plt.grid()
+        esr_threshold = 1.0e-2
+
+        def plot_esr_blip_error(silent, msg, arrays, labels):
+            if not silent:
+                plt.figure()
+                [plt.plot(array, label=label) for array, label in zip(arrays, labels)]
+                plt.xlabel("Sample")
+                plt.ylabel("Output")
+                plt.legend()
+                plt.grid()
             print(msg)
-            plt.show()
+            if not silent:
+                plt.show()
 
         # Check consecutive blips
         for e, blip_pair, when in zip((esr_0, esr_1), blips, ("start", "end")):
             if e >= esr_threshold:
                 plot_esr_blip_error(
+                    silent,
                     f"Failed consecutive blip check at {when} of training signal. The "
-                    "target tone doesn't seem to be replicable over short timespans. "
-                    "Is there a noise gate or a time-based effect in the signal chain?",
+                    "target tone doesn't seem to be replicable over short timespans."
+                    "\n\n"
+                    "  Possible causes:\n\n"
+                    "    * Your recording setup is really noisy.\n"
+                    "    * There's a noise gate that's messing things up.\n"
+                    "    * There's a time-based effect (compressor, delay, reverb) in "
+                    "the signal chain",
                     blip_pair,
                     ("Replicate 1", "Replicate 2"),
                 )
@@ -342,6 +361,7 @@ def _check_v2(input_path, output_path) -> bool:
         ):
             if e >= esr_threshold:
                 plot_esr_blip_error(
+                    silent,
                     f"Failed start-to-end blip check for blip replicate {replicate}. "
                     "The target tone doesn't seem to be same at the end of the reamp "
                     "as it was at the start. Did some setting change during reamping?",
@@ -352,7 +372,9 @@ def _check_v2(input_path, output_path) -> bool:
         return True
 
 
-def _check(input_path: str, output_path: str, input_version: Version) -> bool:
+def _check(
+    input_path: str, output_path: str, input_version: Version, delay: int, silent: bool
+) -> bool:
     """
     Ensure that everything should go smoothly
 
@@ -365,7 +387,7 @@ def _check(input_path: str, output_path: str, input_version: Version) -> bool:
     else:
         print(f"Checks not implemented for input version {input_version}; skip")
         return True
-    return f(input_path, output_path)
+    return f(input_path, output_path, delay, silent)
 
 
 def _get_wavenet_config(architecture):
@@ -656,6 +678,48 @@ def _plot(
         plt.show()
 
 
+def _print_nasty_checks_warning():
+    """
+    "ffs" -Dom
+    """
+    print(
+        "\n"
+        "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n"
+        "X                                                                          X\n"
+        "X                                WARNING:                                  X\n"
+        "X                                                                          X\n"
+        "X       You are ignoring the checks! Your model might turn out bad!        X\n"
+        "X                                                                          X\n"
+        "X                              I warned you!                               X\n"
+        "X                                                                          X\n"
+        "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n"
+    )
+
+
+def _nasty_checks_modal():
+    msg = "You are ignoring the checks!\nYour model might turn out bad!"
+
+    root = tk.Tk()
+    root.withdraw()  # hide the root window
+    modal = tk.Toplevel(root)
+    modal.geometry("300x100")
+    modal.title("Warning!")
+    label = tk.Label(modal, text=msg)
+    label.pack(pady=10)
+    ok_button = tk.Button(
+        modal,
+        text="I can only blame myself!",
+        command=lambda: [modal.destroy(), root.quit()],
+    )
+    ok_button.pack()
+    modal.grab_set()  # disable interaction with root window while modal is open
+    modal.mainloop()
+
+
+# Example usage:
+# show_modal("Hello, World!")
+
+
 def train(
     input_path: str,
     output_path: str,
@@ -674,7 +738,9 @@ def train(
     silent: bool = False,
     modelname: str = "model",
     fit_ir: bool = False,
-):
+    ignore_checks: bool = False,
+    local: bool = False,
+) -> Optional[Model]:
     """
     :param fit_ir: If true, attempts to fit an IR using the sine sweeps at the start of
         the training file. Raises a RuntimeError if the input file isn't suitable.
@@ -682,18 +748,33 @@ def train(
     if seed is not None:
         torch.manual_seed(seed)
 
+    if input_version is None:
+        input_version = _detect_input_version(input_path)
+
     if delay is None:
-        if input_version is None:
-            input_version = _detect_input_version(input_path)
         delay = _calibrate_delay(
             delay, input_version, input_path, output_path, silent=silent
         )
     else:
         print(f"Delay provided as {delay}; skip calibration")
 
-    if not _check(input_path, output_path, input_version):
-        print("Failed checks; exit training")
-        return
+    if _check(input_path, output_path, input_version, delay, silent):
+        print("-Checks passed")
+    else:
+        print("Failed checks!")
+        if ignore_checks:
+            if local and not silent:
+                _nasty_checks_modal()
+            else:
+                _print_nasty_checks_warning()
+        elif not local:  # And not ignore_checks
+            print(
+                "(To disable this check, run AT YOUR OWN RISK with "
+                "`ignore_checks=True`.)"
+            )
+        if not ignore_checks:
+            print("Exiting core training...")
+            return
 
     data_config, model_config, learning_config = _get_configs(
         input_version,

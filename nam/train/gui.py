@@ -60,6 +60,7 @@ _BUTTON_HEIGHT = 2
 _TEXT_WIDTH = 70
 
 _DEFAULT_DELAY = None
+_DEFAULT_IGNORE_CHECKS = False
 
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
@@ -71,6 +72,7 @@ class _AdvancedOptions(object):
     architecture: core.Architecture
     num_epochs: int
     delay: Optional[int]
+    ignore_checks: bool
 
 
 class _PathType(Enum):
@@ -203,7 +205,10 @@ class _GUI(object):
         # Advanced options for training
         default_architecture = core.Architecture.STANDARD
         self.advanced_options = _AdvancedOptions(
-            default_architecture, _DEFAULT_NUM_EPOCHS, _DEFAULT_DELAY
+            default_architecture,
+            _DEFAULT_NUM_EPOCHS,
+            _DEFAULT_DELAY,
+            _DEFAULT_IGNORE_CHECKS,
         )
         # Window to edit them:
         self._frame_advanced_options = tk.Frame(self._root)
@@ -232,6 +237,23 @@ class _GUI(object):
         self._button_train.pack()
 
         self._check_button_states()
+
+    def _check_button_states(self):
+        """
+        Determine if any buttons should be disabled
+        """
+        # Train button is disabled unless all paths are set
+        if any(
+            pb.val is None
+            for pb in (
+                self._path_button_input,
+                self._path_button_output,
+                self._path_button_train_destination,
+            )
+        ):
+            self._button_train["state"] = tk.DISABLED
+            return
+        self._button_train["state"] = tk.NORMAL
 
     def _get_additional_options_frame(self):
         # Checkboxes
@@ -266,6 +288,16 @@ class _GUI(object):
             variable=self._cab_modeling,
         )
         self._checkbox_cab_modeling.grid(row=3, column=1, sticky="W")
+
+        # Skip the data quality checks!
+        self._ignore_checks = tk.BooleanVar()
+        self._ignore_checks.set(False)
+        self._chkbox_ignore_checks = tk.Checkbutton(
+            self._frame_silent,
+            text="Ignore data quality checks (DO AT YOUR OWN RISK!)",
+            variable=self._ignore_checks,
+        )
+        self._chkbox_ignore_checks.grid(row=3, column=1, sticky="W")
 
     def mainloop(self):
         self._root.mainloop()
@@ -322,7 +354,12 @@ class _GUI(object):
                 save_plot=self._save_plot.get(),
                 modelname=basename,
                 fit_ir=self._cab_modeling.get(),
+                ignore_checks=self._ignore_checks.get(),
+                local=True,
             )
+            if trained_model is None:
+                print("Model training failed! Skip exporting...")
+                continue
             print("Model training complete!")
             print("Exporting...")
             outdir = self._path_button_train_destination.val
@@ -339,23 +376,6 @@ class _GUI(object):
         # Metadata was only valid for 1 run, so make sure it's not used again unless
         # the user re-visits the window and clicks "ok"
         self.user_metadata_flag = False
-
-    def _check_button_states(self):
-        """
-        Determine if any buttons should be disabled
-        """
-        # Train button is diabled unless all paths are set
-        if any(
-            pb.val is None
-            for pb in (
-                self._path_button_input,
-                self._path_button_output,
-                self._path_button_train_destination,
-            )
-        ):
-            self._button_train["state"] = tk.DISABLED
-            return
-        self._button_train["state"] = tk.NORMAL
 
 
 # some typing functions
