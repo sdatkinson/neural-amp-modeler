@@ -22,8 +22,7 @@ from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model, WithIR
 from ..models.losses import esr
 from ._version import Version
-
-# from .ir import fit as _fit_ir_inner  # TODO
+from .ir import fit as _fit_ir_inner
 
 
 class Architecture(Enum):
@@ -598,14 +597,12 @@ def _fit_ir(model: Model, dataset, data_version: Version) -> WithIR:
     x = dataset.x[start:stop]
     y = dataset.y[start:stop]
 
-    # FIXME
-    def _fit_ir_inner(x, y, ir_length, jitter=0.0):
-        print("FIXME fit IR")
-        ir = torch.zeros((ir_length,))
-        ir[0] = 1.0
-        return ir
-
-    ir = _fit_ir_inner(x, y, model.net.ir_length, jitter=0.1)
+    with torch.no_grad():
+        ir = torch.Tensor(
+            _fit_ir_inner(
+                x.cpu().numpy(), y.cpu().numpy(), model.net.ir_length
+            ).solution
+        )
     model.net.set_ir(ir)
 
 
