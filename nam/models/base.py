@@ -194,13 +194,6 @@ class Model(pl.LightningModule, InitializableFromConfig):
             "LSTM": LSTM.init_from_config,
             "WaveNet": WaveNet.init_from_config,
         }[net_config["name"]](net_config["config"])
-        ir_config = config.get("ir")
-        if ir_config is not None:
-            net = WithIR(
-                net,
-                torch.eye(1, ir_config["length"])[0],
-                trainable_ir=ir_config.get("trainable", False),
-            )
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
             "net": net,
