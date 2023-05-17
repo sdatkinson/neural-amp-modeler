@@ -261,13 +261,15 @@ class _GUI(object):
         self._frame_checkboxes.pack(side=tk.LEFT)
 
         # Silent run (bypass popups)
+        row = 1
         self._silent = tk.BooleanVar()
         self._checkbox_silent = tk.Checkbutton(
             self._frame_checkboxes,
             text="Silent run (suggested for batch training)",
             variable=self._silent,
         )
-        self._checkbox_silent.grid(row=1, column=1, sticky="W")
+        self._checkbox_silent.grid(row=row, column=1, sticky="W")
+        row += 1
 
         # Auto save the end plot
         self._save_plot = tk.BooleanVar()
@@ -277,27 +279,19 @@ class _GUI(object):
             text="Save ESR plot automatically",
             variable=self._save_plot,
         )
-        self._checkbox_save_plot.grid(row=2, column=1, sticky="W")
-
-        # Cab modeling
-        self._cab_modeling = tk.BooleanVar()  # True=amp+cab modeling
-        self._cab_modeling.set(False)  # No cab
-        self._checkbox_cab_modeling = tk.Checkbutton(
-            self._frame_checkboxes,
-            text="Cab modeling",
-            variable=self._cab_modeling,
-        )
-        self._checkbox_cab_modeling.grid(row=3, column=1, sticky="W")
+        self._checkbox_save_plot.grid(row=row, column=1, sticky="W")
+        row += 1
 
         # Skip the data quality checks!
         self._ignore_checks = tk.BooleanVar()
         self._ignore_checks.set(False)
-        self._chkbox_ignore_checks = tk.Checkbutton(
-            self._frame_silent,
+        self._checkbox_ignore_checks = tk.Checkbutton(
+            self._frame_checkboxes,
             text="Ignore data quality checks (DO AT YOUR OWN RISK!)",
             variable=self._ignore_checks,
         )
-        self._chkbox_ignore_checks.grid(row=3, column=1, sticky="W")
+        self._checkbox_ignore_checks.grid(row=row, column=1, sticky="W")
+        row += 1
 
     def mainloop(self):
         self._root.mainloop()
@@ -353,7 +347,6 @@ class _GUI(object):
                 silent=self._silent.get(),
                 save_plot=self._save_plot.get(),
                 modelname=basename,
-                fit_ir=self._cab_modeling.get(),
                 ignore_checks=self._ignore_checks.get(),
                 local=True,
             )

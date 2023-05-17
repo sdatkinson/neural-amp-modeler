@@ -135,6 +135,8 @@ def _detect_input_version(input_path) -> Version:
 _V1_BLIP_LOCATIONS = 12_000, 36_000
 _V2_START_BLIP_LOCATIONS = _V1_BLIP_LOCATIONS
 _V2_END_BLIP_LOCATIONS = -36_000, -12_000
+_DELAY_CALIBRATION_ABS_THRESHOLD = 0.0001
+_DELAY_CALIBRATION_REL_THRESHOLD = 0.001
 
 
 def _calibrate_delay_v1(
@@ -147,7 +149,10 @@ def _calibrate_delay_v1(
     # Calibrate the trigger:
     y = wav_to_np(output_path)[:48_000]
     background_level = np.max(np.abs(y[:6_000]))
-    trigger_threshold = max(background_level + 0.01, 1.01 * background_level)
+    trigger_threshold = max(
+        background_level + _DELAY_CALIBRATION_ABS_THRESHOLD,
+        (1.0 + _DELAY_CALIBRATION_REL_THRESHOLD) * background_level,
+    )
 
     delays = []
     for blip_index, i in enumerate(locations, 1):
@@ -187,7 +192,10 @@ def _calibrate_delay_v1(
     return delay
 
 
-_calibrate_delay_v2 = _calibrate_delay_v1
+def _calibrate_delay_v2(
+    input_path, output_path, locations: Sequence[int] = _V2_START_BLIP_LOCATIONS
+) -> int:
+    return _calibrate_delay_v1(input_path, output_path, locations=locations)
 
 
 def _plot_delay_v1(delay: int, input_path: str, output_path: str, _nofail=True):
@@ -478,8 +486,8 @@ def _get_wavenet_config(architecture):
 
 def _get_configs(
     input_version: Version,
-    input_basename: str,
-    output_basename: str,
+    input_path: str,
+    output_path: str,
     delay: int,
     epochs: int,
     model_type: str,
@@ -488,7 +496,6 @@ def _get_configs(
     lr: float,
     lr_decay: float,
     batch_size: int,
-    fit_ir: bool,
 ):
     def get_kwargs():
         val_seconds = 9
@@ -514,8 +521,8 @@ def _get_configs(
         "train": {"ny": ny, **train_kwargs},
         "validation": {"ny": None, **validation_kwargs},
         "common": {
-            "x_path": input_basename,
-            "y_path": output_basename,
+            "x_path": input_path,
+            "y_path": output_path,
             "delay": delay,
         },
     }
@@ -550,9 +557,7 @@ def _get_configs(
             "optimizer": {"lr": 0.01},
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
-
-    if fit_ir:
-        model_config["ir"] = {"length": 1024}
+    model_config["loss"]["mrstft_weight"] = 2e-4
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
@@ -737,7 +742,6 @@ def train(
     save_plot: bool = False,
     silent: bool = False,
     modelname: str = "model",
-    fit_ir: bool = False,
     ignore_checks: bool = False,
     local: bool = False,
 ) -> Optional[Model]:
@@ -788,7 +792,6 @@ def train(
         lr,
         lr_decay,
         batch_size,
-        fit_ir,
     )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
@@ -796,9 +799,6 @@ def train(
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
     )
-
-    if fit_ir:
-        _fit_ir(model, train_dataloader.dataset, input_version)
 
     trainer = pl.Trainer(
         callbacks=[

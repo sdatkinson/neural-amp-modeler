@@ -75,7 +75,6 @@ def run(
     lr_decay: float = 0.007,
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
-    cab_modeling: bool = False,
     ignore_checks: bool = False,
 ):
     """
@@ -88,7 +87,6 @@ def run(
     :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
     :param user_metadata: User-specified metadata to include in the .nam file.
-    :param cab_modeling: If True, include a cab in the model.
     :param ignore_checks: Ignores the data quality checks and YOLOs it
     """
 
@@ -106,7 +104,6 @@ def run(
         lr=lr,
         lr_decay=lr_decay,
         seed=seed,
-        fit_ir=cab_modeling,
         local=False,
         ignore_checks=ignore_checks,
     )
