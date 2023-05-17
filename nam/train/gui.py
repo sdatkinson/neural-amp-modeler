@@ -257,37 +257,41 @@ class _GUI(object):
 
     def _get_additional_options_frame(self):
         # Checkboxes
-        self._frame_silent = tk.Frame(self._root)
-        self._frame_silent.pack(side=tk.LEFT)
+        self._frame_checkboxes = tk.Frame(self._root)
+        self._frame_checkboxes.pack(side=tk.LEFT)
 
         # Silent run (bypass popups)
+        row = 1
         self._silent = tk.BooleanVar()
-        self._chkbox_silent = tk.Checkbutton(
-            self._frame_silent,
+        self._checkbox_silent = tk.Checkbutton(
+            self._frame_checkboxes,
             text="Silent run (suggested for batch training)",
             variable=self._silent,
         )
-        self._chkbox_silent.grid(row=1, column=1, sticky="W")
+        self._checkbox_silent.grid(row=row, column=1, sticky="W")
+        row += 1
 
         # Auto save the end plot
         self._save_plot = tk.BooleanVar()
         self._save_plot.set(True)  # default this to true
-        self._chkbox_save_plot = tk.Checkbutton(
-            self._frame_silent,
+        self._checkbox_save_plot = tk.Checkbutton(
+            self._frame_checkboxes,
             text="Save ESR plot automatically",
             variable=self._save_plot,
         )
-        self._chkbox_save_plot.grid(row=2, column=1, sticky="W")
+        self._checkbox_save_plot.grid(row=row, column=1, sticky="W")
+        row += 1
 
         # Skip the data quality checks!
         self._ignore_checks = tk.BooleanVar()
         self._ignore_checks.set(False)
-        self._chkbox_ignore_checks = tk.Checkbutton(
-            self._frame_silent,
+        self._checkbox_ignore_checks = tk.Checkbutton(
+            self._frame_checkboxes,
             text="Ignore data quality checks (DO AT YOUR OWN RISK!)",
             variable=self._ignore_checks,
         )
-        self._chkbox_ignore_checks.grid(row=3, column=1, sticky="W")
+        self._checkbox_ignore_checks.grid(row=row, column=1, sticky="W")
+        row += 1
 
     def mainloop(self):
         self._root.mainloop()

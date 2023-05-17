@@ -298,11 +298,21 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         return self._ny
 
     @property
-    def x(self):
+    def x(self) -> torch.Tensor:
+        """
+        The input audio data
+
+        :return: (N,)
+        """
         return self._x
 
     @property
-    def y(self):
+    def y(self) -> torch.Tensor:
+        """
+        The output audio data
+
+        :return: (N,)
+        """
         return self._y
 
     @property
@@ -578,6 +588,9 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
         return self.datasets[i][j]
 
     def __len__(self) -> int:
+        """
+        How many data sets are in this data set
+        """
         return sum(len(d) for d in self._datasets)
 
     @property
@@ -622,8 +635,18 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
                 j += 1
             lookup[i] = (j, offset)
             offset += 1
-        assert j == len(self.datasets) - 1
-        assert offset == len(self.datasets[-1])
+        # Assert that we got to the last data set
+        if j != len(self.datasets) - 1:
+            raise RuntimeError(
+                f"During lookup population, didn't get to the last dataset (index "
+                f"{len(self.datasets)-1}). Instead index ended at {j}."
+            )
+        if offset != len(self.datasets[-1]):
+            raise RuntimeError(
+                "During lookup population, didn't end at the index of the last datum "
+                f"in the last dataset. Expected index {len(self.datasets[-1])}, got "
+                f"{offset} instead."
+            )
         return lookup
 
     @classmethod

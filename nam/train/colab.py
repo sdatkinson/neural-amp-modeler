@@ -86,7 +86,7 @@ def run(
     :param lr: The initial learning rate
     :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
-    :param user_metadata: To include in the exported model
+    :param user_metadata: User-specified metadata to include in the .nam file.
     :param ignore_checks: Ignores the data quality checks and YOLOs it
     """
 

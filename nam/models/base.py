@@ -220,7 +220,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
             return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
 
     def forward(self, *args, **kwargs):
-        return self.net(*args, **kwargs)
+        return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
 
     def _shared_step(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
         """
