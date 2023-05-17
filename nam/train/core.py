@@ -23,7 +23,6 @@ from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model, WithIR
 from ..models.losses import esr
 from ._version import Version
-from .ir import fit as _fit_ir_inner
 
 
 class Architecture(Enum):
@@ -590,47 +589,6 @@ def _get_dataloaders(
     train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
     val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
     return train_dataloader, val_dataloader
-
-
-def _fit_ir(model: Model, dataset, data_version: Version) -> WithIR:
-    """
-    Fits an IR to the sine sweep contained in the data based on the provided version.
-    """
-
-    def validate_data(data_version: Version) -> bool:
-        if data_version < Version(2, 0, 0):
-            raise RuntimeError(
-                f"Input version {data_version} is not suitable for IR modeling."
-            )
-
-    def validate_model(model):
-        if not isinstance(model.net, WithIR):
-            raise RuntimeError(
-                f"Model is not an instance of WithIR (found {model.net.__class__.__name__} instead)"
-            )
-
-    def get_start_stop(version: Version):
-        if data_version == Version(2, 0, 0):
-            rate = REQUIRED_RATE
-            pad = 4_800
-            start, stop = 1 * rate + pad, 2 * rate - pad
-        else:
-            raise ValueError(version)
-        return start, stop
-
-    validate_data(data_version)
-    validate_model(model)
-    start, stop = get_start_stop(data_version)
-    x = dataset.x[start:stop]
-    y = dataset.y[start:stop]
-
-    with torch.no_grad():
-        ir = torch.Tensor(
-            _fit_ir_inner(
-                x.cpu().numpy(), y.cpu().numpy(), model.net.ir_length
-            ).solution
-        )
-    model.net.set_ir(ir)
 
 
 def _esr(pred: torch.Tensor, target: torch.Tensor) -> float:
