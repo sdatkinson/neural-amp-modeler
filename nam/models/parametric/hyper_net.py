@@ -131,7 +131,7 @@ class _BatchNorm(nn.BatchNorm1d, _NetLayer):
 
     def forward(self, params, inputs):
         """
-        Only change is we need to provide *params into F.batch_norm instead of
+        Only change is we need to provide *params into F.batch_norm instead of 
         self.weight, self.bias
         """
         # Also use "inputs" instead of "input" to not collide w/ builtin (ew)
@@ -315,7 +315,7 @@ class HyperConvNet(ParametricBaseNet):
         # Last conv is the collapser--compensate w/ a minus 1
         return sum([m.dilation[0] for m in self._net if isinstance(m, _Conv)]) + 1 - 1
 
-    def export(self, outdir: Path, include_snapshot: bool = False):
+    def export(self, outdir: Path, include_snapshot: bool=False):
         """
         Files created:
         * config.json
@@ -367,9 +367,7 @@ class HyperConvNet(ParametricBaseNet):
         # And an input/output to verify correct computation:
         if include_snapshot:
             params, x, y = self._export_input_output()
-            np.save(
-                Path(outdir, "test_signal_params.npy"), params.detach().cpu().numpy()
-            )
+            np.save(Path(outdir, "test_signal_params.npy"), params.detach().cpu().numpy())
             np.save(Path(outdir, "test_signal_input.npy"), x.detach().cpu().numpy())
             np.save(Path(outdir, "test_signal_output.npy"), y.detach().cpu().numpy())
 
