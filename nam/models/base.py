@@ -28,7 +28,6 @@ from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
 from .wavenet import WaveNet
-from ._with_ir import WithIR
 
 logger = logging.getLogger(__name__)
 
