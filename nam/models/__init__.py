@@ -9,4 +9,3 @@ from . import wavenet  # noqa F401
 from .base import Model  # noqa F401
 from .linear import Linear  # noqa F401
 from .conv_net import ConvNet  # noqa F401
-from ._with_ir import WithIR  # noqa F401
