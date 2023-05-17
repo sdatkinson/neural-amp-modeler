@@ -20,7 +20,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np, wav_to_tensor
-from ..models import Model, WithIR
+from ..models import Model
 from ..models.losses import esr
 from ._version import Version
 
@@ -703,10 +703,6 @@ def train(
     ignore_checks: bool = False,
     local: bool = False,
 ) -> Optional[Model]:
-    """
-    :param fit_ir: If true, attempts to fit an IR using the sine sweeps at the start of
-        the training file. Raises a RuntimeError if the input file isn't suitable.
-    """
     if seed is not None:
         torch.manual_seed(seed)
 
