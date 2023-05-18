@@ -8,7 +8,13 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pytest
 
-from nam.data import Dataset, np_to_wav, wav_to_np, wav_to_tensor
+from nam.data import (
+    Dataset,
+    np_to_wav,
+    wav_to_np,
+    wav_to_tensor,
+    _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
+)
 from nam.train import core
 from nam.train._version import Version
 
@@ -123,7 +129,9 @@ def _make_t_validation_dataset_class(
             """
             x = wav_to_tensor(_resource_path(version))
             Dataset._validate_preceding_silence(
-                x, data_info.validation_start, data_info.rate
+                x,
+                data_info.validation_start,
+                int(_DEFAULT_REQUIRE_INPUT_PRE_SILENCE * data_info.rate),
             )
 
     return C

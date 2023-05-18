@@ -204,6 +204,7 @@ class StopError(StartStopError):
     pass
 
 
+# In seconds. Can't be 0.5 or else v1.wav is invalid! Oops!
 _DEFAULT_REQUIRE_INPUT_PRE_SILENCE = 0.4
 
 
@@ -541,15 +542,14 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         """
         if start is None:
             return
-        t_silent = 0.4  # In seconds. Can't be 0.5 or else v1.wav is invalid! Oops!
         raw_check_start = start - silent_samples
         check_start = max(raw_check_start, 0) if start >= 0 else min(raw_check_start, 0)
         check_end = start
         if not torch.all(x[check_start:check_end] == 0.0):
             raise XYError(
-                "Input provided isn't silent for at least a half second before the "
-                "starting index. Responses to this non-silent input may leak into the "
-                "dataset!"
+                f"Input provided isn't silent for at least {silent_samples} samples "
+                "before the starting index. Responses to this non-silent input may "
+                "leak into the dataset!"
             )
 
 
