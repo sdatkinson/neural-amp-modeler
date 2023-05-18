@@ -197,17 +197,18 @@ _V2_DATA_INFO = _DataInfo(
 
 _DELAY_CALIBRATION_ABS_THRESHOLD = 0.0001
 _DELAY_CALIBRATION_REL_THRESHOLD = 0.001
+_DELAY_CALIBRATION_SAFETY_FACTOR = 4
 
 
 def _calibrate_delay_v_all(data_info: _DataInfo, input_path, output_path) -> int:
     lookahead = 1_000
     lookback = 10_000
-    safety_factor = 4
+    safety_factor = _DELAY_CALIBRATION_SAFETY_FACTOR
 
     # Calibrate the trigger:
     y = wav_to_np(output_path)[: data_info.t_blips]
     background_level = np.max(
-        np.abs(y[data_info.noise_interval[0], data_info.noise_interval[1]])
+        np.abs(y[data_info.noise_interval[0] : data_info.noise_interval[1]])
     )
     trigger_threshold = max(
         background_level + _DELAY_CALIBRATION_ABS_THRESHOLD,

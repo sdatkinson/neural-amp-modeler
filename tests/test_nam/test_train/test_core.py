@@ -76,5 +76,31 @@ class TestDetectInputVersion(object):
         )
 
 
+class _TCalibrateDelay(object):
+    _calibrate_delay = None
+    _data_info: core._DataInfo = None
+
+    @pytest.mark.parametrize("expected_delay", (-10, 0, 5, 100))
+    def test_calibrate_delay(self, expected_delay: int):
+        x = np.zeros((self._data_info.t_blips))
+        for i in self._data_info.start_blip_locations:
+            x[i + expected_delay] = 1.0
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir, "output.wav")
+            np_to_wav(x, path)
+            delay = self._calibrate_delay(None, path)
+            assert delay == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
+
+
+class TestCalibrateDelayV1(_TCalibrateDelay):
+    _calibrate_delay = core._calibrate_delay_v1
+    _data_info = core._V1_DATA_INFO
+
+
+class TestCalibrateDelayV2(_TCalibrateDelay):
+    _calibrate_delay = core._calibrate_delay_v2
+    _data_info = core._V2_DATA_INFO
+
+
 if __name__ == "__main__":
     pytest.main()
