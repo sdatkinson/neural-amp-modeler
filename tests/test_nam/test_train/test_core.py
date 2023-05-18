@@ -8,36 +8,48 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pytest
 
-from nam.data import np_to_wav, wav_to_np
+from nam.data import Dataset, np_to_wav, wav_to_np, wav_to_tensor
 from nam.train import core
+from nam.train._version import Version
 
-from ...resources import requires_v1_0_0, requires_v1_1_1, requires_v2_0_0
+from ...resources import (
+    requires_v1_0_0,
+    requires_v1_1_1,
+    requires_v2_0_0,
+    resource_path,
+)
+
+__all__ = []
+
+
+def _resource_path(version: Version) -> Path:
+    return resource_path(f'v{str(version).replace(".", "_")}.wav')
 
 
 class TestDetectInputVersion(object):
     @requires_v1_0_0
     def test_detect_input_version_v1_0_0_strong(self):
-        self._t_detect_input_version_strong(core.Version(1, 0, 0))
+        self._t_detect_input_version_strong(Version(1, 0, 0))
 
     @requires_v1_1_1
     def test_detect_input_version_v1_1_1_strong(self):
-        self._t_detect_input_version_strong(core.Version(1, 1, 1))
+        self._t_detect_input_version_strong(Version(1, 1, 1))
 
     @requires_v2_0_0
     def test_detect_input_version_v2_0_0_strong(self):
-        self._t_detect_input_version_strong(core.Version(2, 0, 0))
+        self._t_detect_input_version_strong(Version(2, 0, 0))
 
     @requires_v1_0_0
     def test_detect_input_version_v1_0_0_weak(self):
-        self._t_detect_input_version_weak(core.Version(1, 0, 0))
+        self._t_detect_input_version_weak(Version(1, 0, 0))
 
     @requires_v1_1_1
     def test_detect_input_version_v1_1_1_weak(self):
-        self._t_detect_input_version_weak(core.Version(1, 1, 1))
+        self._t_detect_input_version_weak(Version(1, 1, 1))
 
     @requires_v2_0_0
     def test_detect_input_version_v2_0_0_weak(self):
-        self._t_detect_input_version_weak(core.Version(2, 0, 0))
+        self._t_detect_input_version_weak(Version(2, 0, 0))
 
     @classmethod
     def _customize_resource(cls, path_in, path_out):
@@ -51,7 +63,7 @@ class TestDetectInputVersion(object):
     def _t_detect_input_version(
         cls,
         path: Path,
-        expected_input_version: core.Version,
+        expected_input_version: Version,
         expected_strong_match: bool,
     ):
         input_version, strong_match = core._detect_input_version(path)
@@ -59,21 +71,15 @@ class TestDetectInputVersion(object):
         assert strong_match == expected_strong_match
 
     @classmethod
-    def _t_detect_input_version_strong(cls, version: core.Version):
-        cls._t_detect_input_version(cls._resource_path(version), version, True)
+    def _t_detect_input_version_strong(cls, version: Version):
+        cls._t_detect_input_version(_resource_path(version), version, True)
 
     @classmethod
-    def _t_detect_input_version_weak(cls, version: core.Version):
+    def _t_detect_input_version_weak(cls, version: Version):
         with TemporaryDirectory() as tmpdir:
             path = Path(tmpdir, "temp.wav")
-            cls._customize_resource(cls._resource_path(version), path)
+            cls._customize_resource(_resource_path(version), path)
             cls._t_detect_input_version(path, version, False)
-
-    @classmethod
-    def _resource_path(cls, version: core.Version) -> Path:
-        return Path(__file__).absolute().parent.parent.parent / Path(
-            "resources", f'v{str(version).replace(".", "_")}.wav'
-        )
 
 
 class _TCalibrateDelay(object):
@@ -101,6 +107,37 @@ class TestCalibrateDelayV2(_TCalibrateDelay):
     _calibrate_delay = core._calibrate_delay_v2
     _data_info = core._V2_DATA_INFO
 
+
+def _make_t_validation_dataset_class(
+    version: Version, decorator, data_info: core._DataInfo
+):
+    class C(object):
+        @decorator
+        def test_validation_preceded_by_silence(self):
+            """
+            Validate that the datasets that we've made are valid
+            """
+            x = wav_to_tensor(_resource_path(version))
+            Dataset._validate_preceding_silence(
+                x, data_info.validation_start, data_info.rate
+            )
+
+    return C
+
+
+TestValidationDatasetV1_0_0 = _make_t_validation_dataset_class(
+    Version(1, 0, 0), requires_v1_0_0, core._V1_DATA_INFO
+)
+
+
+TestValidationDatasetV1_1_1 = _make_t_validation_dataset_class(
+    Version(1, 1, 1), requires_v1_1_1, core._V1_DATA_INFO
+)
+
+
+TestValidationDatasetV2_0_0 = _make_t_validation_dataset_class(
+    Version(2, 0, 0), requires_v2_0_0, core._V2_DATA_INFO
+)
 
 if __name__ == "__main__":
     pytest.main()

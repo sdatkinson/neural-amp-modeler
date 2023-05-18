@@ -227,6 +227,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         x_path: Optional[Union[str, Path]] = None,
         y_path: Optional[Union[str, Path]] = None,
         input_gain: float = 0.0,
+        rate: int = REQUIRED_RATE,
     ):
         """
         :param x: The input signal. A 1D array.
@@ -261,6 +262,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             delay_interpolation_method = _DelayInterpolationMethod(
                 delay_interpolation_method
             )
+        self._validate_preceding_silence(x, start, rate)
         x, y = [z[start:stop] for z in (x, y)]
         if delay is not None and delay != 0:
             x, y = self._apply_delay(x, y, delay, delay_interpolation_method)
@@ -274,6 +276,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._y = y
         self._nx = nx
         self._ny = ny if ny is not None else len(x) - nx + 1
+        self._rate = rate
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -504,6 +507,29 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             if self._y_path is not None:
                 msg += f"Source is {self._y_path}"
             raise ValueError(msg)
+
+    @classmethod
+    def _validate_preceding_silence(
+        cls, x: torch.Tensor, start: Optional[int], rate: int
+    ):
+        """
+        Make sure that the input is silent before the starting index.
+        If it's not, then the output from that non-silent input will leak into the data
+        set and couldn't be predicted!
+
+        See: Issue #
+        """
+        if start is None:
+            return
+        raw_check_start = start - int(0.5 * rate)
+        check_start = max(raw_check_start, 0) if start >= 0 else min(raw_check_start, 0)
+        check_end = start
+        if not torch.all(x[check_start:check_end] == 0.0):
+            raise XYError(
+                "Input provided isn't silent for at least a half second before the "
+                "starting index. Responses to this non-silent input may leak into the "
+                "dataset!"
+            )
 
 
 class ParametricDataset(Dataset):

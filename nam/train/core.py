@@ -162,6 +162,8 @@ class _DataInfo(BaseModel):
     :param rate: Sample rate, in Hz
     :param t_blips: How long the blips are, in seconds
     :param t_validate: Validation signal length, in samples
+    :param validation_start: Where validation signal starts, in samples. Less than zero
+        (from the end of the array).
     :param noise_interval: Inside which we quantify the noise level
     :param start_blip_locations: In samples
     :param end_blip_locations: In samples, negative (from end)
@@ -171,6 +173,7 @@ class _DataInfo(BaseModel):
     rate: Optional[int]
     t_blips: int
     t_validate: int
+    validation_start: int
     noise_interval: Tuple[int, int]
     start_blip_locations: Sequence[int]
     end_blip_locations: Optional[Sequence[int]]
@@ -181,6 +184,7 @@ _V1_DATA_INFO = _DataInfo(
     rate=REQUIRED_RATE,
     t_blips=48_000,
     t_validate=432_000,
+    validation_start=-432_000,
     noise_interval=(0, 6000),
     start_blip_locations=(12_000, 36_000),
     end_blip_locations=None,
@@ -190,6 +194,7 @@ _V2_DATA_INFO = _DataInfo(
     rate=REQUIRED_RATE,
     t_blips=96_000,
     t_validate=432_000,
+    validation_start=-960_000,  # 96_000 + 2 * 432_000
     noise_interval=(12_000, 18_000),
     start_blip_locations=(24_000, 72_000),
     end_blip_locations=(-72_000, -24_000),
@@ -565,12 +570,12 @@ def _get_configs(
 ):
     def get_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
-            train_val_split = -data_info.t_validate
+            train_val_split = data_info.validation_start
             train_kwargs = {"stop": train_val_split}
             validation_kwargs = {"start": train_val_split}
         elif data_info.major_version == 2:
-            train_stop = -(data_info.t_blips + val_replicates * data_info.t_validate)
-            validation_start = train_stop
+            validation_start = data_info.validation_start
+            train_stop = validation_start
             validation_stop = validation_start + data_info.t_validate
             train_kwargs = {"stop": train_stop}
             validation_kwargs = {"start": validation_start, "stop": validation_stop}
