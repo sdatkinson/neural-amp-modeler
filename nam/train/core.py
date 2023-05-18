@@ -289,7 +289,7 @@ def _plot_delay_v_all(
         di = 20
         if data_info.major_version == 1:
             i = [i[0]]
-        for ii, e in enumerate(i, 1):
+        for e, ii in enumerate(i, 1):
             plt.plot(
                 np.arange(-di, di),
                 y[ii - di + delay : ii + di + delay],
