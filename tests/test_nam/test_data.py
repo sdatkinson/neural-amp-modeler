@@ -119,12 +119,20 @@ class TestDataset(object):
         ),
     )
     def test_validate_start(self, n: int, start: int, valid: bool):
+        """
+        Assert that a data set can be successfully instantiated when valid args are
+        given, including `start`.
+        Assert that `StartError` is raised if invalid start is provided
+        """
+
         def init():
             data.Dataset(x, y, nx, ny, start=start)
 
         nx = 1
         ny = None
         x, y = self._create_xy(n=n)
+        if start is not None:
+            x[:start] = 0.0  # Ensure silent input before the start
         if valid:
             init()
             assert True  # No problem!
