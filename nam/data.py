@@ -204,6 +204,9 @@ class StopError(StartStopError):
     pass
 
 
+_DEFAULT_REQUIRE_INPUT_PRE_SILENCE = 0.4
+
+
 class Dataset(AbstractDataset, InitializableFromConfig):
     """
     Take a pair of matched audio files and serve input + output pairs.
@@ -228,6 +231,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         y_path: Optional[Union[str, Path]] = None,
         input_gain: float = 0.0,
         rate: int = REQUIRED_RATE,
+        require_input_pre_silence: Optional[float] = _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
     ):
         """
         :param x: The input signal. A 1D array.
@@ -255,6 +259,11 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             you are using a reamping setup, you can estimate this by reamping a
             completely dry signal (i.e. connecting the interface output directly back
             into the input with which the guitar was originally recorded.)
+        :param rate: Sample rate for the data
+        :param require_input_pre_silence: If provided, require that this much time (in
+            seconds) preceding the start of the data set (`start`) have a silent input.
+            If it's not, then raise an exception because the output due to it will leak
+            into the data set that we're trying to use. If `None`, don't assert.
         """
         self._validate_x_y(x, y)
         self._validate_start_stop(x, y, start, stop)
@@ -262,7 +271,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             delay_interpolation_method = _DelayInterpolationMethod(
                 delay_interpolation_method
             )
-        self._validate_preceding_silence(x, start, rate)
+        if require_input_pre_silence is not None:
+            self._validate_preceding_silence(
+                x, start, int(require_input_pre_silence * rate)
+            )
         x, y = [z[start:stop] for z in (x, y)]
         if delay is not None and delay != 0:
             x, y = self._apply_delay(x, y, delay, delay_interpolation_method)
@@ -377,6 +389,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "y_scale": config.get("y_scale", 1.0),
             "x_path": config["x_path"],
             "y_path": config["y_path"],
+            "rate": config.get("rate", REQUIRED_RATE),
+            "require_input_pre_silence": config.get(
+                "require_input_pre_silence", _DEFAULT_REQUIRE_INPUT_PRE_SILENCE
+            ),
         }
 
     @classmethod
@@ -510,19 +526,23 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def _validate_preceding_silence(
-        cls, x: torch.Tensor, start: Optional[int], rate: int
+        cls, x: torch.Tensor, start: Optional[int], silent_samples: int
     ):
         """
         Make sure that the input is silent before the starting index.
         If it's not, then the output from that non-silent input will leak into the data
         set and couldn't be predicted!
 
-        See: Issue #
+        See: Issue #252
+
+        :param x: Input
+        :param start: Where the data starts
+        :param silent_samples: How many are expected to be silent
         """
         if start is None:
             return
         t_silent = 0.4  # In seconds. Can't be 0.5 or else v1.wav is invalid! Oops!
-        raw_check_start = start - int(t_silent * rate)
+        raw_check_start = start - silent_samples
         check_start = max(raw_check_start, 0) if start >= 0 else min(raw_check_start, 0)
         check_end = start
         if not torch.all(x[check_start:check_end] == 0.0):
