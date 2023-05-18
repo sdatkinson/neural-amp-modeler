@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from nam.data import np_to_wav
+from nam.data import REQUIRED_RATE, np_to_wav
 
 _BIN_TRAIN_MAIN_PY_PATH = Path(__file__).absolute().parent.parent.parent.parent / Path(
     "bin", "train", "main.py"
@@ -29,8 +29,9 @@ class _Device(Enum):
 class Test(object):
     @classmethod
     def setup_class(cls):
-        cls._num_samples = 128
         cls._num_samples_validation = 15
+        cls._pre_valid_silent = int(0.4 * REQUIRED_RATE)
+        cls._num_samples = 128 + cls._num_samples_validation + cls._pre_valid_silent
         cls._ny = 2
         cls._batch_size = 2
 
@@ -131,6 +132,10 @@ class Test(object):
         :return: (N,), (N,)
         """
         x = np.random.rand(self._num_samples) - 0.5
+        # Need to be sure that x is silent before the validation set:
+        val_silent_end = -self._num_samples_validation
+        val_silent_start = val_silent_end - self._pre_valid_silent
+        x[val_silent_start:val_silent_end] = 0.0
         y = 1.1 * x
         return x, y
 
