@@ -23,7 +23,11 @@ __all__ = []
 
 
 def _resource_path(version: Version) -> Path:
-    return resource_path(f'v{str(version).replace(".", "_")}.wav')
+    if version == Version(1, 0, 0):
+        name = "v1.wav"
+    else:
+        name = f'v{str(version).replace(".", "_")}.wav'
+    return resource_path(name)
 
 
 class TestDetectInputVersion(object):

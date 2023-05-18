@@ -17,7 +17,7 @@ def _requires_v(name: str):
     )
 
 
-requires_v1_0_0 = _requires_v("v1_0_0.wav")
+requires_v1_0_0 = _requires_v("v1.wav")
 requires_v1_1_1 = _requires_v("v1_1_1.wav")
 requires_v2_0_0 = _requires_v("v2_0_0.wav")
 

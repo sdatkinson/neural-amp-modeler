@@ -521,7 +521,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         """
         if start is None:
             return
-        raw_check_start = start - int(0.5 * rate)
+        t_silent = 0.4  # In seconds. Can't be 0.5 or else v1.wav is invalid! Oops!
+        raw_check_start = start - int(t_silent * rate)
         check_start = max(raw_check_start, 0) if start >= 0 else min(raw_check_start, 0)
         check_end = start
         if not torch.all(x[check_start:check_end] == 0.0):
