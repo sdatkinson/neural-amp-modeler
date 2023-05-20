@@ -555,6 +555,10 @@ def _get_wavenet_config(architecture):
     }[architecture]
 
 
+_CAB_MRSTFT_PRE_EMPH_WEIGHT = 1.0e-5
+_CAB_MRSTFT_PRE_EMPH_COEF = 0.85
+
+
 def _get_configs(
     input_version: Version,
     input_path: str,
@@ -627,11 +631,8 @@ def _get_configs(
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
     if fit_cab:
-        # model_config["loss"].update(
-        #     pre_emph_weight=1.0, pre_emph_coef=0.85
-        # )
-        model_config["loss"]["pre_emph_mrstft_weight"] = 2e-4
-        model_config["loss"]["pre_emph_mrstft_coef"] = 0.85
+        model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
+        model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
