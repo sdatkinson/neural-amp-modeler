@@ -558,10 +558,11 @@ def _get_configs(
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
     if fit_cab:
-        model_config["loss"].update(
-            pre_emph_weight=1.0, pre_emph_coef=0.85, mrstft_weight=1.0e-8
-        )
-        model_config["loss"]["mrstft_weight"] = 2e-4
+        # model_config["loss"].update(
+        #     pre_emph_weight=1.0, pre_emph_coef=0.85
+        # )
+        model_config["loss"]["pre_emph_mrstft_weight"] = 2e-4
+        model_config["loss"]["pre_emph_mrstft_coef"] = 0.85
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
