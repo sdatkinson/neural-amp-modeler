@@ -555,7 +555,7 @@ def _get_wavenet_config(architecture):
     }[architecture]
 
 
-_CAB_MRSTFT_PRE_EMPH_WEIGHT = 1.0e-5
+_CAB_MRSTFT_PRE_EMPH_WEIGHT = 2.0e-4
 _CAB_MRSTFT_PRE_EMPH_COEF = 0.85
 
 
