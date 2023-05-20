@@ -53,6 +53,7 @@ def _check_for_files() -> Tuple[Version, str]:
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
         )
+    print(f"Found {input_basename}, version {input_version}")
     return input_version, input_basename
 
 
