@@ -12,7 +12,7 @@ For the base *PyTorch* model containing the actual architecture, see `._base`.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import NamedTuple, Optional, Tuple
+from typing import Dict, NamedTuple, Optional, Tuple
 
 import auraloss
 import logging
@@ -227,7 +227,9 @@ class Model(pl.LightningModule, InitializableFromConfig):
     def forward(self, *args, **kwargs):
         return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
 
-    def _shared_step(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _shared_step(
+        self, batch
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, _LossItem]]:
         """
         B: Batch size
         L: Sequence length
@@ -308,15 +310,12 @@ class Model(pl.LightningModule, InitializableFromConfig):
                     f"Undefined validation loss routine for {val_loss_type}"
                 )
 
-        loss_dict["ESR"] = self._esr_loss(preds, targets)
+        loss_dict["ESR"] = _LossItem(None, self._esr_loss(preds, targets))
         val_loss = get_val_loss()
         self.log_dict(
             {
                 "val_loss": val_loss,
-                **{
-                    key: (value.value if isinstance(value, _LossItem) else value)
-                    for key, value in loss_dict.items()
-                },
+                **{key: value.value for key, value in loss_dict.items()},
             }
         )
         return val_loss
