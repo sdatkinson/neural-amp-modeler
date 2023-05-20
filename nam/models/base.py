@@ -292,13 +292,25 @@ class Model(pl.LightningModule, InitializableFromConfig):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        _, _, loss_dict = self._shared_step(batch)
-        # Get validation loss.
-        # TODO better mapping from Enum to dict keys
-        # "esr" -> "ESR"
-        # "mse" -> "MSE"
-        # Others unsupported...
-        val_loss = loss_dict[self._loss_config.val_loss.value.upper()].value
+        preds, targets, loss_dict = self._shared_step(batch)
+
+        def get_val_loss():
+            # "esr" -> "ESR"
+            # "mse" -> "MSE"
+            # Others unsupported...
+            # TODO better mapping from Enum to dict keys
+            val_loss_type = self._loss_config.val_loss
+            val_loss_key_for_loss_dict = val_loss_type.value.upper()
+            if val_loss_key_for_loss_dict in loss_dict:
+                return loss_dict[val_loss_key_for_loss_dict].value
+            elif val_loss_type == ValidationLoss.ESR:
+                return self._esr_loss(preds, targets)
+            else:
+                raise RuntimeError(
+                    f"Undefined validation loss routine for {val_loss_type}"
+                )
+
+        val_loss = get_val_loss()
         self.log_dict(
             {
                 "val_loss": val_loss,
