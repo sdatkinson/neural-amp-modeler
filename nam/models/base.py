@@ -94,7 +94,7 @@ class LossConfig(InitializableFromConfig):
         return tuple(a[..., self.mask_first :] for a in args)
 
     @classmethod
-    def _get_mrstft_weight(cls, config) -> float:
+    def _get_mrstft_weight(cls, config) -> Optional[float]:
         key = "mrstft_weight"
         wrong_key = "mstft_key"  # Backward compatibility
         if key in config:
@@ -111,7 +111,7 @@ class LossConfig(InitializableFromConfig):
             )
             return config[wrong_key]
         else:
-            return 0.0
+            return None
 
 
 class _LossItem(NamedTuple):
@@ -298,8 +298,13 @@ class Model(pl.LightningModule, InitializableFromConfig):
         # "esr" -> "ESR"
         # "mse" -> "MSE"
         # Others unsupported...
-        val_loss = loss_dict[self._loss_config.val_loss.upper()]
-        self.log_dict(loss_dict)
+        val_loss = loss_dict[self._loss_config.val_loss.value.upper()].value
+        self.log_dict(
+            {
+                "val_loss": val_loss,
+                **{key: value.value for key, value in loss_dict.items()},
+            }
+        )
         return val_loss
 
     def _esr_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
