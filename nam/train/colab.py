@@ -76,6 +76,7 @@ def run(
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
     ignore_checks: bool = False,
+    fit_cab: bool = False,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -106,6 +107,7 @@ def run(
         seed=seed,
         local=False,
         ignore_checks=ignore_checks,
+        fit_cab=fit_cab,
     )
 
     if model is None:
