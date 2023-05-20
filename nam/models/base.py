@@ -320,7 +320,9 @@ class Model(pl.LightningModule, InitializableFromConfig):
 
     def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float] = None):
         if pre_emph_coef is not None:
-            preds, targets = [apply_pre_emphasis_filter(z) for z in (preds, targets)]
+            preds, targets = [
+                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
+            ]
         return nn.MSELoss()(preds, targets)
 
     def _mrstft_loss(
@@ -343,7 +345,9 @@ class Model(pl.LightningModule, InitializableFromConfig):
         backup_device = "cpu"
 
         if pre_emph_coef is not None:
-            preds, targets = [apply_pre_emphasis_filter(z) for z in (preds, targets)]
+            preds, targets = [
+                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
+            ]
 
         try:
             return multi_resolution_stft_loss(
