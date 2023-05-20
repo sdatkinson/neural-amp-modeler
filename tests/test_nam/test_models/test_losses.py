@@ -9,6 +9,28 @@ import torch.nn as nn
 from nam.models import losses
 
 
+@pytest.mark.parametrize(
+    "x,coef,y_expected",
+    (
+        (torch.Tensor([0.0, 1.0, 2.0]), 1.0, torch.Tensor([1.0, 1.0])),
+        (torch.Tensor([0.0, 1.0, 2.0]), 0.5, torch.Tensor([1.0, 1.5])),
+        (
+            torch.Tensor([[0.0, 1.0, 0.0], [1.0, 1.5, 2.0]]),
+            0.5,
+            torch.Tensor([[1.0, -0.5], [1.0, 1.25]]),
+        ),
+    ),
+)
+def test_apply_pre_emphasis_filter_1d(
+    x: torch.Tensor, coef: float, y_expected: torch.Tensor
+):
+    y_actual = losses.apply_pre_emphasis_filter(x, coef)
+    assert isinstance(y_actual, torch.Tensor)
+    assert y_actual.ndim == y_expected.ndim
+    assert y_actual.shape == y_expected.shape
+    assert torch.allclose(y_actual, y_expected)
+
+
 def test_esr():
     """
     Is the ESR calculation correct?
