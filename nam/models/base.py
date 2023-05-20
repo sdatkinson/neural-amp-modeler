@@ -303,18 +303,20 @@ class Model(pl.LightningModule, InitializableFromConfig):
             val_loss_key_for_loss_dict = val_loss_type.value.upper()
             if val_loss_key_for_loss_dict in loss_dict:
                 return loss_dict[val_loss_key_for_loss_dict].value
-            elif val_loss_type == ValidationLoss.ESR:
-                return self._esr_loss(preds, targets)
             else:
                 raise RuntimeError(
                     f"Undefined validation loss routine for {val_loss_type}"
                 )
 
+        loss_dict["ESR"] = self._esr_loss(preds, targets)
         val_loss = get_val_loss()
         self.log_dict(
             {
                 "val_loss": val_loss,
-                **{key: value.value for key, value in loss_dict.items()},
+                **{
+                    key: (value.value if isinstance(value, _LossItem) else value)
+                    for key, value in loss_dict.items()
+                },
             }
         )
         return val_loss
