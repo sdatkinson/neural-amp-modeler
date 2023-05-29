@@ -91,10 +91,10 @@ def wav_to_np(
     if required_shape is not None:
         if arr_premono.shape != required_shape:
             raise AudioShapeMismatchError(
-                arr_premono.shape,
-                required_shape,
+                required_shape,  # Expected
+                arr_premono.shape,  # Actual
                 f"Mismatched shapes. Expected {required_shape}, but this is "
-                f"{arr_premono.shape}!",
+                f"{arr_premono.shape}!"
             )
         # sampwidth fine--we're just casting to 32-bit float anyways
     arr = arr_premono[:, 0]
