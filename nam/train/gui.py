@@ -32,7 +32,7 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from tkinter import filedialog
-from typing import Callable, Optional, Sequence
+from typing import Callable, Dict, Optional, Sequence
 
 try:
     import torch
@@ -148,6 +148,17 @@ class _PathButton(object):
                 h()
 
 
+class _CheckboxKeys(Enum):
+    """
+    Keys for checkboxes
+    """
+
+    FIT_CAB = "fit_cab"
+    SILENT_TRAINING = "silent_training"
+    SAVE_PLOT = "save_plot"
+    IGNORE_DATA_CHECKS = "ignore_data_checks"
+
+
 class _GUI(object):
     def __init__(self):
         self._root = tk.Tk()
@@ -257,41 +268,45 @@ class _GUI(object):
 
     def _get_additional_options_frame(self):
         # Checkboxes
+        # TODO get these definitions into __init__()
         self._frame_checkboxes = tk.Frame(self._root)
         self._frame_checkboxes.pack(side=tk.LEFT)
-
-        # Silent run (bypass popups)
         row = 1
-        self._silent = tk.BooleanVar()
-        self._checkbox_silent = tk.Checkbutton(
-            self._frame_checkboxes,
-            text="Silent run (suggested for batch training)",
-            variable=self._silent,
-        )
-        self._checkbox_silent.grid(row=row, column=1, sticky="W")
-        row += 1
 
-        # Auto save the end plot
-        self._save_plot = tk.BooleanVar()
-        self._save_plot.set(True)  # default this to true
-        self._checkbox_save_plot = tk.Checkbutton(
-            self._frame_checkboxes,
-            text="Save ESR plot automatically",
-            variable=self._save_plot,
-        )
-        self._checkbox_save_plot.grid(row=row, column=1, sticky="W")
-        row += 1
+        @dataclass
+        class Checkbox(object):
+            variable: tk.BooleanVar
+            check_button: tk.Checkbutton
 
-        # Skip the data quality checks!
-        self._ignore_checks = tk.BooleanVar()
-        self._ignore_checks.set(False)
-        self._checkbox_ignore_checks = tk.Checkbutton(
-            self._frame_checkboxes,
-            text="Ignore data quality checks (DO AT YOUR OWN RISK!)",
-            variable=self._ignore_checks,
+        def make_checkbox(
+            key: _CheckboxKeys, text: str, default_value: bool
+        ) -> Checkbox:
+            variable = tk.BooleanVar()
+            variable.set(default_value)
+            check_button = tk.Checkbutton(
+                self._frame_checkboxes, text=text, variable=variable
+            )
+            self._checkboxes[key] = Checkbox(variable, check_button)
+
+        self._checkboxes: Dict[_CheckboxKeys, Checkbox] = dict()
+        make_checkbox(_CheckboxKeys.FIT_CAB, "Cab modeling", False)
+        make_checkbox(
+            _CheckboxKeys.SILENT_TRAINING,
+            "Silent run (suggested for batch training)",
+            False,
         )
-        self._checkbox_ignore_checks.grid(row=row, column=1, sticky="W")
-        row += 1
+        make_checkbox(_CheckboxKeys.SAVE_PLOT, "Save ESR plot automatically", True)
+        make_checkbox(
+            _CheckboxKeys.IGNORE_DATA_CHECKS,
+            "Ignore data quality checks (DO AT YOUR OWN RISK!)",
+            False,
+        )
+
+        # Grid them:
+        row = 1
+        for v in self._checkboxes.values():
+            v.check_button.grid(row=row, column=1, sticky="W")
+            row += 1
 
     def mainloop(self):
         self._root.mainloop()
@@ -344,11 +359,14 @@ class _GUI(object):
                 lr=lr,
                 lr_decay=lr_decay,
                 seed=seed,
-                silent=self._silent.get(),
-                save_plot=self._save_plot.get(),
+                silent=self._checkboxes[_CheckboxKeys.SILENT_TRAINING].variable.get(),
+                save_plot=self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.get(),
                 modelname=basename,
-                ignore_checks=self._ignore_checks.get(),
+                ignore_checks=self._checkboxes[
+                    _CheckboxKeys.IGNORE_DATA_CHECKS
+                ].variable.get(),
                 local=True,
+                fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
             )
             if trained_model is None:
                 print("Model training failed! Skip exporting...")

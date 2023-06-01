@@ -555,6 +555,10 @@ def _get_wavenet_config(architecture):
     }[architecture]
 
 
+_CAB_MRSTFT_PRE_EMPH_WEIGHT = 2.0e-4
+_CAB_MRSTFT_PRE_EMPH_COEF = 0.85
+
+
 def _get_configs(
     input_version: Version,
     input_path: str,
@@ -567,6 +571,7 @@ def _get_configs(
     lr: float,
     lr_decay: float,
     batch_size: int,
+    fit_cab: bool,
 ):
     def get_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
@@ -625,7 +630,9 @@ def _get_configs(
             "optimizer": {"lr": 0.01},
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
-    model_config["loss"]["mrstft_weight"] = 2e-4
+    if fit_cab:
+        model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
+        model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
@@ -771,6 +778,7 @@ def train(
     modelname: str = "model",
     ignore_checks: bool = False,
     local: bool = False,
+    fit_cab: bool = False,
 ) -> Optional[Model]:
     if seed is not None:
         torch.manual_seed(seed)
@@ -815,6 +823,7 @@ def train(
         lr,
         lr_decay,
         batch_size,
+        fit_cab,
     )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")

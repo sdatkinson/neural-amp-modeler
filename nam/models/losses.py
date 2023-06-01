@@ -11,7 +11,19 @@ from typing import Optional
 import torch
 from auraloss.freq import MultiResolutionSTFTLoss
 
-___all__ = ["esr", "multi_resolution_stft_loss"]
+___all__ = ["apply_pre_emphasis_filter", "esr", "multi_resolution_stft_loss"]
+
+
+def apply_pre_emphasis_filter(x: torch.Tensor, coef: float) -> torch.Tensor:
+    """
+    Apply first-order pre-emphsis filter
+
+    :param x: (*, L)
+    :param coef: The coefficient
+
+    :return: (*, L-1)
+    """
+    return x[..., 1:] - coef * x[..., :-1]
 
 
 def esr(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
