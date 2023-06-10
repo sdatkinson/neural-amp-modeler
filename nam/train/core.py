@@ -715,7 +715,7 @@ def _plot(
         esr_comment = "...This probably won't sound great :("
     else:
         esr_comment = "...Something seems to have gone wrong."
-    print(f"Error-signal ratio = {esr:.4f}")
+    print(f"Error-signal ratio = {esr:.4}")
     print(esr_comment)
 
     plt.figure(figsize=(16, 5))
