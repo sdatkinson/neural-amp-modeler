@@ -715,13 +715,13 @@ def _plot(
         esr_comment = "...This probably won't sound great :("
     else:
         esr_comment = "...Something seems to have gone wrong."
-    print(f"Error-signal ratio = {esr:.10g}")
+    print(f"Error-signal ratio = {esr:.4g}")
     print(esr_comment)
 
     plt.figure(figsize=(16, 5))
     plt.plot(output[window_start:window_end], label="Prediction")
     plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    plt.title(f"ESR={esr:.10g}")
+    plt.title(f"ESR={esr:.4g}")
     plt.legend()
     if filepath is not None:
         plt.savefig(filepath + ".png")
@@ -847,7 +847,7 @@ def train(
     trainer = pl.Trainer(
         callbacks=[
             pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.10g}_{MSE:.3e}",
+                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4g}_{MSE:.3e}",
                 save_top_k=3,
                 monitor="val_loss",
                 every_n_epochs=1,
