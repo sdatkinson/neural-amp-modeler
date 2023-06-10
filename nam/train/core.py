@@ -847,7 +847,7 @@ def train(
     trainer = pl.Trainer(
         callbacks=[
             pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4f}_{MSE:.3e}",
+                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4}_{MSE:.3e}",
                 save_top_k=3,
                 monitor="val_loss",
                 every_n_epochs=1,
