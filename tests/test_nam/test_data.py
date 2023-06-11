@@ -3,6 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import math
+import os
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -243,6 +244,47 @@ class TestDataset(object):
         return x_out, y_out
 
 
+class TestWav(object):
+    tolerance = 1e-6
+
+    @pytest.fixture(scope="class")
+    def tmpdir(self):
+        with TemporaryDirectory() as tmp:
+            yield tmp
+
+    def test_np_to_wav_to_np(self, tmpdir):
+        # Create random numpy array
+        x = np.random.rand(1000)
+        # Save numpy array as WAV file
+        filename = os.path.join(tmpdir, "test.wav")
+        data.np_to_wav(x, filename)
+        # Load WAV file
+        y = data.wav_to_np(filename)
+        # Check if the two arrays are equal
+        assert y == pytest.approx(x, abs=self.tolerance)
+
+    def test_np_to_wav_to_np_44khz(self, tmpdir):
+        # Create random numpy array
+        x = np.random.rand(1000)
+        # Save numpy array as WAV file with sampling rate of 44 kHz
+        filename = os.path.join(tmpdir, "test.wav")
+        data.np_to_wav(x, filename, rate=44100)
+        # Load WAV file with sampling rate of 44 kHz
+        y = data.wav_to_np(filename, rate=44100)
+        # Check if the two arrays are equal
+        assert y == pytest.approx(x, abs=self.tolerance)
+
+    def test_np_to_wav_to_np_scale_arg(self, tmpdir):
+        # Create random numpy array
+        x = np.random.rand(100)
+        # Save numpy array as WAV file with scaling
+        filename = os.path.join(tmpdir, "test.wav")
+        data.np_to_wav(x, filename, scale=None)
+        # Load WAV file
+        y = data.wav_to_np(filename)
+        # Check if the two arrays are equal
+        assert y == pytest.approx(x, abs=self.tolerance)
+
 def test_audio_mismatch_shapes_in_order():
     """
     https://github.com/sdatkinson/neural-amp-modeler/issues/257
@@ -267,6 +309,7 @@ def test_audio_mismatch_shapes_in_order():
             # x is loaded first; we expect that y matches.
             assert e.shape_expected == (x_samples, num_channels)
             assert e.shape_actual == (y_samples, num_channels)
+            
 
 if __name__ == "__main__":
     pytest.main()

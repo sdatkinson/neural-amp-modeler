@@ -122,14 +122,18 @@ def np_to_wav(
     filename: Union[str, Path],
     rate: int = 48_000,
     sampwidth: int = 3,
-    scale="none",
+    scale = None,
+    **kwargs
 ):
+    if wavio.__version__ <= "0.0.4" and scale is None:
+        scale = "none"
     wavio.write(
         str(filename),
         (np.clip(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1))).astype(np.int32),
         rate,
         scale=scale,
         sampwidth=sampwidth,
+        **kwargs
     )
 
 
