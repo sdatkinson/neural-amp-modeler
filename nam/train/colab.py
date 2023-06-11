@@ -53,6 +53,7 @@ def _check_for_files() -> Tuple[Version, str]:
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
         )
+    print(f"Found {input_basename}, version {input_version}")
     return input_version, input_basename
 
 
@@ -76,6 +77,7 @@ def run(
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
     ignore_checks: bool = False,
+    fit_cab: bool = False,
 ):
     """
     :param epochs: How amny epochs we'll train for.
@@ -86,7 +88,7 @@ def run(
     :param lr: The initial learning rate
     :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
-    :param user_metadata: To include in the exported model
+    :param user_metadata: User-specified metadata to include in the .nam file.
     :param ignore_checks: Ignores the data quality checks and YOLOs it
     """
 
@@ -106,6 +108,7 @@ def run(
         seed=seed,
         local=False,
         ignore_checks=ignore_checks,
+        fit_cab=fit_cab,
     )
 
     if model is None:

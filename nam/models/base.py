@@ -12,7 +12,7 @@ For the base *PyTorch* model containing the actual architecture, see `._base`.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Dict, NamedTuple, Optional, Tuple
 
 import auraloss
 import logging
@@ -23,7 +23,7 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
-from .losses import esr, multi_resolution_stft_loss, mse_fft
+from .losses import apply_pre_emphasis_filter, esr, multi_resolution_stft_loss, mse_fft
 from .parametric.catnets import CatLSTM, CatWaveNet
 from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
@@ -51,39 +51,39 @@ class ValidationLoss(Enum):
 @dataclass
 class LossConfig(InitializableFromConfig):
     """
+    :param mrstft_weight: Multi-resolution short-time Fourier transform loss
+        coefficient. None means to skip; 2e-4 works pretty well if one wants to use it.
     :param mask_first: How many of the first samples to ignore when comptuing the loss.
     :param dc_weight: Weight for the DC loss term. If 0, ignored.
     :params val_loss: Which loss to track for the best model checkpoint.
     :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from
         https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
+    :param pre_
     """
 
-    mrstft_weight: float = 0.0  # 0.0 means no multiresolution stft loss, 2e-4 works pretty well if one wants to use it
+    mrstft_weight: Optional[float] = None
     fourier: bool = False
     mask_first: int = 0
-    dc_weight: float = 0.0
+    dc_weight: float = None
     val_loss: ValidationLoss = ValidationLoss.MSE
     pre_emph_weight: Optional[float] = None
     pre_emph_coef: Optional[float] = None
+    pre_emph_mrstft_weight: Optional[float] = None
+    pre_emph_mrstft_coef: Optional[float] = None
 
     @classmethod
     def parse_config(cls, config):
         config = super().parse_config(config)
-        fourier = config.get("fourier", False)
-        dc_weight = config.get("dc_weight", 0.0)
-        val_loss = ValidationLoss(config.get("val_loss", "mse"))
-        mask_first = config.get("mask_first", 0)
-        pre_emph_coef = config.get("pre_emph_coef")
-        pre_emph_weight = config.get("pre_emph_weight")
-        mrstft_weight = cls._get_mrstft_weight(config)
         return {
-            "fourier": fourier,
-            "mask_first": mask_first,
-            "dc_weight": dc_weight,
-            "val_loss": val_loss,
-            "pre_emph_coef": pre_emph_coef,
-            "pre_emph_weight": pre_emph_weight,
-            "mrstft_weight": mrstft_weight,
+            "fourier": config.get("fourier", False),
+            "mask_first": config.get("mask_first", 0),
+            "dc_weight": config.get("dc_weight"),
+            "val_loss": ValidationLoss(config.get("val_loss", "mse")),
+            "pre_emph_coef": config.get("pre_emph_coef"),
+            "pre_emph_weight": config.get("pre_emph_weight"),
+            "mrstft_weight": cls._get_mrstft_weight(config),
+            "pre_emph_mrstft_weight": config.get("pre_emph_mrstft_weight"),
+            "pre_emph_mrstft_coef": config.get("pre_emph_mrstft_coef"),
         }
 
     def apply_mask(self, *args):
@@ -94,7 +94,7 @@ class LossConfig(InitializableFromConfig):
         return tuple(a[..., self.mask_first :] for a in args)
 
     @classmethod
-    def _get_mrstft_weight(cls, config) -> float:
+    def _get_mrstft_weight(cls, config) -> Optional[float]:
         key = "mrstft_weight"
         wrong_key = "mstft_key"  # Backward compatibility
         if key in config:
@@ -111,7 +111,12 @@ class LossConfig(InitializableFromConfig):
             )
             return config[wrong_key]
         else:
-            return 0.0
+            return None
+
+
+class _LossItem(NamedTuple):
+    weight: Optional[float]
+    value: Optional[torch.Tensor]
 
 
 class Model(pl.LightningModule, InitializableFromConfig):
@@ -220,9 +225,11 @@ class Model(pl.LightningModule, InitializableFromConfig):
             return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
 
     def forward(self, *args, **kwargs):
-        return self.net(*args, **kwargs)
+        return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
 
-    def _shared_step(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _shared_step(
+        self, batch
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, _LossItem]]:
         """
         B: Batch size
         L: Sequence length
@@ -232,55 +239,85 @@ class Model(pl.LightningModule, InitializableFromConfig):
         args, targets = batch[:-1], batch[-1]
         preds = self(*args, pad_start=False)
 
-        return preds, targets
-
-    def training_step(self, batch, batch_idx):
-        preds, targets = self._shared_step(batch)
-
-        loss = 0.0
+        # Compute all relevant losses.
+        loss_dict = {}  # Mind keys versus validation loss requested...
         # Prediction aka MSE loss
         if self._loss_config.fourier:
-            loss = loss + mse_fft(preds, targets)
+            loss_dict["MSE_FFT"] = _LossItem(1.0, mse_fft(preds, targets))
         else:
-            loss = loss + self._mse_loss(preds, targets)
-        if self._loss_config.mrstft_weight > 0.0:
-            loss = loss + self._loss_config.mrstft_weight * self._mrstft_loss(
-                preds, targets
-            )
+            loss_dict["MSE"] = _LossItem(1.0, self._mse_loss(preds, targets))
         # Pre-emphasized MSE
         if self._loss_config.pre_emph_weight is not None:
             if (self._loss_config.pre_emph_coef is None) != (
                 self._loss_config.pre_emph_weight is None
             ):
                 raise ValueError("Invalid pre-emph")
-            loss = loss + self._loss_config.pre_emph_weight * self._mse_loss(
-                preds, targets, pre_emph_coef=self._loss_config.pre_emph_coef
+            loss_dict["Pre-emphasized MSE"] = _LossItem(
+                self._loss_config.pre_emph_weight,
+                self._mse_loss(
+                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_coef
+                ),
             )
-
+        # Multi-resolution short-time Fourier transform loss
+        if self._loss_config.mrstft_weight is not None:
+            loss_dict["MRSTFT"] = _LossItem(
+                self._loss_config.mrstft_weight, self._mrstft_loss(preds, targets)
+            )
+        # Pre-emphasized MRSTFT
+        if self._loss_config.pre_emph_mrstft_weight is not None:
+            loss_dict["Pre-emphasized MRSTFT"] = _LossItem(
+                self._loss_config.pre_emph_mrstft_weight,
+                self._mrstft_loss(
+                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_mrstft_coef
+                ),
+            )
         # DC loss
         dc_weight = self._loss_config.dc_weight
-        if dc_weight > 0.0:
+        if dc_weight is not None and dc_weight > 0.0:
             # Denominator could be a bad idea. I'm going to omit it esp since I'm
             # using mini batches
             mean_dims = torch.arange(1, preds.ndim).tolist()
             dc_loss = nn.MSELoss()(
                 preds.mean(dim=mean_dims), targets.mean(dim=mean_dims)
             )
-            loss = loss + dc_weight * dc_loss
+            loss_dict["DC MSE"] = _LossItem(dc_weight, dc_loss)
+
+        return preds, targets, loss_dict
+
+    def training_step(self, batch, batch_idx):
+        _, _, loss_dict = self._shared_step(batch)
+
+        loss = 0.0
+        for v in loss_dict.values():
+            if v.weight is not None and v.weight > 0.0:
+                loss = loss + v.weight * v.value
         return loss
 
     def validation_step(self, batch, batch_idx):
-        preds, targets = self._shared_step(batch)
-        mse_loss = self._mse_loss(preds, targets)
-        esr_loss = self._esr_loss(preds, targets)
-        val_loss = {ValidationLoss.MSE: mse_loss, ValidationLoss.ESR: esr_loss}[
-            self._loss_config.val_loss
-        ]
-        dict_to_log = {"MSE": mse_loss, "ESR": esr_loss, "val_loss": val_loss}
-        if self._loss_config.mrstft_weight > 0.0 and self._mrstft is not None:
-            mrstft_loss = self._mrstft_loss(preds, targets)
-            dict_to_log.update({"MRSTFT": mrstft_loss})
-        self.log_dict(dict_to_log)
+        preds, targets, loss_dict = self._shared_step(batch)
+
+        def get_val_loss():
+            # "esr" -> "ESR"
+            # "mse" -> "MSE"
+            # Others unsupported...
+            # TODO better mapping from Enum to dict keys
+            val_loss_type = self._loss_config.val_loss
+            val_loss_key_for_loss_dict = val_loss_type.value.upper()
+            if val_loss_key_for_loss_dict in loss_dict:
+                return loss_dict[val_loss_key_for_loss_dict].value
+            else:
+                raise RuntimeError(
+                    f"Undefined validation loss routine for {val_loss_type}"
+                )
+
+        loss_dict["ESR"] = _LossItem(None, self._esr_loss(preds, targets))
+        val_loss = get_val_loss()
+        self.log_dict(
+            {
+                "val_loss": val_loss,
+                **{key: value.value for key, value in loss_dict.items()},
+            }
+        )
         return val_loss
 
     def _esr_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -302,11 +339,16 @@ class Model(pl.LightningModule, InitializableFromConfig):
     def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float] = None):
         if pre_emph_coef is not None:
             preds, targets = [
-                z[..., 1:] - pre_emph_coef * z[..., :-1] for z in (preds, targets)
+                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
             ]
         return nn.MSELoss()(preds, targets)
 
-    def _mrstft_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def _mrstft_loss(
+        self,
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        pre_emph_coef: Optional[float] = None,
+    ) -> torch.Tensor:
         """
         Experimental Multi Resolution Short Time Fourier Transform Loss using auraloss implementation.
         B: Batch size
@@ -318,8 +360,12 @@ class Model(pl.LightningModule, InitializableFromConfig):
         """
         if self._mrstft is None:
             self._mrstft = auraloss.freq.MultiResolutionSTFTLoss()
-
         backup_device = "cpu"
+
+        if pre_emph_coef is not None:
+            preds, targets = [
+                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
+            ]
 
         try:
             return multi_resolution_stft_loss(

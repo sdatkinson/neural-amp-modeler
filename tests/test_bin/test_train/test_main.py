@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from nam.data import np_to_wav
+from nam.data import REQUIRED_RATE, np_to_wav
 
 _BIN_TRAIN_MAIN_PY_PATH = Path(__file__).absolute().parent.parent.parent.parent / Path(
     "bin", "train", "main.py"
@@ -67,6 +67,7 @@ class Test(object):
                 "x_path": str(self._x_path(root_path)),
                 "y_path": str(self._y_path(root_path)),
                 "delay": 0,
+                "require_input_pre_silence": None,
             },
         }
         stage_channels = (3, 2)

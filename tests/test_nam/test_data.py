@@ -3,8 +3,9 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import math
-from enum import Enum
 import os
+from enum import Enum
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Tuple
 
@@ -121,12 +122,20 @@ class TestDataset(object):
         ),
     )
     def test_validate_start(self, n: int, start: int, valid: bool):
+        """
+        Assert that a data set can be successfully instantiated when valid args are
+        given, including `start`.
+        Assert that `StartError` is raised if invalid start is provided
+        """
+
         def init():
             data.Dataset(x, y, nx, ny, start=start)
 
         nx = 1
         ny = None
         x, y = self._create_xy(n=n)
+        if start is not None:
+            x[:start] = 0.0  # Ensure silent input before the start
         if valid:
             init()
             assert True  # No problem!
@@ -276,6 +285,31 @@ class TestWav(object):
         # Check if the two arrays are equal
         assert y == pytest.approx(x, abs=self.tolerance)
 
+def test_audio_mismatch_shapes_in_order():
+    """
+    https://github.com/sdatkinson/neural-amp-modeler/issues/257
+    """
+    x_samples, y_samples = 5, 7
+    num_channels = 1
+
+    x, y = [np.zeros((n, num_channels)) for n in (x_samples, y_samples)]
+    
+    with TemporaryDirectory() as tmpdir:
+        y_path = Path(tmpdir, "y.wav")
+        data.np_to_wav(y, y_path)
+        f = lambda: data.wav_to_np(y_path, required_shape=x.shape)
+    
+        with pytest.raises(data.AudioShapeMismatchError) as e:
+            f()
+
+        try:
+            f()
+            assert False, "Shouldn't have succeeded!"
+        except data.AudioShapeMismatchError as e:
+            # x is loaded first; we expect that y matches.
+            assert e.shape_expected == (x_samples, num_channels)
+            assert e.shape_actual == (y_samples, num_channels)
+            
 
 if __name__ == "__main__":
     pytest.main()

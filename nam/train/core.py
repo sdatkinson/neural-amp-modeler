@@ -8,15 +8,17 @@ Functions used by the GUI trainer.
 
 import hashlib
 import tkinter as tk
+from copy import deepcopy
 from enum import Enum
+from functools import partial
 from time import time
-from typing import Optional, Sequence, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import torch.nn as nn
+from pydantic import BaseModel
 from torch.utils.data import DataLoader
 
 from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np, wav_to_tensor
@@ -31,9 +33,11 @@ class Architecture(Enum):
     FEATHER = "feather"
 
 
-def _detect_input_version(input_path) -> Version:
+def _detect_input_version(input_path) -> Tuple[Version, bool]:
     """
     Check to see if the input matches any of the known inputs
+
+    :return: version, strong match
     """
 
     def detect_strong(input_path) -> Optional[Version]:
@@ -41,7 +45,7 @@ def _detect_input_version(input_path) -> Version:
             # Use this to create hashes for new files
             md5 = hashlib.md5()
             buffer_size = 65536
-            with open(input_path, "rb") as f:
+            with open(path, "rb") as f:
                 while True:
                     data = f.read(buffer_size)
                     if not data:
@@ -56,7 +60,7 @@ def _detect_input_version(input_path) -> Version:
         version = {
             "4d54a958861bf720ec4637f43d44a7ef": Version(1, 0, 0),
             "7c3b6119c74465f79d96c761a0e27370": Version(1, 1, 1),
-            "cff9de79975f7fa2ba9060ad77cde04d": Version(2, 0, 0),
+            "ede3b9d82135ce10c7ace3bb27469422": Version(2, 0, 0),
         }.get(file_hash)
         if version is None:
             print(
@@ -67,43 +71,60 @@ def _detect_input_version(input_path) -> Version:
 
     def detect_weak(input_path) -> Optional[Version]:
         def assign_hash(path):
-            # Use this to create recognized hashes for new files
-            x, info = wav_to_np(path, info=True)
-            rate = info.rate
-            if rate != REQUIRED_RATE:
-                return None
-            # Times of intervals, in seconds
-            t_blips = 1
-            t_sweep = 3
-            t_white = 3
-            t_validation = 9
-            # v1 and v2 start with 1 blips, sine sweeps, and white noise
-            start_hash = hashlib.md5(
-                x[: (t_blips + t_sweep + t_white) * rate]
-            ).hexdigest()
-            # v1 ends with validation signal
-            end_hash_v1 = hashlib.md5(x[-t_validation * rate :]).hexdigest()
-            # v2 ends with 2x validation & blips
-            end_hash_v2 = hashlib.md5(
-                x[-(2 * t_validation + t_blips) * rate :]
-            ).hexdigest()
-            return start_hash, end_hash_v1, end_hash_v2
+            def assign_hashes_v1(path) -> Tuple[Optional[str], Optional[str]]:
+                # Use this to create recognized hashes for new files
+                x, info = wav_to_np(path, info=True)
+                rate = info.rate
+                if rate != _V1_DATA_INFO.rate:
+                    return None, None
+                # Times of intervals, in seconds
+                t_blips = _V1_DATA_INFO.t_blips
+                t_sweep = 3 * rate
+                t_white = 3 * rate
+                t_validation = _V1_DATA_INFO.t_validate
+                # v1 and v2 start with 1 blips, sine sweeps, and white noise
+                start_hash = hashlib.md5(x[: t_blips + t_sweep + t_white]).hexdigest()
+                # v1 ends with validation signal
+                end_hash = hashlib.md5(x[-t_validation:]).hexdigest()
+                return start_hash, end_hash
 
-        start_hash, end_hash_v1, end_hash_v2 = assign_hash(input_path)
+            def assign_hashes_v2(path):
+                # Use this to create recognized hashes for new files
+                x, info = wav_to_np(path, info=True)
+                rate = info.rate
+                if rate != _V2_DATA_INFO.rate:
+                    return None, None
+                # Times of intervals, in seconds
+                t_blips = _V2_DATA_INFO.t_blips
+                t_sweep = 3 * rate
+                t_white = 3 * rate
+                t_validation = _V1_DATA_INFO.t_validate
+                # v1 and v2 start with 1 blips, sine sweeps, and white noise
+                start_hash = hashlib.md5(x[: (t_blips + t_sweep + t_white)]).hexdigest()
+                # v2 ends with 2x validation & blips
+                end_hash = hashlib.md5(x[-(2 * t_validation + t_blips) :]).hexdigest()
+                return start_hash, end_hash
+
+            start_hash_v1, end_hash_v1 = assign_hashes_v1(path)
+            start_hash_v2, end_hash_v2 = assign_hashes_v2(path)
+            return start_hash_v1, end_hash_v1, start_hash_v2, end_hash_v2
+
+        start_hash_v1, end_hash_v1, start_hash_v2, end_hash_v2 = assign_hash(input_path)
         print(
             "Weak hashes:\n"
-            f" Start:    {start_hash}\n"
-            f" End (v1): {end_hash_v1}\n"
-            f" End (v2): {end_hash_v2}\n",
+            f" Start (v1) : {start_hash_v1}\n"
+            f" End (v1)   : {end_hash_v1}\n"
+            f" Start (v2) : {start_hash_v2}\n"
+            f" End (v2)   : {end_hash_v2}\n",
         )
 
         # Check for v2 matches first
         version = {
             (
-                "068a17d92274a136807523baad4913ff",
-                "74f924e8b245c8f7dce007765911545a",
+                "1c4d94fbcb47e4d820bef611c1d4ae65",
+                "28694e7bf9ab3f8ae6ef86e9545d4663",
             ): Version(2, 0, 0)
-        }.get((start_hash, end_hash_v2))
+        }.get((start_hash_v2, end_hash_v2))
         if version is not None:
             return version
         # Fallback to v1
@@ -111,45 +132,102 @@ def _detect_input_version(input_path) -> Version:
             (
                 "bb4e140c9299bae67560d280917eb52b",
                 "9b2468fcb6e9460a399fc5f64389d353",
-            ): Version(1, 0, 0),
+            ): Version(
+                1, 0, 0
+            ),  # FIXME!
             (
                 "9f20c6b5f7fef68dd88307625a573a14",
                 "8458126969a3f9d8e19a53554eb1fd52",
             ): Version(1, 1, 1),
-        }.get((start_hash, end_hash_v1))
+        }.get((start_hash_v1, end_hash_v1))
         return version
 
     version = detect_strong(input_path)
     if version is not None:
-        return version
+        strong_match = True
+        return version, strong_match
     print("Falling back to weak-matching...")
     version = detect_weak(input_path)
     if version is None:
         raise ValueError(
             f"Input file at {input_path} cannot be recognized as any known version!"
         )
-    return version
+    strong_match = False
+    return version, strong_match
 
 
-_V1_BLIP_LOCATIONS = 12_000, 36_000
-_V2_START_BLIP_LOCATIONS = _V1_BLIP_LOCATIONS
-_V2_END_BLIP_LOCATIONS = -36_000, -12_000
+class _DataInfo(BaseModel):
+    """
+    :param major_version: Data major version
+    :param rate: Sample rate, in Hz
+    :param t_blips: How long the blips are, in seconds
+    :param t_validate: Validation signal length, in samples
+    :param validation_start: Where validation signal starts, in samples. Less than zero
+        (from the end of the array).
+    :param noise_interval: Inside which we quantify the noise level
+    :param start_blip_locations: In samples
+    :param end_blip_locations: In samples, negative (from end)
+    """
+
+    major_version: int
+    rate: Optional[int]
+    t_blips: int
+    t_validate: int
+    validation_start: int
+    noise_interval: Tuple[int, int]
+    start_blip_locations: Sequence[int]
+    end_blip_locations: Optional[Sequence[int]]
 
 
-def _calibrate_delay_v1(
-    input_path, output_path, locations: Sequence[int] = _V1_BLIP_LOCATIONS
+_V1_DATA_INFO = _DataInfo(
+    major_version=1,
+    rate=REQUIRED_RATE,
+    t_blips=48_000,
+    t_validate=432_000,
+    validation_start=-432_000,
+    noise_interval=(0, 6000),
+    start_blip_locations=(12_000, 36_000),
+    end_blip_locations=None,
+)
+_V2_DATA_INFO = _DataInfo(
+    major_version=2,
+    rate=REQUIRED_RATE,
+    t_blips=96_000,
+    t_validate=432_000,
+    validation_start=-960_000,  # 96_000 + 2 * 432_000
+    noise_interval=(12_000, 18_000),
+    start_blip_locations=(24_000, 72_000),
+    end_blip_locations=(-72_000, -24_000),
+)
+
+_DELAY_CALIBRATION_ABS_THRESHOLD = 0.0003
+_DELAY_CALIBRATION_REL_THRESHOLD = 0.001
+_DELAY_CALIBRATION_SAFETY_FACTOR = 4
+
+
+def _calibrate_delay_v_all(
+    data_info: _DataInfo,
+    input_path,
+    output_path,
+    abs_threshold=_DELAY_CALIBRATION_ABS_THRESHOLD,
+    rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
+    safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
 ) -> int:
     lookahead = 1_000
     lookback = 10_000
-    safety_factor = 4
 
     # Calibrate the trigger:
-    y = wav_to_np(output_path)[:48_000]
-    background_level = np.max(np.abs(y[:6_000]))
-    trigger_threshold = max(background_level + 0.01, 1.01 * background_level)
+    y = wav_to_np(output_path)[: data_info.t_blips]
+    background_level = np.max(
+        np.abs(y[data_info.noise_interval[0] : data_info.noise_interval[1]])
+    )
+    trigger_threshold = max(
+        background_level + abs_threshold,
+        (1.0 + rel_threshold) * background_level,
+    )
 
     delays = []
-    for blip_index, i in enumerate(locations, 1):
+    for blip_index, i in enumerate(data_info.start_blip_locations, 1):
         start_looking = i - lookahead
         stop_looking = i + lookback
         y_scan = y[start_looking:stop_looking]
@@ -181,27 +259,37 @@ def _calibrate_delay_v1(
     print("Delays:")
     for d in delays:
         print(f" {d}")
+    # If theyr'e _really_ different, then something might be wrong.
+    if np.max(delays) - np.min(delays) >= 20:
+        print(
+            "WARNING: Delays are anomalously different from each other. If this model "
+            "turns out badly, then you might need to provide the delay manually."
+        )
     delay = int(np.min(delays)) - safety_factor
     print(f"After aplying safety factor, final delay is {delay}")
     return delay
 
 
-_calibrate_delay_v2 = _calibrate_delay_v1
+_calibrate_delay_v1 = partial(_calibrate_delay_v_all, _V1_DATA_INFO)
+_calibrate_delay_v2 = partial(_calibrate_delay_v_all, _V2_DATA_INFO)
 
 
-def _plot_delay_v1(delay: int, input_path: str, output_path: str, _nofail=True):
+def _plot_delay_v_all(
+    data_info: _DataInfo, delay: int, input_path: str, output_path: str, _nofail=True
+):
     print("Plotting the delay for manual inspection...")
-    x = wav_to_np(input_path)[:48_000]
-    y = wav_to_np(output_path)[:48_000]
-    i = np.where(np.abs(x) > 0.5 * np.abs(x).max())[0]  # In case resampled poorly
+    x = wav_to_np(input_path)[: data_info.t_blips]
+    y = wav_to_np(output_path)[: data_info.t_blips]
+    # Only get the blips we really want.
+    i = np.where(np.abs(x) > 0.5 * np.abs(x).max())[0]
     if len(i) == 0:
         print("Failed to find the spike in the input file.")
         print(
             "Plotting the input and output; there should be spikes at around the "
             "marked locations."
         )
-        expected_spikes = 12_000, 36_000  # For v1 specifically
-        fig, axs = plt.subplots(2, 1)
+        expected_spikes = data_info.start_blip_locations  # For v1 specifically
+        fig, axs = plt.subplots(len((x, y)), 1)
         for ax, curve in zip(axs, (x, y)):
             ax.plot(curve)
             [ax.axvline(x=es, color="C1", linestyle="--") for es in expected_spikes]
@@ -209,22 +297,24 @@ def _plot_delay_v1(delay: int, input_path: str, output_path: str, _nofail=True):
         if _nofail:
             raise RuntimeError("Failed to plot delay")
     else:
-        i = i[0]
-        di = 20
         plt.figure()
-        # plt.plot(x[i - di : i + di], ".-", label="Input")
-        plt.plot(
-            np.arange(-di, di),
-            y[i - di + delay : i + di + delay],
-            ".-",
-            label="Output",
-        )
-        plt.axvline(x=0, linestyle="--", color="C1")
+        di = 20
+        if data_info.major_version == 1:
+            i = [i[0]]
+        for e, ii in enumerate(i, 1):
+            plt.plot(
+                np.arange(-di, di),
+                y[ii - di + delay : ii + di + delay],
+                ".-",
+                label=f"Output {e}",
+            )
+        plt.axvline(x=0, linestyle="--", color="k")
         plt.legend()
         plt.show()  # This doesn't freeze the notebook
 
 
-_plot_delay_v2 = _plot_delay_v1
+_plot_delay_v1 = partial(_plot_delay_v_all, _V1_DATA_INFO)
+_plot_delay_v2 = partial(_plot_delay_v_all, _V2_DATA_INFO)
 
 
 def _calibrate_delay(
@@ -282,10 +372,12 @@ def _check_v1(*args, **kwargs):
 def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
     with torch.no_grad():
         print("V2 checks...")
-        rate = REQUIRED_RATE
+        rate = _V2_DATA_INFO.rate
         y = wav_to_tensor(output_path, rate=rate)
-        y_val_1 = y[-19 * rate : -10 * rate]
-        y_val_2 = y[-10 * rate : -1 * rate]
+        t_blips = _V2_DATA_INFO.t_blips
+        t_validate = _V2_DATA_INFO.t_validate
+        y_val_1 = y[-(t_blips + 2 * t_validate) : -(t_blips + t_validate)]
+        y_val_2 = y[-(t_blips + t_validate) : -t_blips]
         esr_replicate = esr(y_val_1, y_val_2).item()
         print(f"Replicate ESR is {esr_replicate:.8f}.")
 
@@ -297,8 +389,8 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
             """
             :return: [start/end,replicate]
             """
-            i0, i1 = rate // 4, 3 * rate // 4
-            j0, j1 = -3 * rate // 4, -rate // 4
+            i0, i1 = _V2_DATA_INFO.start_blip_locations
+            j0, j1 = _V2_DATA_INFO.end_blip_locations
 
             i0, i1, j0, j1 = [i + delay for i in (i0, i1, j0, j1)]
             start = -10
@@ -475,10 +567,14 @@ def _get_wavenet_config(architecture):
     }[architecture]
 
 
+_CAB_MRSTFT_PRE_EMPH_WEIGHT = 2.0e-4
+_CAB_MRSTFT_PRE_EMPH_COEF = 0.85
+
+
 def _get_configs(
     input_version: Version,
-    input_basename: str,
-    output_basename: str,
+    input_path: str,
+    output_path: str,
     delay: int,
     epochs: int,
     model_type: str,
@@ -487,33 +583,31 @@ def _get_configs(
     lr: float,
     lr_decay: float,
     batch_size: int,
+    fit_cab: bool,
 ):
-    def get_kwargs():
-        val_seconds = 9
-        rate = REQUIRED_RATE
-        if input_version.major == 1:
-            train_val_split = -val_seconds * rate
+    def get_kwargs(data_info: _DataInfo):
+        if data_info.major_version == 1:
+            train_val_split = data_info.validation_start
             train_kwargs = {"stop": train_val_split}
             validation_kwargs = {"start": train_val_split}
-        elif input_version.major == 2:
-            blip_seconds = 1
-            val_replicates = 2
-            train_stop = -(blip_seconds + val_replicates * val_seconds) * rate
-            validation_start = train_stop
-            validation_stop = -(blip_seconds + val_seconds) * rate
+        elif data_info.major_version == 2:
+            validation_start = data_info.validation_start
+            train_stop = validation_start
+            validation_stop = validation_start + data_info.t_validate
             train_kwargs = {"stop": train_stop}
             validation_kwargs = {"start": validation_start, "stop": validation_stop}
         else:
             raise NotImplementedError(f"kwargs for input version {input_version}")
         return train_kwargs, validation_kwargs
 
-    train_kwargs, validation_kwargs = get_kwargs()
+    data_info = {1: _V1_DATA_INFO, 2: _V2_DATA_INFO}[input_version.major]
+    train_kwargs, validation_kwargs = get_kwargs(data_info)
     data_config = {
         "train": {"ny": ny, **train_kwargs},
         "validation": {"ny": None, **validation_kwargs},
         "common": {
-            "x_path": input_basename,
-            "y_path": output_basename,
+            "x_path": input_path,
+            "y_path": output_path,
             "delay": delay,
         },
     }
@@ -548,6 +642,9 @@ def _get_configs(
             "optimizer": {"lr": 0.01},
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
+    if fit_cab:
+        model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
+        model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
@@ -568,6 +665,18 @@ def _get_configs(
         "trainer": {"max_epochs": epochs, **device_config},
     }
     return data_config, model_config, learning_config
+
+
+def _get_dataloaders(
+    data_config: Dict, learning_config: Dict, model: Model
+) -> Tuple[DataLoader, DataLoader]:
+    data_config, learning_config = [deepcopy(c) for c in (data_config, learning_config)]
+    data_config["common"]["nx"] = model.net.receptive_field
+    dataset_train = init_dataset(data_config, Split.TRAIN)
+    dataset_validation = init_dataset(data_config, Split.VALIDATION)
+    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
+    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    return train_dataloader, val_dataloader
 
 
 def _esr(pred: torch.Tensor, target: torch.Tensor) -> float:
@@ -606,13 +715,13 @@ def _plot(
         esr_comment = "...This probably won't sound great :("
     else:
         esr_comment = "...Something seems to have gone wrong."
-    print(f"Error-signal ratio = {esr:.4f}")
+    print(f"Error-signal ratio = {esr:.4g}")
     print(esr_comment)
 
     plt.figure(figsize=(16, 5))
     plt.plot(output[window_start:window_end], label="Prediction")
     plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    plt.title(f"ESR={esr:.4f}")
+    plt.title(f"ESR={esr:.4g}")
     plt.legend()
     if filepath is not None:
         plt.savefig(filepath + ".png")
@@ -681,12 +790,13 @@ def train(
     modelname: str = "model",
     ignore_checks: bool = False,
     local: bool = False,
+    fit_cab: bool = False,
 ) -> Optional[Model]:
     if seed is not None:
         torch.manual_seed(seed)
 
     if input_version is None:
-        input_version = _detect_input_version(input_path)
+        input_version, strong_match = _detect_input_version(input_path)
 
     if delay is None:
         delay = _calibrate_delay(
@@ -725,20 +835,19 @@ def train(
         lr,
         lr_decay,
         batch_size,
+        fit_cab,
     )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
     model = Model.init_from_config(model_config)
-    data_config["common"]["nx"] = model.net.receptive_field
-    dataset_train = init_dataset(data_config, Split.TRAIN)
-    dataset_validation = init_dataset(data_config, Split.VALIDATION)
-    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
-    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    train_dataloader, val_dataloader = _get_dataloaders(
+        data_config, learning_config, model
+    )
 
     trainer = pl.Trainer(
         callbacks=[
             pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4f}_{MSE:.3e}",
+                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4g}_{MSE:.3e}",
                 save_top_k=3,
                 monitor="val_loss",
                 every_n_epochs=1,
@@ -782,7 +891,7 @@ def train(
 
     _plot(
         model,
-        dataset_validation,
+        val_dataloader.dataset,
         filepath=train_path + "/" + modelname if save_plot else None,
         silent=silent,
         **window_kwargs(input_version),

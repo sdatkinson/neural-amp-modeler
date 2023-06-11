@@ -23,6 +23,7 @@ class GearType(Enum):
     PREAMP = "preamp"
     STUDIO = "studio"
 
+
 # Note: if you change this enum, you need to update the options in easy_colab.ipynb!
 class ToneType(Enum):
     CLEAN = "clean"

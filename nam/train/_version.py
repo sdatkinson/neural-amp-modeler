@@ -14,7 +14,11 @@ class Version:
         self.patch = patch
 
     def __eq__(self, other) -> bool:
-        return self.major == other.major and self.minor == other.minor and self.patch == other.patch
+        return (
+            self.major == other.major
+            and self.minor == other.minor
+            and self.patch == other.patch
+        )
 
     def __lt__(self, other) -> bool:
         if self.major != other.major:

@@ -3,7 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-The foundation of the model without the PyTorch Lightning attributes (losses, training 
+The foundation of the model without the PyTorch Lightning attributes (losses, training
 steps)
 """
 
