@@ -10,7 +10,7 @@ If you don't have a good computer for training ML models, you use Google Colab t
 in the cloud using the pre-made notebooks under `bin\train`.
 
 For the very easiest experience, open 
-[`easy_colab.ipynb` on Google Colab](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/f67f17b/bin/train/easy_colab.ipynb) 
+[`easy_colab.ipynb` on Google Colab](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/bd1d8a5/bin/train/easy_colab.ipynb) 
 and follow the steps!
 
 For a little more visibility under the hood, you can use [colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/colab.ipynb) instead.
