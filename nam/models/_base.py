@@ -37,6 +37,14 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
     def forward(self, *args, **kwargs) -> torch.Tensor:
         pass
 
+    @classmethod
+    def _metadata_loudness_x(cls) -> torch.Tensor:
+        return wav_to_tensor(
+            pkg_resources.resource_filename(
+                "nam", "models/_resources/loudness_input.wav"
+            )
+        )
+
     def _metadata_loudness(self, gain: float = 1.0, db: bool = True) -> float:
         """
         How loud is this model when given a standardized input?
@@ -44,11 +52,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
 
         :param gain: Multiplies input signal
         """
-        x = wav_to_tensor(
-            pkg_resources.resource_filename(
-                "nam", "models/_resources/loudness_input.wav"
-            )
-        )
+        x = self._metadata_loudness_x()
         y = self._at_nominal_settings(gain * x)
         loudness = torch.sqrt(torch.mean(torch.square(y)))
         if db:

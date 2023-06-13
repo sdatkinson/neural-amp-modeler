@@ -14,14 +14,25 @@ from nam.models import recurrent
 
 from .base import Base
 
+_metadata_loudness_x_mocked = 0.1 * torch.randn((11,))  # Shorter for speed
+
 
 class TestLSTM(Base):
     @classmethod
     def setup_class(cls):
+        class LSTMWithMocks(recurrent.LSTM):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._get_initial_state_burn_in = 7
+
+            @classmethod
+            def _metadata_loudness_x(cls) -> torch.Tensor:
+                return _metadata_loudness_x_mocked
+
         num_layers = 2
         hidden_size = 3
         super().setup_class(
-            recurrent.LSTM,
+            LSTMWithMocks,
             args=(hidden_size,),
             kwargs={"train_burn_in": 3, "train_truncate": 5, "num_layers": num_layers},
         )

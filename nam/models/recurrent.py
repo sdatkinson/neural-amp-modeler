@@ -158,6 +158,7 @@ class LSTM(BaseNet):
         self._initial_hidden = nn.Parameter(
             torch.zeros((lstm_kwargs.get("num_layers", 1), hidden_size))
         )
+        self._get_initial_state_burn_in = 48_000
 
     @property
     def receptive_field(self) -> int:
@@ -340,7 +341,11 @@ class LSTM(BaseNet):
 
         :return: (L,DH), (L,DH)
         """
-        inputs = torch.zeros((1, 48_000, 1)) if inputs is None else inputs
+        inputs = (
+            torch.zeros((1, self._get_initial_state_burn_in, 1))
+            if inputs is None
+            else inputs
+        )
         _, (h, c) = self._core(inputs)
         return h, c
 
