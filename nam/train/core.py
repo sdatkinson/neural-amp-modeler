@@ -31,6 +31,7 @@ class Architecture(Enum):
     STANDARD = "standard"
     LITE = "lite"
     FEATHER = "feather"
+    NANO = "nano"
 
 
 def _detect_input_version(input_path) -> Tuple[Version, bool]:
@@ -345,18 +346,24 @@ def _calibrate_delay(
 def _get_lstm_config(architecture):
     return {
         Architecture.STANDARD: {
-            "num_layers": 3,
+            "num_layers": 1,
             "hidden_size": 24,
             "train_burn_in": 4096,
             "train_truncate": 512,
         },
         Architecture.LITE: {
             "num_layers": 2,
-            "hidden_size": 16,
+            "hidden_size": 8,
             "train_burn_in": 4096,
             "train_truncate": 512,
         },
         Architecture.FEATHER: {
+            "num_layers": 1,
+            "hidden_size": 16,
+            "train_burn_in": 4096,
+            "train_truncate": 512,
+        },
+        Architecture.NANO: {
             "num_layers": 1,
             "hidden_size": 12,
             "train_burn_in": 4096,
@@ -554,6 +561,33 @@ def _get_wavenet_config(architecture):
                     "condition_size": 1,
                     "input_size": 8,
                     "channels": 4,
+                    "head_size": 1,
+                    "kernel_size": 3,
+                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": True,
+                },
+            ],
+            "head_scale": 0.02,
+        },
+        Architecture.NANO: {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "channels": 4,
+                    "head_size": 2,
+                    "kernel_size": 3,
+                    "dilations": [1, 2, 4, 8, 16, 32, 64],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": False,
+                },
+                {
+                    "condition_size": 1,
+                    "input_size": 4,
+                    "channels": 2,
                     "head_size": 1,
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
