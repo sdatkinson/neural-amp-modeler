@@ -873,6 +873,11 @@ def train(
     )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
+    # Issue:
+    # * Model needs sample rate from data, but data set needs nx from model.
+    # * Model is re-instantiated after training anyways.
+    # (Hacky) solution: set sample rate in model from dataloader after second
+    # instantiation from final checkpoint.
     model = Model.init_from_config(model_config)
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
@@ -904,6 +909,7 @@ def train(
         )
     model.cpu()
     model.eval()
+    model.net.sample_rate = train_dataloader.dataset.sample_rate
 
     def window_kwargs(version: Version):
         if version.major == 1:
