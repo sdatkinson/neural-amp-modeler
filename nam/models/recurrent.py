@@ -131,6 +131,7 @@ class LSTM(BaseNet):
         train_burn_in: Optional[int] = None,
         train_truncate: Optional[int] = None,
         input_size: int = 1,
+        sample_rate: Optional[float] = None,
         **lstm_kwargs,
     ):
         """
@@ -144,7 +145,7 @@ class LSTM(BaseNet):
         :param input_size: Usually 1 (mono input). A catnet extending this might change
             it and provide the parametric inputs as additional input dimensions.
         """
-        super().__init__()
+        super().__init__(sample_rate=sample_rate)
         if "batch_first" in lstm_kwargs:
             raise ValueError("batch_first cannot be set.")
         self._input_size = input_size

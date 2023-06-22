@@ -110,9 +110,10 @@ class ConvNet(BaseNet):
         *args,
         train_strategy: TrainStrategy = default_train_strategy,
         ir: Optional[_IR] = None,
+        sample_rate: Optional[float] = None,
         **kwargs,
     ):
-        super().__init__()
+        super().__init__(sample_rate=sample_rate)
         self._net = _conv_net(*args, **kwargs)
         assert train_strategy == TrainStrategy.DILATE, "Stride no longer supported"
         self._train_strategy = train_strategy
