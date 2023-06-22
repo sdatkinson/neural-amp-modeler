@@ -882,6 +882,12 @@ def train(
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
     )
+    if train_dataloader.dataset.sample_rate != val_dataloader.dataset.sample_rate:
+        raise RuntimeError(
+            "Train and validation data loaders have different data set sample rates: "
+            f"{train_dataloader.dataset.sample_rate}, "
+            f"{val_dataloader.dataset.sample_rate}"
+        )
 
     trainer = pl.Trainer(
         callbacks=[
