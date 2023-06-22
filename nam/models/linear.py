@@ -18,8 +18,8 @@ from ._base import BaseNet
 
 
 class Linear(BaseNet):
-    def __init__(self, receptive_field: int, bias: bool = False):
-        super().__init__()
+    def __init__(self, receptive_field: int, *args, bias: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
         self._net = nn.Conv1d(1, 1, receptive_field, bias=bias)
 
     @property

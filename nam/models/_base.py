@@ -22,6 +22,10 @@ from ._exportable import Exportable
 
 
 class _Base(nn.Module, InitializableFromConfig, Exportable):
+    def __init__(self, sample_rate: Optional[float] = None):
+        super().__init__()
+        self.sample_rate = sample_rate
+
     @abc.abstractproperty
     def pad_start_default(self) -> bool:
         pass
@@ -44,6 +48,17 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
                 "nam", "models/_resources/loudness_input.wav"
             )
         )
+
+    def _get_export_dict(self):
+        d = super()._get_export_dict()
+        sample_rate_key = "sample_rate"
+        if sample_rate_key in d:
+            raise RuntimeError(
+                "Model wants to put 'sample_rate' into model export dict, but the key "
+                "is already taken!"
+            )
+        d[sample_rate_key] = self.sample_rate
+        return d
 
     def _metadata_loudness(self, gain: float = 1.0, db: bool = True) -> float:
         """

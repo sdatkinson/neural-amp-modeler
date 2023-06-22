@@ -181,6 +181,12 @@ def main_inner(
     dataset_validation = init_dataset(data_config, Split.VALIDATION)
     train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
     val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    if train_dataloader.dataset.sample_rate != val_dataloader.dataset.sample_rate:
+        raise RuntimeError(
+            "Train and validation data loaders have different data set sample rates: "
+            f"{train_dataloader.dataset.sample_rate}, "
+            f"{val_dataloader.dataset.sample_rate}"
+        )
 
     # ckpt_path = Path(outdir, "checkpoints")
     # ckpt_path.mkdir()
@@ -204,6 +210,7 @@ def main_inner(
         )
     model.cpu()
     model.eval()
+    model.net.sample_rate = train_dataloader.dataset.sample_rate
     if make_plots:
         plot(
             model,

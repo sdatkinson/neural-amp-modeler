@@ -3,6 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import abc
+import logging
 from collections import namedtuple
 from copy import deepcopy
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm
 
 from ._core import InitializableFromConfig
+
+logger = logging.getLogger(__name__)
 
 _REQUIRED_SAMPWIDTH = 3
 REQUIRED_RATE = 48_000
@@ -94,7 +97,7 @@ def wav_to_np(
                 required_shape,  # Expected
                 arr_premono.shape,  # Actual
                 f"Mismatched shapes. Expected {required_shape}, but this is "
-                f"{arr_premono.shape}!"
+                f"{arr_premono.shape}!",
             )
         # sampwidth fine--we're just casting to 32-bit float anyways
     arr = arr_premono[:, 0]
@@ -122,8 +125,8 @@ def np_to_wav(
     filename: Union[str, Path],
     rate: int = 48_000,
     sampwidth: int = 3,
-    scale = None,
-    **kwargs
+    scale=None,
+    **kwargs,
 ):
     if wavio.__version__ <= "0.0.4" and scale is None:
         scale = "none"
@@ -133,7 +136,7 @@ def np_to_wav(
         rate,
         scale=scale,
         sampwidth=sampwidth,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -235,7 +238,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         x_path: Optional[Union[str, Path]] = None,
         y_path: Optional[Union[str, Path]] = None,
         input_gain: float = 0.0,
-        rate: int = REQUIRED_RATE,
+        sample_rate: Optional[int] = None,
+        rate: Optional[int] = None,
         require_input_pre_silence: Optional[float] = _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
     ):
         """
@@ -272,13 +276,14 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         """
         self._validate_x_y(x, y)
         self._validate_start_stop(x, y, start, stop)
+        self._sample_rate = self._validate_sample_rate(sample_rate, rate)
         if not isinstance(delay_interpolation_method, _DelayInterpolationMethod):
             delay_interpolation_method = _DelayInterpolationMethod(
                 delay_interpolation_method
             )
         if require_input_pre_silence is not None:
             self._validate_preceding_silence(
-                x, start, int(require_input_pre_silence * rate)
+                x, start, int(require_input_pre_silence * self._sample_rate)
             )
         x, y = [z[start:stop] for z in (x, y)]
         if delay is not None and delay != 0:
@@ -293,7 +298,6 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._y = y
         self._nx = nx
         self._ny = ny if ny is not None else len(x) - nx + 1
-        self._rate = rate
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -316,6 +320,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
     @property
     def ny(self) -> int:
         return self._ny
+
+    @property
+    def sample_rate(self) -> Optional[float]:
+        return self._sample_rate
 
     @property
     def x(self) -> torch.Tensor:
@@ -443,6 +451,25 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             x = x[-n_out:]
         y = _interpolate_delay(y, delay, method)
         return x, y
+
+    @classmethod
+    def _validate_sample_rate(
+        cls, sample_rate: Optional[float], rate: Optional[int]
+    ) -> float:
+        if sample_rate is None and rate is None:  # Default value
+            return REQUIRED_RATE
+        if rate is not None:
+            if sample_rate is not None:
+                raise ValueError(
+                    "Provided both sample_rate and rate. Provide only sample_rate!"
+                )
+            else:
+                logger.warning(
+                    "Use of 'rate' is deprecated and will be removed. Use sample_rate instead"
+                )
+                return float(rate)
+        else:
+            return sample_rate
 
     @classmethod
     def _validate_start_stop(

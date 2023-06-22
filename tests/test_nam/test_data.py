@@ -85,6 +85,14 @@ class TestDataset(object):
         x, y = self._create_xy()
         data.Dataset(x, y, 3, None)
 
+    def test_init_sample_rate(self):
+        x, y = self._create_xy()
+        sample_rate = 48_000.0
+        d = data.Dataset(x, y, 3, None, sample_rate=sample_rate)
+        assert hasattr(d, "sample_rate")
+        assert isinstance(d.sample_rate, float)
+        assert d.sample_rate == sample_rate
+
     def test_init_zero_delay(self):
         """
         Assert https://github.com/sdatkinson/neural-amp-modeler/issues/15 fixed
@@ -285,6 +293,7 @@ class TestWav(object):
         # Check if the two arrays are equal
         assert y == pytest.approx(x, abs=self.tolerance)
 
+
 def test_audio_mismatch_shapes_in_order():
     """
     https://github.com/sdatkinson/neural-amp-modeler/issues/257
@@ -293,12 +302,12 @@ def test_audio_mismatch_shapes_in_order():
     num_channels = 1
 
     x, y = [np.zeros((n, num_channels)) for n in (x_samples, y_samples)]
-    
+
     with TemporaryDirectory() as tmpdir:
         y_path = Path(tmpdir, "y.wav")
         data.np_to_wav(y, y_path)
         f = lambda: data.wav_to_np(y_path, required_shape=x.shape)
-    
+
         with pytest.raises(data.AudioShapeMismatchError) as e:
             f()
 
@@ -309,7 +318,7 @@ def test_audio_mismatch_shapes_in_order():
             # x is loaded first; we expect that y matches.
             assert e.shape_expected == (x_samples, num_channels)
             assert e.shape_actual == (y_samples, num_channels)
-            
+
 
 if __name__ == "__main__":
     pytest.main()

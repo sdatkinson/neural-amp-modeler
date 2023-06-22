@@ -339,8 +339,8 @@ class _WaveNet(nn.Module):
 
 
 class WaveNet(BaseNet):
-    def __init__(self, *args, **kwargs):
-        super().__init__()
+    def __init__(self, *args, sample_rate: Optional[float] = None, **kwargs):
+        super().__init__(sample_rate=sample_rate)
         self._net = _WaveNet(*args, **kwargs)
 
     @property
