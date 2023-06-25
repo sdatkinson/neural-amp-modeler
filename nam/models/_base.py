@@ -138,14 +138,14 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
 
 
 class BaseNet(_Base):
-    def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None):
+    def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None, **kwargs):
         pad_start = self.pad_start_default if pad_start is None else pad_start
         scalar = x.ndim == 1
         if scalar:
             x = x[None]
         if pad_start:
             x = torch.cat((torch.zeros((len(x), self.receptive_field - 1)), x), dim=1)
-        y = self._forward(x)
+        y = self._forward(x, **kwargs)
         if scalar:
             y = y[0]
         return y

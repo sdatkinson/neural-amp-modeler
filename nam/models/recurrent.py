@@ -243,12 +243,16 @@ class LSTM(BaseNet):
         """
         return self._head(features)[:, :, 0]
 
-    def _forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _forward(
+        self, x: torch.Tensor, initial_state: Optional[_LSTMHiddenCellType] = None
+    ) -> torch.Tensor:
         """
         :param x: (B,L) or (B,L,D)
         :return: (B,L)
         """
-        last_hidden_state = self._initial_state(len(x))
+        last_hidden_state = (
+            self._initial_state(len(x)) if initial_state is None else initial_state
+        )
         if x.ndim == 2:
             x = x[:, :, None]
         if not self.training or self._train_truncate is None:
