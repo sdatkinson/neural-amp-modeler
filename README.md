@@ -1,10 +1,20 @@
-# NAM: neural amp modeler
+# NAM: Neural Amp Modeler
 
 This repository handles training, reamping, and exporting the weights of a model.
 For playing trained models in real time in a standalone application or plugin, see the partner repo,
 [NeuralAmpModelerPlugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin).
 
-## How to use (Google Colab)
+* [How to use]()
+  * [Google Colab](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#google-colab)
+  * [GUI](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#gui)
+  * [The command line trainer (all features)](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#the-command-line-trainer-all-features)
+* [Standardized reamping files](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#standardized-reamping-files)
+* [Other utilities](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#other-utilities)
+
+## How to use
+There are three main ways to use the NAM trainer. There are two simplified trainers available (1) in your browser via Google Colab and (2) Locally via a GUI. There is also a full-featured trainer for power users than can be runf rom the command line.
+
+### Google Colab
 
 If you don't have a good computer for training ML models, you use Google Colab to train
 in the cloud using the pre-made notebooks under `bin\train`.
@@ -13,26 +23,15 @@ For the very easiest experience, open
 [`easy_colab.ipynb` on Google Colab](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/2992b47/bin/train/easy_colab.ipynb) 
 and follow the steps!
 
-For a little more visibility under the hood, you can use [colab.ipynb](https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/main/bin/train/colab.ipynb) instead.
+### GUI
 
-**Pros:**
+After installing the Python package, a GUI can be accessed by running `nam` in the command line.
 
-- No local installation required!
-- Decent GPUs are available if you don't have one on your computer.
-
-**Cons:**
-
-- Uploading your data can take a long time.
-- The session will time out after a few hours (for free accounts), so extended
-  training runs aren't really feasible. Also, there's a usage limit so you can't hang
-  out all day. I've tried to set you up with a good model that should train reasonably
-  quickly!
-
-## How to use (Local)
+### The command line trainer (all features)
 
 Alternatively, you can clone this repo to your computer and use it locally.
 
-### Installation
+#### Installation
 
 Installation uses [Anaconda](https://www.anaconda.com/) for package management.
 
@@ -54,7 +53,7 @@ Then activate the environment you've created with
 conda activate nam
 ```
 
-### Train models (GUI)
+#### Train models (GUI)
 After installing, you can open a GUI trainer by running
 
 ```bash
@@ -63,13 +62,13 @@ nam
 
 from the terminal.
 
-### Train models (Python script)
+#### Train models (Python script)
 For users looking to get more fine-grained control over the modeling process, 
 NAM includes a training script that can be run from the terminal. In order to run it
 #### Download audio files
 Download the [v1_1_1.wav](https://drive.google.com/file/d/1v2xFXeQ9W2Ks05XrqsMCs2viQcKPAwBk/view?usp=share_link) and [output.wav](https://drive.google.com/file/d/14w2utgL16NozmESzAJO_I0_VCt-5Wgpv/view?usp=share_link) to a folder of your choice 
 
-#### Update data configuration 
+##### Update data configuration 
 Edit `bin/train/data/single_pair.json` to point to relevant audio files: 
 ```json
     "common": {
@@ -79,7 +78,7 @@ Edit `bin/train/data/single_pair.json` to point to relevant audio files:
     }
 ```
 
-#### Run training script
+##### Run training script
 Open up a terminal. Activate your nam environment and call the training with
 ```bash
 python bin/train/main.py \
@@ -121,7 +120,17 @@ path/to/exported_models/MyAmp
 
 Then, point the plugin at the exported `model.nam` file and you're good to go!
 
-### Other utilities
+## Standardized reamping files
+
+NAM can train using any paired audio files, but the simplified trainers (Colab and GUI) can use some pre-made audio files for you to reamp through your gear.
+
+You can use any of the following files:
+
+* [v2_0_0.wav](https://drive.google.com/file/d/1xnyJP_IZ7NuyDSTJfn-Jmc5lw0IE7nfu/view?usp=drive_link) (preferred)
+* [v1_1_1.wav](https://drive.google.com/file/d/1CMj2uv_x8GIs-3X1reo7squHOVfkOa6s/view?usp=drive_link)
+* [v1.wav](https://drive.google.com/file/d/1jxwTHOCx3Zf03DggAsuDTcVqsgokNyhm/view?usp=drive_link)
+
+## Other utilities
 
 #### Run a model on an input signal ("reamping")
 
