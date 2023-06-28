@@ -4,12 +4,12 @@ This repository handles training, reamping, and exporting the weights of a model
 For playing trained models in real time in a standalone application or plugin, see the partner repo,
 [NeuralAmpModelerPlugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin).
 
-* [How to use]()
-  * [Google Colab](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#google-colab)
-  * [GUI](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#gui)
-  * [The command line trainer (all features)](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#the-command-line-trainer-all-features)
-* [Standardized reamping files](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#standardized-reamping-files)
-* [Other utilities](https://github.com/sdatkinson/neural-amp-modeler/edit/main/README.md#other-utilities)
+* [How to use](https://github.com/sdatkinson/neural-amp-modeler/tree/main#how-to-use)
+  * [Google Colab](https://github.com/sdatkinson/neural-amp-modeler/tree/main#google-colab)
+  * [GUI](https://github.com/sdatkinson/neural-amp-modeler/tree/main#gui)
+  * [The command line trainer (all features)](https://github.com/sdatkinson/neural-amp-modeler/tree/main#the-command-line-trainer-all-features)
+* [Standardized reamping files](https://github.com/sdatkinson/neural-amp-modeler/tree/main#standardized-reamping-files)
+* [Other utilities](https://github.com/sdatkinson/neural-amp-modeler/tree/main#other-utilities)
 
 ## How to use
 There are three main ways to use the NAM trainer. There are two simplified trainers available (1) in your browser via Google Colab and (2) Locally via a GUI. There is also a full-featured trainer for power users than can be runf rom the command line.
