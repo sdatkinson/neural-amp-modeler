@@ -66,7 +66,7 @@ from the terminal.
 For users looking to get more fine-grained control over the modeling process, 
 NAM includes a training script that can be run from the terminal. In order to run it
 #### Download audio files
-Download the [v1_1_1.wav](https://drive.google.com/file/d/1v2xFXeQ9W2Ks05XrqsMCs2viQcKPAwBk/view?usp=share_link) and [output.wav](https://drive.google.com/file/d/14w2utgL16NozmESzAJO_I0_VCt-5Wgpv/view?usp=share_link) to a folder of your choice 
+Download the [v1_1_1.wav](https://drive.google.com/file/d/162nQ-EiA12xdlil46YBeS66agKgw0fb4/view?usp=drive_link) and [output.wav](https://drive.google.com/file/d/1e0pDzsWgtqBU87NGqa-4FbriDCkccg3q/view?usp=drive_link) to a folder of your choice 
 
 ##### Update data configuration 
 Edit `bin/train/data/single_pair.json` to point to relevant audio files: 
