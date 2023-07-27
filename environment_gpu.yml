@@ -33,5 +33,6 @@ dependencies:
       - pre-commit
       - pytorch_lightning
       - sounddevice
+      - transformers>=4  # See requirements.txt
       - wavio >=0.0.5
       - -e .

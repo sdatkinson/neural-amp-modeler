@@ -18,6 +18,9 @@ pytorch_lightning
 scipy
 sounddevice
 torch
+# Not required, but if you have it, it needs to be recent enough so I'm adding
+# it.
+transformers>=4
 tqdm
 wavio
 wheel
