@@ -25,6 +25,8 @@ requirements = [
     "auraloss==0.3.0",
     "matplotlib",
     "numpy",
+    "onnx",
+    "onnxruntime",
     "pydantic",
     "pytorch_lightning",
     "scipy",
