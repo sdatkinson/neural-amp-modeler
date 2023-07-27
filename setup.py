@@ -33,6 +33,7 @@ requirements = [
     "sounddevice",
     "tensorboard",
     "torch",
+    "transformers>=4",  # Issue-294
     "tqdm",
     "wavio>=0.0.5",  # Breaking change with older versions
 ]
