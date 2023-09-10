@@ -225,7 +225,9 @@ def main_inner(
             show=False,
         )
         plot(model, dataset_validation, show=not no_show)
-    model.net.export(outdir)
+    # Would like to, but this doesn't work for all cases.
+    # If you're making snapshot models, you may find this convenient to uncomment :)
+    # model.net.export(outdir)
 
 
 if __name__ == "__main__":
