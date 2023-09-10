@@ -144,7 +144,9 @@ class BaseNet(_Base):
         if scalar:
             x = x[None]
         if pad_start:
-            x = torch.cat((torch.zeros((len(x), self.receptive_field - 1)), x), dim=1)
+            x = torch.cat(
+                (torch.zeros((len(x), self.receptive_field - 1)).to(x.device), x), dim=1
+            )
         y = self._forward(x, **kwargs)
         if scalar:
             y = y[0]
@@ -176,7 +178,11 @@ class ParametricBaseNet(_Base):
     """
 
     def forward(
-        self, params: torch.Tensor, x: torch.Tensor, pad_start: Optional[bool] = None
+        self,
+        params: torch.Tensor,
+        x: torch.Tensor,
+        pad_start: Optional[bool] = None,
+        **kwargs
     ):
         pad_start = self.pad_start_default if pad_start is None else pad_start
         scalar = x.ndim == 1
@@ -184,8 +190,10 @@ class ParametricBaseNet(_Base):
             x = x[None]
             params = params[None]
         if pad_start:
-            x = torch.cat((torch.zeros((len(x), self.receptive_field - 1)), x), dim=1)
-        y = self._forward(params, x)
+            x = torch.cat(
+                (torch.zeros((len(x), self.receptive_field - 1)).to(x.device), x), dim=1
+            )
+        y = self._forward(params, x, **kwargs)
         if scalar:
             y = y[0]
         return y
