@@ -2,6 +2,8 @@
 # Created Date: Thursday May 18th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import sys
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -101,11 +103,46 @@ class _TCalibrateDelay(object):
         x = np.zeros((self._data_info.t_blips))
         for i in self._data_info.start_blip_locations:
             x[i + expected_delay] = 1.0
-        with TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir, "output.wav")
-            np_to_wav(x, path)
-            delay = self._calibrate_delay(None, path)
-            assert delay == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
+
+        delay = self._calibrate_delay(x)
+        assert delay == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
+
+    def test_lookahead_warning(self):
+        """
+        If the delay is equal to the (negative) lookahead, then something is probably wrong.
+        Assert that we're warned.
+
+        See: https://github.com/sdatkinson/neural-amp-modeler/issues/304
+        """
+
+        # Make the response loud enough to trigger the threshold everywhere.
+        # Use the absolute threshold since the relative will be zero (I'll make it
+        # silent where it's calibrated.)
+        y = np.full(
+            (self._data_info.t_blips,), core._DELAY_CALIBRATION_ABS_THRESHOLD + 0.01
+        )
+        # Make the signal silent where the threshold is calibrated so the absolute
+        # threshold is used.
+        y[self._data_info.noise_interval[0] : self._data_info.noise_interval[1]] = 0.0
+
+        # Prepare to capture the output and look for a warning.
+        class Capturing(list):
+            def __enter__(self):
+                self._stdout = sys.stdout
+                sys.stdout = self._stringio = StringIO()
+                return self
+
+            def __exit__(self, *args):
+                self.extend(self._stringio.getvalue().splitlines())
+                del self._stringio
+                sys.stdout = self._stdout
+
+        with Capturing() as output:
+            self._calibrate_delay(y)
+        expected_warning = core._warn_lookaheads(
+            list(range(1, len(self._data_info.start_blip_locations) + 1))
+        )
+        assert any(o == expected_warning for o in output), output
 
 
 class TestCalibrateDelayV1(_TCalibrateDelay):
@@ -150,6 +187,7 @@ TestValidationDatasetV1_1_1 = _make_t_validation_dataset_class(
 TestValidationDatasetV2_0_0 = _make_t_validation_dataset_class(
     Version(2, 0, 0), requires_v2_0_0, core._V2_DATA_INFO
 )
+
 
 if __name__ == "__main__":
     pytest.main()

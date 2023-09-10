@@ -161,7 +161,7 @@ class _DataInfo(BaseModel):
     """
     :param major_version: Data major version
     :param rate: Sample rate, in Hz
-    :param t_blips: How long the blips are, in seconds
+    :param t_blips: How long the blips are, in samples
     :param t_validate: Validation signal length, in samples
     :param validation_start: Where validation signal starts, in samples. Less than zero
         (from the end of the array).
@@ -206,19 +206,41 @@ _DELAY_CALIBRATION_REL_THRESHOLD = 0.001
 _DELAY_CALIBRATION_SAFETY_FACTOR = 4
 
 
+def _warn_lookaheads(indices: Sequence[int]) -> str:
+    return (
+        f"WARNING: delays from some blips ({','.join([str(i) for i in indices])}) are "
+        "at the minimum value possible. This usually means that something is "
+        "wrong with your data. Check if trianing ends with a poor result!"
+    )
+
+
 def _calibrate_delay_v_all(
     data_info: _DataInfo,
-    input_path,
-    output_path,
+    y,
     abs_threshold=_DELAY_CALIBRATION_ABS_THRESHOLD,
     rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
     safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
 ) -> int:
+    def report_any_delay_warnings(delays: Sequence[int]):
+        # Warnings associated with any single delay:
+
+        lookahead_warnings = [i for i, d in enumerate(delays, 1) if d == -lookahead]
+        if len(lookahead_warnings) > 0:
+            print(_warn_lookaheads(lookahead_warnings))
+
+        # Ensemble warnings
+
+        # If they're _really_ different, then something might be wrong.
+        if np.max(delays) - np.min(delays) >= 20:
+            print(
+                "WARNING: Delays are anomalously different from each other. If this model "
+                "turns out badly, then you might need to provide the delay manually."
+            )
+
     lookahead = 1_000
     lookback = 10_000
-
     # Calibrate the trigger:
-    y = wav_to_np(output_path)[: data_info.t_blips]
+    y = y[: data_info.t_blips]
     background_level = np.max(
         np.abs(y[data_info.noise_interval[0] : data_info.noise_interval[1]])
     )
@@ -258,16 +280,12 @@ def _calibrate_delay_v_all(
             delays.append(j + start_looking - i)
 
     print("Delays:")
-    for d in delays:
-        print(f" {d}")
-    # If theyr'e _really_ different, then something might be wrong.
-    if np.max(delays) - np.min(delays) >= 20:
-        print(
-            "WARNING: Delays are anomalously different from each other. If this model "
-            "turns out badly, then you might need to provide the delay manually."
-        )
+    for i, d in enumerate(delays, 1):
+        print(f" Blip {i:2d}: {d}")
+    report_any_delay_warnings(delays)
+
     delay = int(np.min(delays)) - safety_factor
-    print(f"After aplying safety factor, final delay is {delay}")
+    print(f"After aplying safety factor of {safety_factor}, the final delay is {delay}")
     return delay
 
 
@@ -337,7 +355,7 @@ def _calibrate_delay(
         print(f"Delay is specified as {delay}")
     else:
         print("Delay wasn't provided; attempting to calibrate automatically...")
-        delay = calibrate(input_path, output_path)
+        delay = calibrate(wav_to_np(output_path))
     if not silent:
         plot(delay, input_path, output_path)
     return delay

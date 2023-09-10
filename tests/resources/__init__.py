@@ -2,6 +2,12 @@
 # Created Date: Thursday May 18th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+"""
+Download the standardized reamping files to the directory containing this file.
+See:
+https://github.com/sdatkinson/neural-amp-modeler/tree/main#standardized-reamping-files
+"""
+
 from pathlib import Path
 
 import pytest

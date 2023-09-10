@@ -87,7 +87,11 @@ def plot(
         args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
         output = model(*args).flatten().cpu().numpy()
         t1 = time()
-        print(f"Took {t1 - t0:.2f} ({tx / (t1 - t0):.2f}x)")
+        try:
+            rt = f"{tx / (t1 - t0):.2f}"
+        except ZeroDivisionError as e:
+            rt = "???"
+        print(f"Took {t1 - t0:.2f} ({rt}x)")
 
     plt.figure(figsize=(16, 5))
     # plt.plot(ds.x[window_start:window_end], label="Input")
@@ -221,6 +225,7 @@ def main_inner(
             show=False,
         )
         plot(model, dataset_validation, show=not no_show)
+    model.net.export(outdir)
 
 
 if __name__ == "__main__":
