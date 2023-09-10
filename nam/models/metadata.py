@@ -18,6 +18,7 @@ __all__ = ["GearType", "ToneType", "Date", "UserMetadata"]
 class GearType(Enum):
     AMP = "amp"
     PEDAL = "pedal"
+    PEDAL_AMP = "pedal_amp"
     AMP_CAB = "amp_cab"
     AMP_PEDAL_CAB = "amp_pedal_cab"
     PREAMP = "preamp"
