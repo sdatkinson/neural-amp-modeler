@@ -27,7 +27,7 @@ dependencies:
   - pip:
       - auraloss==0.3.0
       - onnx
-      - onnxruntime
+      - onnxruntime<1.16
       - pre-commit
       - pytorch_lightning
       - sounddevice

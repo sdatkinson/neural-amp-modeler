@@ -8,7 +8,7 @@ flake8
 matplotlib
 numpy
 onnx
-onnxruntime
+onnxruntime<1.16
 pip
 pre-commit
 pydantic
