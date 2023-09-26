@@ -119,6 +119,17 @@ class _LossItem(NamedTuple):
     value: Optional[torch.Tensor]
 
 
+_model_net_init_registry = {
+    "CatLSTM": CatLSTM.init_from_config,
+    "CatWaveNet": CatWaveNet.init_from_config,
+    "ConvNet": ConvNet.init_from_config,
+    "HyperConvNet": HyperConvNet.init_from_config,
+    "Linear": Linear.init_from_config,
+    "LSTM": LSTM.init_from_config,
+    "WaveNet": WaveNet.init_from_config,
+}
+
+
 class Model(pl.LightningModule, InitializableFromConfig):
     def __init__(
         self,
@@ -189,15 +200,7 @@ class Model(pl.LightningModule, InitializableFromConfig):
         """
         config = super().parse_config(config)
         net_config = config["net"]
-        net = {
-            "CatLSTM": CatLSTM.init_from_config,
-            "CatWaveNet": CatWaveNet.init_from_config,
-            "ConvNet": ConvNet.init_from_config,
-            "HyperConvNet": HyperConvNet.init_from_config,
-            "Linear": Linear.init_from_config,
-            "LSTM": LSTM.init_from_config,
-            "WaveNet": WaveNet.init_from_config,
-        }[net_config["name"]](net_config["config"])
+        net = _model_net_init_registry[net_config["name"]](net_config["config"])
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
             "net": net,
@@ -205,6 +208,14 @@ class Model(pl.LightningModule, InitializableFromConfig):
             "scheduler_config": config["lr_scheduler"],
             "loss_config": loss_config,
         }
+
+    @classmethod
+    def register_net_initializer(cls, name, constructor):
+        if name in _model_net_init_registry:
+            raise KeyError(
+                f"A constructor for net name '{name}' is already registered!"
+            )
+        _model_net_init_registry[name] = constructor
 
     @property
     def net(self) -> nn.Module:
