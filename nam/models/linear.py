@@ -62,9 +62,18 @@ class Linear(BaseNet):
         # And resume training state
         self.train(training)
 
+    def export_cpp_header(self):
+        raise NotImplementedError()
+
     @property
     def _bias(self) -> bool:
         return self._net.bias is not None
 
     def _forward(self, x: torch.Tensor) -> torch.Tensor:
         return self._net(x[:, None])[:, 0]
+
+    def _export_config(self):
+        raise NotImplementedError()
+
+    def _export_weights(self) -> np.ndarray:
+        raise NotImplementedError()
