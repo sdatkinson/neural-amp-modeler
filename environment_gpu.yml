@@ -4,9 +4,9 @@
 
 name: nam
 channels:
-  - conda-forge # pytest-mock
+  - conda-forge # pytest-mock, onnxruntime
   - pytorch
-  - nvidia
+  - nvidia  # GPU
 dependencies:
   - python<3.11 # onnxruntime
   - black
@@ -15,12 +15,15 @@ dependencies:
   - jupyter
   - matplotlib
   - numpy
+  - onnx
+  - onnxruntime!=1.16.0
   - pip
+  - pre-commit
   - pydantic
   - pytest
   - pytest-mock
   - pytorch
-  - pytorch-cuda=11.7
+  - pytorch-cuda=11.7  # GPU
   - scipy
   - semver
   - tensorboard
@@ -28,9 +31,6 @@ dependencies:
   - wheel
   - pip:
       - auraloss==0.3.0
-      - onnx
-      - onnxruntime<1.16 # TODO GPU...
-      - pre-commit
       - pytorch_lightning
       - sounddevice
       - transformers>=4  # See requirements.txt
