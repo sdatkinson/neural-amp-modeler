@@ -100,7 +100,9 @@ def plot(
     # plt.plot(
     #     ds.y[window_start:window_end] - output[window_start:window_end], label="Error"
     # )
-    plt.title(f"NRMSE={_rms(torch.Tensor(output) - ds.y) / _rms(ds.y)}")
+    nrmse = _rms(torch.Tensor(output) - ds.y) / _rms(ds.y)
+    esr = nrmse**2
+    plt.title(f"ESR={esr:.3f}")
     plt.legend()
     if savefig is not None:
         plt.savefig(savefig)
