@@ -101,7 +101,7 @@ class _TCalibrateDelay(object):
     @pytest.mark.parametrize("expected_delay", (-10, 0, 5, 100))
     def test_calibrate_delay(self, expected_delay: int):
         x = np.zeros((self._data_info.t_blips))
-        for i in self._data_info.start_blip_locations:
+        for i in self._data_info.blip_locations:
             x[i + expected_delay] = 1.0
 
         delay = self._calibrate_delay(x)
@@ -140,7 +140,7 @@ class _TCalibrateDelay(object):
         with Capturing() as output:
             self._calibrate_delay(y)
         expected_warning = core._warn_lookaheads(
-            list(range(1, len(self._data_info.start_blip_locations) + 1))
+            list(range(1, len(self._data_info.blip_locations) + 1))
         )
         assert any(o == expected_warning for o in output), output
 

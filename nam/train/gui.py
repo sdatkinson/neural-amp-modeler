@@ -170,7 +170,7 @@ class _GUI(object):
         self._path_button_input = _PathButton(
             self._frame_input_path,
             "Input Audio",
-            "Select input DI file (eg: v1_1_1.wav)",
+            "Select input DI file (eg: v3_0_0.wav)",
             _PathType.FILE,
             hooks=[self._check_button_states],
         )
