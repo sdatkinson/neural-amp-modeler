@@ -26,7 +26,7 @@ _INPUT_BASENAMES = (
     _VersionAndName(Version(1, 1, 1), "v1_1_1.wav"),
     _VersionAndName(Version(1, 0, 0), "v1.wav"),
 )
-_LATEST_VERSION = _INPUT_BASENAMES.version
+_LATEST_VERSION = _INPUT_BASENAMES[0]
 _BUGGY_INPUT_BASENAMES = {
     # 1.1.0 has the spikes at the wrong spots.
     "v1_1_0.wav"
