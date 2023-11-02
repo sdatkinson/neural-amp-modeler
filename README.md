@@ -10,6 +10,7 @@ TODO V3 audio:
 * [ ] V2 checks update
 * [x] Upload and README link
 * [ ] Revise tests
+* [x] Fix f-string in colab notebook
 
 
 This repository handles training, reamping, and exporting the weights of a model.
