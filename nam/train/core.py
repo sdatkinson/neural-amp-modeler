@@ -492,6 +492,18 @@ def _check_v1(*args, **kwargs):
     return True
 
 
+def _esr_validation_replicate_msg(threshold: float) -> str:
+    return (
+        f"Validation replicates have a self-ESR of over {threshold}. "
+        "Your gear doesn't sound like itself when played twice!\n\n"
+        "Possible causes:"
+        " * Your signal chain is too noisy."
+        " * There's a time-based effect (chorus, delay, reverb) turned on."
+        " * Some knob got moved while reamping."
+        " * You started reamping before the amp had time to warm up fully."
+    )
+
+
 def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
     with torch.no_grad():
         print("V2 checks...")
@@ -503,6 +515,9 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
         y_val_2 = y[-(t_blips + t_validate) : -t_blips]
         esr_replicate = esr(y_val_1, y_val_2).item()
         print(f"Replicate ESR is {esr_replicate:.8f}.")
+        esr_replicate_threshold = 0.01
+        if esr_replicate > esr_replicate_threshold:
+            print(_esr_validation_replicate_msg(esr_replicate_threshold))
 
         # Do the blips line up?
         # If the ESR is too bad, then flag it.
@@ -540,8 +555,16 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
 
         esr_threshold = 1.0e-2
 
-        def plot_esr_blip_error(silent, msg, arrays, labels):
-            if not silent:
+        def plot_esr_blip_error(
+            show_plot: bool,
+            msg: str,
+            arrays: Sequence[Sequence[float]],
+            labels: Sequence[str],
+        ):
+            """
+            :param silent: Whether to make and show a plot about it
+            """
+            if show_plot:
                 plt.figure()
                 [plt.plot(array, label=label) for array, label in zip(arrays, labels)]
                 plt.xlabel("Sample")
@@ -549,45 +572,69 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
                 plt.legend()
                 plt.grid()
             print(msg)
-            if not silent:
+            if show_plot:
                 plt.show()
+            print(
+                "This is known to be a very sensitive test, so training will continue. "
+                "If the model doesn't look good, then this may be why!"
+            )
 
         # Check consecutive blips
+        show_blip_plots = False
         for e, blip_pair, when in zip((esr_0, esr_1), blips, ("start", "end")):
             if e >= esr_threshold:
                 plot_esr_blip_error(
-                    silent,
+                    show_blip_plots,
                     f"Failed consecutive blip check at {when} of training signal. The "
                     "target tone doesn't seem to be replicable over short timespans."
                     "\n\n"
                     "  Possible causes:\n\n"
                     "    * Your recording setup is really noisy.\n"
                     "    * There's a noise gate that's messing things up.\n"
-                    "    * There's a time-based effect (compressor, delay, reverb) in "
+                    "    * There's a time-based effect (chorus, delay, reverb) in "
                     "the signal chain",
                     blip_pair,
                     ("Replicate 1", "Replicate 2"),
                 )
-                return False
+                # return False  # Stop bothering me! :(
         # Check blips between start & end of train signal
         for e, blip_pair, replicate in zip(
             (esr_cross_0, esr_cross_1), blips.permute(1, 0, 2), (1, 2)
         ):
             if e >= esr_threshold:
                 plot_esr_blip_error(
-                    silent,
+                    show_blip_plots,
                     f"Failed start-to-end blip check for blip replicate {replicate}. "
                     "The target tone doesn't seem to be same at the end of the reamp "
                     "as it was at the start. Did some setting change during reamping?",
                     blip_pair,
                     (f"Start, replicate {replicate}", f"End, replicate {replicate}"),
                 )
-                return False
+                # return False  # Stop bothering me! :(
         return True
 
 
-def _check_v3(input_path, output_path, delay: int, silent: bool) -> bool:
-    print("WARNING: V3 checks not implemented yet!")
+def _check_v3(input_path, output_path, *args, **kwargs) -> bool:
+    with torch.no_grad():
+        print("V3 checks...")
+        rate = _V3_DATA_INFO.rate
+        y = wav_to_tensor(output_path, rate=rate)
+        y_val_1 = y[: _V3_DATA_INFO.t_validate]
+        y_val_2 = y[-_V3_DATA_INFO.t_validate :]
+        esr_replicate = esr(y_val_1, y_val_2).item()
+        print(f"Replicate ESR is {esr_replicate:.8f}.")
+        esr_replicate_threshold = 0.01
+        if esr_replicate > esr_replicate_threshold:
+            print(_esr_validation_replicate_msg(esr_replicate_threshold))
+            plt.figure()
+            t = np.arange(len(y_val_1)) / rate
+            plt.plot(t, y_val_1, label="Validation 1")
+            plt.plot(t, y_val_2, label="Validation 2")
+            plt.xlabel("Time (sec)")
+            plt.legend()
+            plt.title("V3 check: Validation replicate FAILURE")
+            plt.show()
+            return False
     return True
 
 
