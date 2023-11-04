@@ -5,9 +5,9 @@ TODO V3 audio:
 * [x] end blip locations
 * [x] Strong hash
 * [x] Weak hashes
-* [ ] Colab updates
-* [ ] V3 checks
-* [ ] V2 checks update
+* [x] Colab updates
+* [x] V3 checks
+* [x] V2 checks update
 * [x] Upload and README link
 * [ ] Revise tests
 * [x] Fix f-string in colab notebook
