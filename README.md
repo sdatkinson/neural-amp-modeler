@@ -1,19 +1,5 @@
 # NAM: Neural Amp Modeler
 
-TODO V3 audio:
-* [x] validation start -> starts
-* [x] end blip locations
-* [x] Strong hash
-* [x] Weak hashes
-* [x] Colab updates
-* [x] V3 checks
-* [x] V2 checks update
-* [x] Upload and README link
-* [x] Revise tests
-* [x] Fix f-string in colab notebook
-* [ ] Update Colab links after merging the CR!
-
-
 This repository handles training, reamping, and exporting the weights of a model.
 For playing trained models in real time in a standalone application or plugin, see the partner repo,
 [NeuralAmpModelerPlugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin).
