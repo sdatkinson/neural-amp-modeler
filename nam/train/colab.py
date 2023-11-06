@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional, Tuple
 
 from ..models.metadata import UserMetadata
-from ._names import LATEST_VERSION, Version
+from ._names import INPUT_BASENAMES, LATEST_VERSION, Version
 from ._version import Version
 from .core import train
 
@@ -32,7 +32,7 @@ def _check_for_files() -> Tuple[Version, str]:
             raise RuntimeError(
                 f"Detected input signal {name} that has known bugs. Please download the latest input signal, {LATEST_VERSION[1]}"
             )
-    for input_version, input_basename in _INPUT_BASENAMES:
+    for input_version, input_basename in INPUT_BASENAMES:
         if Path(input_basename).exists():
             if input_version != LATEST_VERSION.version:
                 print(
