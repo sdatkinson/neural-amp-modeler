@@ -24,6 +24,7 @@ from ...resources import (
     requires_v1_0_0,
     requires_v1_1_1,
     requires_v2_0_0,
+    requires_v3_0_0,
     resource_path,
 )
 
@@ -100,8 +101,12 @@ class _TCalibrateDelay(object):
 
     @pytest.mark.parametrize("expected_delay", (-10, 0, 5, 100))
     def test_calibrate_delay(self, expected_delay: int):
-        x = np.zeros((self._data_info.t_blips))
-        for i in self._data_info.blip_locations:
+        x = np.zeros((self._data_info.first_blips_start + self._data_info.t_blips,))
+        # This test only works with the first set of blip locations. Any other set of
+        # blip locations is used to check the data, not to calibrate the delay.
+        for i in self._data_info.blip_locations[0]:
+            # The blip locations are absolute in the file, not relative to the start of
+            # the blip section, so `first_blips_start` isn't used.
             x[i + expected_delay] = 1.0
 
         delay = self._calibrate_delay(x)
@@ -116,10 +121,11 @@ class _TCalibrateDelay(object):
         """
 
         # Make the response loud enough to trigger the threshold everywhere.
-        # Use the absolute threshold since the relative will be zero (I'll make it
-        # silent where it's calibrated.)
+        # Use the absolute threshold since the relative will be zero (The signal will be
+        # zeroed next so it's silent where the thresholds are calibrated.)
         y = np.full(
-            (self._data_info.t_blips,), core._DELAY_CALIBRATION_ABS_THRESHOLD + 0.01
+            (self._data_info.first_blips_start + self._data_info.t_blips,),
+            core._DELAY_CALIBRATION_ABS_THRESHOLD + 0.01,
         )
         # Make the signal silent where the threshold is calibrated so the absolute
         # threshold is used.
@@ -139,8 +145,9 @@ class _TCalibrateDelay(object):
 
         with Capturing() as output:
             self._calibrate_delay(y)
+        # `[0]` -- Only look in the first set of blip locations
         expected_warning = core._warn_lookaheads(
-            list(range(1, len(self._data_info.blip_locations) + 1))
+            list(range(1, len(self._data_info.blip_locations[0]) + 1))
         )
         assert any(o == expected_warning for o in output), output
 
@@ -153,6 +160,11 @@ class TestCalibrateDelayV1(_TCalibrateDelay):
 class TestCalibrateDelayV2(_TCalibrateDelay):
     _calibrate_delay = core._calibrate_delay_v2
     _data_info = core._V2_DATA_INFO
+
+
+class TestCalibrateDelayV3(_TCalibrateDelay):
+    _calibrate_delay = core._calibrate_delay_v3
+    _data_info = core._V3_DATA_INFO
 
 
 def _make_t_validation_dataset_class(
@@ -186,6 +198,11 @@ TestValidationDatasetV1_1_1 = _make_t_validation_dataset_class(
 
 TestValidationDatasetV2_0_0 = _make_t_validation_dataset_class(
     Version(2, 0, 0), requires_v2_0_0, core._V2_DATA_INFO
+)
+
+
+TestValidationDatasetV3_0_0 = _make_t_validation_dataset_class(
+    Version(3, 0, 0), requires_v3_0_0, core._V3_DATA_INFO
 )
 
 

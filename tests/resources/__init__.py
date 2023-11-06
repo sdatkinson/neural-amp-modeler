@@ -12,7 +12,13 @@ from pathlib import Path
 
 import pytest
 
-__all__ = ["requires_v1_0_0", "requires_v1_1_1", "requires_v2_0_0", "resource_path"]
+__all__ = [
+    "requires_v1_0_0",
+    "requires_v1_1_1",
+    "requires_v2_0_0",
+    "requires_v3_0_0",
+    "resource_path",
+]
 
 
 def _requires_v(name: str):
@@ -26,6 +32,7 @@ def _requires_v(name: str):
 requires_v1_0_0 = _requires_v("v1.wav")
 requires_v1_1_1 = _requires_v("v1_1_1.wav")
 requires_v2_0_0 = _requires_v("v2_0_0.wav")
+requires_v3_0_0 = _requires_v("v3_0_0.wav")
 
 
 def resource_path(name: str) -> Path:

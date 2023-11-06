@@ -212,8 +212,9 @@ class _DataInfo(BaseModel):
     :param validation_start: Where validation signal starts, in samples. Less than zero
         (from the end of the array).
     :param noise_interval: Inside which we quantify the noise level
-    :param blip_locations: In samples. Negative values mean from the end instead
-        of from the start.
+    :param blip_locations: In samples, absolute location in the file. Negative values
+        mean from the end instead of from the start (typical "Python" negastive
+        indexing).
     """
 
     major_version: int
@@ -299,6 +300,13 @@ def _calibrate_delay_v_all(
     rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
     safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
 ) -> int:
+    """
+    Calibrate the delay in teh input-output pair based on blips.
+    This only uses the blips in the first set of blip locations!
+
+    :param y: The output audio, in complete.
+    """
+
     def report_any_delay_warnings(delays: Sequence[int]):
         # Warnings associated with any single delay:
 
