@@ -11,22 +11,11 @@ from pathlib import Path
 from typing import NamedTuple, Optional, Tuple
 
 from ..models.metadata import UserMetadata
+from ._names import LATEST_VERSION, Version
 from ._version import Version
 from .core import train
 
 
-class _VersionAndName(NamedTuple):
-    version: Version
-    name: str
-
-
-_INPUT_BASENAMES = (
-    _VersionAndName(Version(3, 0, 0), "v3_0_0.wav"),
-    _VersionAndName(Version(2, 0, 0), "v2_0_0.wav"),
-    _VersionAndName(Version(1, 1, 1), "v1_1_1.wav"),
-    _VersionAndName(Version(1, 0, 0), "v1.wav"),
-)
-_LATEST_VERSION = _INPUT_BASENAMES[0]
 _BUGGY_INPUT_BASENAMES = {
     # 1.1.0 has the spikes at the wrong spots.
     "v1_1_0.wav"
@@ -41,20 +30,20 @@ def _check_for_files() -> Tuple[Version, str]:
     for name in _BUGGY_INPUT_BASENAMES:
         if Path(name).exists():
             raise RuntimeError(
-                f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_LATEST_VERSION[1]}"
+                f"Detected input signal {name} that has known bugs. Please download the latest input signal, {LATEST_VERSION[1]}"
             )
     for input_version, input_basename in _INPUT_BASENAMES:
         if Path(input_basename).exists():
-            if input_version != _LATEST_VERSION.version:
+            if input_version != LATEST_VERSION.version:
                 print(
                     f"WARNING: Using out-of-date input file {input_basename}. "
                     "Recommend downloading and using the latest version, "
-                    f"{_LATEST_VERSION.name}."
+                    f"{LATEST_VERSION.name}."
                 )
             break
     else:
         raise FileNotFoundError(
-            f"Didn't find NAM's input audio file. Please upload {_LATEST_VERSION.name}"
+            f"Didn't find NAM's input audio file. Please upload {LATEST_VERSION.name}"
         )
     if not Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
