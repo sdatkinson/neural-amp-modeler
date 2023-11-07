@@ -126,7 +126,8 @@ NAM can train using any paired audio files, but the simplified trainers (Colab a
 
 You can use any of the following files:
 
-* [v2_0_0.wav](https://drive.google.com/file/d/1xnyJP_IZ7NuyDSTJfn-Jmc5lw0IE7nfu/view?usp=drive_link) (preferred)
+* [v3_0_0.wav](https://drive.google.com/file/d/1Pgf8PdE0rKB1TD4TRPKbpNo1ByR3IOm9/view?usp=drive_link) (preferred)
+* [v2_0_0.wav](https://drive.google.com/file/d/1xnyJP_IZ7NuyDSTJfn-Jmc5lw0IE7nfu/view?usp=drive_link)
 * [v1_1_1.wav](https://drive.google.com/file/d/1CMj2uv_x8GIs-3X1reo7squHOVfkOa6s/view?usp=drive_link)
 * [v1.wav](https://drive.google.com/file/d/1jxwTHOCx3Zf03DggAsuDTcVqsgokNyhm/view?usp=drive_link)
 
