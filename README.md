@@ -47,6 +47,8 @@ Otherwise, for a CPU-only install (will train much more slowly):
 conda env create -f environment_cpu.yml
 ```
 
+_Note: if Anaconda takes a long time "`Solving environment...`", then you can speed up installing the environment by using the mamba experimental sovler with `--experimental-solver=libmamba`._
+
 Then activate the environment you've created with
 
 ```bash
