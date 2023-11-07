@@ -74,6 +74,8 @@ def test_mrstft_loss(batch_size: int, sequence_length: int):
 def test_mrstft_loss_cpu_fallback(mocker):
     """
     Assert that fallback to CPU happens on failure
+
+    :param mocker: Provided by pytest-mock
     """
 
     def mocked_loss(
