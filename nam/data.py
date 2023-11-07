@@ -268,7 +268,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             you are using a reamping setup, you can estimate this by reamping a
             completely dry signal (i.e. connecting the interface output directly back
             into the input with which the guitar was originally recorded.)
-        :param rate: Sample rate for the data
+        :param sample_rate: Sample rate for the data
+        :param rate: Sample rate for the data (deprecated)
         :param require_input_pre_silence: If provided, require that this much time (in
             seconds) preceding the start of the data set (`start`) have a silent input.
             If it's not, then raise an exception because the output due to it will leak
@@ -349,7 +350,9 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def parse_config(cls, config):
-        x, x_wavinfo = wav_to_tensor(config["x_path"], info=True)
+        x, x_wavinfo = wav_to_tensor(
+            config["x_path"], info=True, rate=config.get("rate")
+        )
         rate = x_wavinfo.rate
         try:
             y = wav_to_tensor(
@@ -402,7 +405,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "y_scale": config.get("y_scale", 1.0),
             "x_path": config["x_path"],
             "y_path": config["y_path"],
-            "rate": config.get("rate", REQUIRED_RATE),
+            "sample_rate": rate,
             "require_input_pre_silence": config.get(
                 "require_input_pre_silence", _DEFAULT_REQUIRE_INPUT_PRE_SILENCE
             ),

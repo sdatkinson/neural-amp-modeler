@@ -185,17 +185,14 @@ def main_inner(
 
     dataset_train = init_dataset(data_config, Split.TRAIN)
     dataset_validation = init_dataset(data_config, Split.VALIDATION)
-    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
-    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
-    if train_dataloader.dataset.sample_rate != val_dataloader.dataset.sample_rate:
+    if dataset_train.sample_rate != dataset_validation.sample_rate:
         raise RuntimeError(
             "Train and validation data loaders have different data set sample rates: "
-            f"{train_dataloader.dataset.sample_rate}, "
-            f"{val_dataloader.dataset.sample_rate}"
+            f"{dataset_train.sample_rate}, {dataset_validation.sample_rate}"
         )
+    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
+    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
 
-    # ckpt_path = Path(outdir, "checkpoints")
-    # ckpt_path.mkdir()
     trainer = pl.Trainer(
         callbacks=_create_callbacks(learning_config),
         default_root_dir=outdir,

@@ -117,6 +117,22 @@ class TestDataset(object):
         sample_x2 = d2[0][0]
         assert torch.allclose(sample_x1 * x_scale, sample_x2)
 
+    @pytest.mark.parametrize("sample_rate", (44_100, 48_000, 88_200, 96_000))
+    def test_sample_rates(self, sample_rate: int):
+        """
+        Test that datasets with various sample rates can be made
+        """
+        x = np.random.rand(16) - 0.5
+        y = x
+        with TemporaryDirectory() as tmpdir:
+            x_path = Path(tmpdir, "input.wav")
+            y_path = Path(tmpdir, "output.wav")
+            data.np_to_wav(x, x_path, rate=sample_rate)
+            data.np_to_wav(y, y_path, rate=sample_rate)
+            config = {"x_path": str(x_path), "y_path": str(y_path), "nx": 4, "ny": 2}
+            parsed_config = data.Dataset.parse_config(config)
+        assert parsed_config["sample_rate"] == sample_rate
+
     @pytest.mark.parametrize(
         "n,start,valid",
         (
