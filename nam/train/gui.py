@@ -34,12 +34,15 @@ from pathlib import Path
 from tkinter import filedialog
 from typing import Callable, Dict, Optional, Sequence
 
-try:
+try:  # 3rd-party and 1st-party imports
     import torch
 
     from nam import __version__
     from nam.train import core
     from nam.models.metadata import GearType, UserMetadata, ToneType
+
+    # Ok private access here--this is technically allowed access
+    from nam.train._names import LATEST_VERSION
 
     _install_is_valid = True
     _HAVE_ACCELERATOR = torch.cuda.is_available() or torch.backends.mps.is_available()
@@ -170,7 +173,7 @@ class _GUI(object):
         self._path_button_input = _PathButton(
             self._frame_input_path,
             "Input Audio",
-            "Select input DI file (eg: v3_0_0.wav)",
+            f"Select input DI file (e.g. {LATEST_VERSION.name})",
             _PathType.FILE,
             hooks=[self._check_button_states],
         )
