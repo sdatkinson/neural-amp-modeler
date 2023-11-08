@@ -22,8 +22,8 @@ from ._core import InitializableFromConfig
 
 logger = logging.getLogger(__name__)
 
-_REQUIRED_SAMPWIDTH = 3
-REQUIRED_RATE = 48_000
+REQUIRED_RATE = 48_000  # FIXME not "required" anymore!
+_DEFAULT_RATE = REQUIRED_RATE  # There we go :)
 _REQUIRED_CHANNELS = 1  # Mono
 
 
@@ -60,7 +60,7 @@ class AudioShapeMismatchError(ValueError):
 
 def wav_to_np(
     filename: Union[str, Path],
-    rate: Optional[int] = REQUIRED_RATE,
+    rate: Optional[int] = _DEFAULT_RATE,
     require_match: Optional[Union[str, Path]] = None,
     required_shape: Optional[Tuple[int]] = None,
     required_wavinfo: Optional[WavInfo] = None,
@@ -72,7 +72,6 @@ def wav_to_np(
     """
     x_wav = wavio.read(str(filename))
     assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
-    assert x_wav.sampwidth == _REQUIRED_SAMPWIDTH, "24-bit"
     if rate is not None and x_wav.rate != rate:
         raise RuntimeError(
             f"Explicitly expected sample rate of {rate}, but found {x_wav.rate} in "
@@ -268,7 +267,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             you are using a reamping setup, you can estimate this by reamping a
             completely dry signal (i.e. connecting the interface output directly back
             into the input with which the guitar was originally recorded.)
-        :param rate: Sample rate for the data
+        :param sample_rate: Sample rate for the data
+        :param rate: Sample rate for the data (deprecated)
         :param require_input_pre_silence: If provided, require that this much time (in
             seconds) preceding the start of the data set (`start`) have a silent input.
             If it's not, then raise an exception because the output due to it will leak
@@ -349,7 +349,9 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def parse_config(cls, config):
-        x, x_wavinfo = wav_to_tensor(config["x_path"], info=True)
+        x, x_wavinfo = wav_to_tensor(
+            config["x_path"], info=True, rate=config.get("rate")
+        )
         rate = x_wavinfo.rate
         try:
             y = wav_to_tensor(
@@ -402,7 +404,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "y_scale": config.get("y_scale", 1.0),
             "x_path": config["x_path"],
             "y_path": config["y_path"],
-            "rate": config.get("rate", REQUIRED_RATE),
+            "sample_rate": rate,
             "require_input_pre_silence": config.get(
                 "require_input_pre_silence", _DEFAULT_REQUIRE_INPUT_PRE_SILENCE
             ),
@@ -457,7 +459,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         cls, sample_rate: Optional[float], rate: Optional[int]
     ) -> float:
         if sample_rate is None and rate is None:  # Default value
-            return REQUIRED_RATE
+            return _DEFAULT_RATE
         if rate is not None:
             if sample_rate is not None:
                 raise ValueError(
