@@ -622,7 +622,7 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
         return True
 
 
-def _check_v3(input_path, output_path, *args, **kwargs) -> bool:
+def _check_v3(input_path, output_path, silent: bool, *args, **kwargs) -> bool:
     with torch.no_grad():
         print("V3 checks...")
         rate = _V3_DATA_INFO.rate
@@ -634,14 +634,15 @@ def _check_v3(input_path, output_path, *args, **kwargs) -> bool:
         esr_replicate_threshold = 0.01
         if esr_replicate > esr_replicate_threshold:
             print(_esr_validation_replicate_msg(esr_replicate_threshold))
-            plt.figure()
-            t = np.arange(len(y_val_1)) / rate
-            plt.plot(t, y_val_1, label="Validation 1")
-            plt.plot(t, y_val_2, label="Validation 2")
-            plt.xlabel("Time (sec)")
-            plt.legend()
-            plt.title("V3 check: Validation replicate FAILURE")
-            plt.show()
+            if not silent:
+                plt.figure()
+                t = np.arange(len(y_val_1)) / rate
+                plt.plot(t, y_val_1, label="Validation 1")
+                plt.plot(t, y_val_2, label="Validation 2")
+                plt.xlabel("Time (sec)")
+                plt.legend()
+                plt.title("V3 check: Validation replicate FAILURE")
+                plt.show()
             return False
     return True
 

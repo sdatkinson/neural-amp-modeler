@@ -206,5 +206,37 @@ TestValidationDatasetV3_0_0 = _make_t_validation_dataset_class(
 )
 
 
+def test_v3_check_doesnt_make_figure_if_silent(mocker):
+    """
+    Issue 337
+
+    :param mocker: Provided by pytest-mock
+    """
+    import matplotlib.pyplot
+
+    class MadeFigureError(RuntimeError):
+        """
+        For this test, detect if a figure was made, and raise an exception if so
+        """
+
+        pass
+
+    def figure_mock(*args, **kwargs):
+        raise MadeFigureError("The test tried to make a figure")
+
+    mocker.patch("matplotlib.pyplot.figure", figure_mock)
+
+    # Make some data that's totally going to biff it
+    # [:-1] won't match [1:]
+    x = np.random.rand(core._V3_DATA_INFO.t_validate + 1) - 0.5
+
+    with TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir, "output.wav")
+        np_to_wav(x, output_path)
+        input_path = None  # Isn't used right now.
+        # If this makes a figure, then it wasn't silent!
+        core._check_v3(input_path, output_path, silent=True)
+
+
 if __name__ == "__main__":
     pytest.main()
