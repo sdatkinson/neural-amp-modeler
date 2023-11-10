@@ -40,7 +40,7 @@ For computers with a CUDA-capable GPU (recommended):
 ```bash
 conda env create -f environment_gpu.yml
 ```
-_Note: you may need to modify the CUDA version if your GPU is older. Have a look at [nVIDIA's documentation](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions) if you're not sure.
+_Note: you may need to modify the CUDA version if your GPU is older. Have a look at [nVIDIA's documentation](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions) if you're not sure._
 
 Otherwise, for a CPU-only install (will train much more slowly):
 
