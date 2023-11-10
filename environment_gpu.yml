@@ -23,7 +23,10 @@ dependencies:
   - pytest
   - pytest-mock
   - pytorch
-  - pytorch-cuda=11.7  # GPU
+  # If your GPU isn't being detected, you may need a different version.
+  # You're going to need to look at Table 3 here: 
+  # https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions
+  - pytorch-cuda=12.1  # GPU
   - scipy
   - semver
   - tensorboard
