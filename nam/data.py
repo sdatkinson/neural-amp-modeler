@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -679,11 +679,7 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def parse_config(cls, config):
-        init = (
-            ParametricDataset.init_from_config
-            if config["parametric"]
-            else Dataset.init_from_config
-        )
+        init = _dataset_init_registry[config.get("type", "dataset")]
         return {
             "datasets": tuple(
                 init(c) for c in tqdm(config["dataset_configs"], desc="Loading data")
@@ -750,21 +746,55 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
                     )
 
 
+_dataset_init_registry = {
+    "dataset": Dataset.init_from_config,
+    "parametric": ParametricDataset.init_from_config,  # To be removed in v0.8
+}
+
+
+def register_dataset_initializer(
+    name: str, constructor: Callable[[Any], AbstractDataset]
+):
+    """
+    If you have otehr data set types, you can register their initializer by name using
+    this.
+
+    For example, the basic NAM is registered by default under the name "default", but if
+    it weren't, you could register it like this:
+
+    >>> from nam import data
+    >>> data.register_dataset_initializer("parametric", data.Dataset.init_from_config)
+
+    :param name: The name that'll be used in the config to ask for the data set type
+    :param constructor: The constructor that'll be fed the config.
+    """
+    if name in _dataset_init_registry:
+        raise KeyError(
+            f"A constructor for dataset name '{name}' is already registered!"
+        )
+    _dataset_init_registry[name] = constructor
+
+
 def init_dataset(config, split: Split) -> AbstractDataset:
-    parametric = config.get("parametric", False)
+    if "parametric" in config:
+        logger.warning(
+            "Using the 'parametric' keyword is deprecated and will be removed in next "
+            "version. Instead, register the parametric dataset type using "
+            "`nam.data.register_dataset_initializer()` and then specify "
+            '`"type": "name"` in the config, using the name you registered.'
+        )
+        name = "parametric" if config["parametric"] else "dataset"
+    else:
+        name = config.get("type", "dataset")
     base_config = config[split.value]
     common = config.get("common", {})
     if isinstance(base_config, dict):
-        init = (
-            ParametricDataset.init_from_config
-            if parametric
-            else Dataset.init_from_config
-        )
+        init = _dataset_init_registry[name]
         return init({**common, **base_config})
     elif isinstance(base_config, list):
         return ConcatDataset.init_from_config(
             {
-                "parametric": parametric,
+                "type": name,
                 "dataset_configs": [{**common, **c} for c in base_config],
             }
         )
