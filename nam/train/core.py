@@ -504,10 +504,10 @@ def _esr_validation_replicate_msg(threshold: float) -> str:
     return (
         f"Validation replicates have a self-ESR of over {threshold}. "
         "Your gear doesn't sound like itself when played twice!\n\n"
-        "Possible causes:"
-        " * Your signal chain is too noisy."
-        " * There's a time-based effect (chorus, delay, reverb) turned on."
-        " * Some knob got moved while reamping."
+        "Possible causes:\n"
+        " * Your signal chain is too noisy.\n"
+        " * There's a time-based effect (chorus, delay, reverb) turned on.\n"
+        " * Some knob got moved while reamping.\n"
         " * You started reamping before the amp had time to warm up fully."
     )
 
