@@ -352,5 +352,39 @@ def test_audio_mismatch_shapes_in_order():
             assert e.shape_actual == (y_samples, num_channels)
 
 
+def test_register_dataset_initializer():
+    """
+    Assert that you can add and use new data sets
+    """
+
+    class MyDataset(data.Dataset):
+        pass
+
+    name = "my_dataset"
+
+    data.register_dataset_initializer(name, MyDataset.init_from_config)
+
+    x = np.random.rand(32) - 0.5
+    y = x
+    split = data.Split.TRAIN
+
+    with TemporaryDirectory() as tmpdir:
+        x_path = Path(tmpdir, "x.wav")
+        y_path = Path(tmpdir, "y.wav")
+        data.np_to_wav(x, x_path)
+        data.np_to_wav(y, y_path)
+        config = {
+            "type": name,
+            split.value: {
+                "x_path": str(x_path),
+                "y_path": str(y_path),
+                "nx": 3,
+                "ny": 2,
+            },
+        }
+        dataset = data.init_dataset(config, split)
+    assert isinstance(dataset, MyDataset)
+
+
 if __name__ == "__main__":
     pytest.main()
