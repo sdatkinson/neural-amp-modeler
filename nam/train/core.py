@@ -19,12 +19,16 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 from pydantic import BaseModel
+from pytorch_lightning.utilities.warnings import PossibleUserWarning
 from torch.utils.data import DataLoader
 
 from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model
 from ..models.losses import esr
+from ..util import filter_warnings
 from ._version import Version
+
+__all__ = ["train"]
 
 
 class Architecture(Enum):
@@ -1090,7 +1094,9 @@ def train(
         default_root_dir=train_path,
         **learning_config["trainer"],
     )
-    trainer.fit(model, train_dataloader, val_dataloader)
+    # Suppress the PossibleUserWarning about num_workers (Issue 345)
+    with filter_warnings("ignore", category=PossibleUserWarning):
+        trainer.fit(model, train_dataloader, val_dataloader)
 
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
