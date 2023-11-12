@@ -27,12 +27,13 @@ from warnings import warn
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
+from pytorch_lightning.utilities.warnings import PossibleUserWarning
 import torch
 from torch.utils.data import DataLoader
 
 from nam.data import ConcatDataset, ParametricDataset, Split, init_dataset
 from nam.models import Model
-from nam.util import timestamp
+from nam.util import filter_warnings, timestamp
 
 torch.manual_seed(0)
 
@@ -198,12 +199,13 @@ def main_inner(
         default_root_dir=outdir,
         **learning_config["trainer"],
     )
-    trainer.fit(
-        model,
-        train_dataloader,
-        val_dataloader,
-        **learning_config.get("trainer_fit_kwargs", {}),
-    )
+    with filter_warnings("ignore", category=PossibleUserWarning):
+        trainer.fit(
+            model,
+            train_dataloader,
+            val_dataloader,
+            **learning_config.get("trainer_fit_kwargs", {}),
+        )
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
     if best_checkpoint != "":

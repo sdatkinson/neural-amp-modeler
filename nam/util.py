@@ -6,9 +6,40 @@
 Helpful utilities
 """
 
+import warnings
 from datetime import datetime
+
+__all__ = ["filter_warnings", "timestamp"]
 
 
 def timestamp() -> str:
     t = datetime.now()
     return f"{t.year:04d}-{t.month:02d}-{t.day:02d}-{t.hour:02d}-{t.minute:02d}-{t.second:02d}"
+
+
+class _FilterWarnings(object):
+    """
+    Context manager.
+
+    Kinda hacky since it doesn't restore to what it was before, but to what the
+    global default is.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = kwargs
+
+    def __enter__(self):
+        warnings.filterwarnings(*self._args, **self._kwargs)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        warnings.resetwarnings()
+
+
+def filter_warnings(*args, **kwargs):
+    """
+    Simple-but-kinda-hacky context manager that allows you to use
+    `warnings.filterwarnings()` / `warnings.resetwarnings()` as if it were a
+    context manager.
+    """
+    return _FilterWarnings(*args, **kwargs)
