@@ -12,7 +12,7 @@ For playing trained models in real time in a standalone application or plugin, s
 * [Other utilities](https://github.com/sdatkinson/neural-amp-modeler/tree/main#other-utilities)
 
 ## How to use
-There are three main ways to use the NAM trainer. There are two simplified trainers available (1) in your browser via Google Colab and (2) Locally via a GUI. There is also a full-featured trainer for power users than can be runf rom the command line.
+There are three main ways to use the NAM trainer. There are two simplified trainers available (1) in your browser via Google Colab and (2) Locally via a GUI. There is also a full-featured trainer for power users than can be run from the command line.
 
 ### Google Colab
 
