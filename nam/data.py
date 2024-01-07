@@ -301,12 +301,13 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._y_path = y_path
         self._validate_inputs_after_processing(x, y, nx, ny)
 
-        if self._resample_rate == 0 or self._resample_rate == self.sample_rate:
+        if self._resample_rate == 0 or self._resample_rate == self._sample_rate:
             self._x = x
             self._y = y
+            self._resample_rate = self._sample_rate  # in case it was 0
         else:
             # Upsample x and y - changed for resampling, e.g. from 48kHz to 96kHz during training
-            print("Resampling for training, original rate: ",self._sample_rate," new rate: ",self._resample_rate)
+            print("Resampling for training, original rate: ", self._sample_rate," new rate: ", self._resample_rate)
             self._x = self._upsample(x, original_rate=self._sample_rate, new_rate=self._resample_rate)
             self._y = self._upsample(y, original_rate=self._sample_rate, new_rate=self._resample_rate)
             self._sample_rate = self._resample_rate
