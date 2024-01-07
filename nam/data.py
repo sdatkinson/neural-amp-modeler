@@ -22,6 +22,7 @@ from ._core import InitializableFromConfig
 
 # for upsampling
 import scipy
+import scipy.interpolate
 
 logger = logging.getLogger(__name__)
 
@@ -306,23 +307,40 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             self._y = y
             self._resample_rate = self._sample_rate  # in case it was 0
         else:
-            # Upsample x and y - changed for resampling, e.g. from 48kHz to 96kHz during training
-            print("Resampling for training, original rate: ", self._sample_rate," new rate: ", self._resample_rate)
-            self._x = self._upsample(x, original_rate=self._sample_rate, new_rate=self._resample_rate)
-            self._y = self._upsample(y, original_rate=self._sample_rate, new_rate=self._resample_rate)
-            self._sample_rate = self._resample_rate
-
+            # Calculate the upsampling factor
+            upsample_factor = self._resample_rate // self._sample_rate
+            if upsample_factor * self._sample_rate == self._resample_rate:
+                print("Resampling for training, original rate: ", self._sample_rate, " new rate: ", self._resample_rate)
+                self._x = self._upsample(x, upsample_factor)
+                self._y = self._upsample(y, upsample_factor)
+                self._sample_rate = self._resample_rate
+            else:
+                raise ValueError("Resample rate must be an integer multiple of the original sample rate.")
         self._nx = nx
         self._ny = ny if ny is not None else len(x) - nx + 1
 
-    def _upsample(self, signal: torch.Tensor, original_rate: int, new_rate: int) -> torch.Tensor:
+    def _upsample(self, signal, upsample_factor):
         """
-        Upsample a signal using scipy's resample function.
+        Upsample a signal by a specified integer factor using linear interpolation.
+
+        :param signal: Input signal (1D numpy array or torch Tensor).
+        :param upsample_factor: Integer factor to upsample by (e.g., 2, 4).
+        :return: Upsampled signal.
         """
-        num_samples = int(len(signal) * new_rate / original_rate)
-        signal_np = signal.detach().cpu().numpy()
-        upsampled_signal_np = scipy.signal.resample(signal_np, num_samples)
-        return torch.Tensor(upsampled_signal_np)
+
+        # Ensure signal is a numpy array for interpolation
+        if isinstance(signal, torch.Tensor):
+            signal = signal.numpy()
+
+        original_indices = np.arange(len(signal))
+        new_length = len(signal) * upsample_factor
+        new_indices = np.linspace(0, len(signal) - 1, new_length)
+
+        # Linear interpolation
+        interp_func = scipy.interpolate.interp1d(original_indices, signal, kind='linear')
+        upsampled_signal = interp_func(new_indices)
+
+        return torch.Tensor(upsampled_signal)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
