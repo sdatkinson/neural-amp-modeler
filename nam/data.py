@@ -20,6 +20,9 @@ from tqdm import tqdm
 
 from ._core import InitializableFromConfig
 
+# for upsampling
+import scipy
+
 logger = logging.getLogger(__name__)
 
 REQUIRED_RATE = 48_000  # FIXME not "required" anymore!
@@ -239,6 +242,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         input_gain: float = 0.0,
         sample_rate: Optional[int] = None,
         rate: Optional[int] = None,
+        resample_rate: Optional[int] = None,
         require_input_pre_silence: Optional[float] = _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
     ):
         """
@@ -269,6 +273,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             into the input with which the guitar was originally recorded.)
         :param sample_rate: Sample rate for the data
         :param rate: Sample rate for the data (deprecated)
+        :param resample_rate: Resample rate for the data
         :param require_input_pre_silence: If provided, require that this much time (in
             seconds) preceding the start of the data set (`start`) have a silent input.
             If it's not, then raise an exception because the output due to it will leak
@@ -277,6 +282,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._validate_x_y(x, y)
         self._validate_start_stop(x, y, start, stop)
         self._sample_rate = self._validate_sample_rate(sample_rate, rate)
+        self._resample_rate = resample_rate
         if not isinstance(delay_interpolation_method, _DelayInterpolationMethod):
             delay_interpolation_method = _DelayInterpolationMethod(
                 delay_interpolation_method
@@ -294,10 +300,28 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._x_path = x_path
         self._y_path = y_path
         self._validate_inputs_after_processing(x, y, nx, ny)
-        self._x = x
-        self._y = y
+
+        if self._resample_rate == 0 or self._resample_rate == self.sample_rate:
+            self._x = x
+            self._y = y
+        else:
+            # Upsample x and y - changed for resampling, e.g. from 48kHz to 96kHz during training
+            print("Resampling for training, original rate: ",self._sample_rate," new rate: ",self._resample_rate)
+            self._x = self._upsample(x, original_rate=self._sample_rate, new_rate=self._resample_rate)
+            self._y = self._upsample(y, original_rate=self._sample_rate, new_rate=self._resample_rate)
+            self._sample_rate = self._resample_rate
+
         self._nx = nx
         self._ny = ny if ny is not None else len(x) - nx + 1
+
+    def _upsample(self, signal: torch.Tensor, original_rate: int, new_rate: int) -> torch.Tensor:
+        """
+        Upsample a signal using scipy's resample function.
+        """
+        num_samples = int(len(signal) * new_rate / original_rate)
+        signal_np = signal.detach().cpu().numpy()
+        upsampled_signal_np = scipy.signal.resample(signal_np, num_samples)
+        return torch.Tensor(upsampled_signal_np)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -405,6 +429,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "x_path": config["x_path"],
             "y_path": config["y_path"],
             "sample_rate": rate,
+            "resample_rate": config["resample_rate"],
             "require_input_pre_silence": config.get(
                 "require_input_pre_silence", _DEFAULT_REQUIRE_INPUT_PRE_SILENCE
             ),

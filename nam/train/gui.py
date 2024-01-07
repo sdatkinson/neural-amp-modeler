@@ -62,8 +62,14 @@ _BUTTON_WIDTH = 20
 _BUTTON_HEIGHT = 2
 _TEXT_WIDTH = 70
 
+class _SampleRates(Enum):
+    S48K = "48000"
+    S96K = "96000"
+    S192K = "192000"
+
 _DEFAULT_DELAY = None
 _DEFAULT_IGNORE_CHECKS = False
+_DEFAULT_SAMPLE_RATE = _SampleRates.S48K
 
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
@@ -76,12 +82,16 @@ class _AdvancedOptions(object):
     num_epochs: int
     delay: Optional[int]
     ignore_checks: bool
+    sample_rate: _SampleRates
 
 
 class _PathType(Enum):
     FILE = "file"
     DIRECTORY = "directory"
     MULTIFILE = "multifile"
+
+
+
 
 
 class _PathButton(object):
@@ -223,6 +233,7 @@ class _GUI(object):
             _DEFAULT_NUM_EPOCHS,
             _DEFAULT_DELAY,
             _DEFAULT_IGNORE_CHECKS,
+            _DEFAULT_SAMPLE_RATE,
         )
         # Window to edit them:
         self._frame_advanced_options = tk.Frame(self._root)
@@ -337,6 +348,7 @@ class _GUI(object):
         architecture = self.advanced_options.architecture
         delay = self.advanced_options.delay
         file_list = self._path_button_output.val
+        sample_rate = self.advanced_options.sample_rate
 
         # Advanced-er options
         # If you're poking around looking for these, then maybe it's time to learn to
@@ -370,6 +382,7 @@ class _GUI(object):
                 ].variable.get(),
                 local=True,
                 fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
+                resample_rate=int(sample_rate.value)
             )
             if trained_model is None:
                 print("Model training failed! Skip exporting...")
@@ -526,7 +539,6 @@ class _LabeledText(object):
         except tk.TclError:
             return None
 
-
 class _AdvancedOptionsGUI(object):
     """
     A window to hold advanced options (Architecture and number of epochs)
@@ -569,6 +581,17 @@ class _AdvancedOptionsGUI(object):
             type=_int_or_null,
         )
 
+        # Resample: radio buttons
+        self._frame_resample = tk.Frame(self._root)
+        self._frame_resample.pack()
+        self._sample_rate = _LabeledOptionMenu(
+            self._frame_resample,
+            "Resample",
+            _SampleRates,
+            default=self._parent.advanced_options.sample_rate,
+        )
+
+
         # "Ok": apply and destory
         self._frame_ok = tk.Frame(self._root)
         self._frame_ok.pack()
@@ -590,6 +613,7 @@ class _AdvancedOptionsGUI(object):
         Set values to parent and destroy this object
         """
         self._parent.advanced_options.architecture = self._architecture.get()
+        self._parent.advanced_options.sample_rate = self._sample_rate.get()
         epochs = self._epochs.get()
         if epochs is not None:
             self._parent.advanced_options.num_epochs = epochs
