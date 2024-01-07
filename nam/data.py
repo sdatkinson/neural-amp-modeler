@@ -301,7 +301,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._y_path = y_path
         self._validate_inputs_after_processing(x, y, nx, ny)
 
-        if self._resample_rate == 0 or self._resample_rate == self._sample_rate:
+        if self._resample_rate == 0 or self._resample_rate is None or self._resample_rate == self._sample_rate:
             self._x = x
             self._y = y
             self._resample_rate = self._sample_rate  # in case it was 0
@@ -378,6 +378,9 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             config["x_path"], info=True, rate=config.get("rate")
         )
         rate = x_wavinfo.rate
+        resample_rate = None
+        if 'resample_rate' in config:
+            resample_rate = config['resample_rate']
         try:
             y = wav_to_tensor(
                 config["y_path"],
@@ -430,7 +433,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             "x_path": config["x_path"],
             "y_path": config["y_path"],
             "sample_rate": rate,
-            "resample_rate": config["resample_rate"],
+            "resample_rate": resample_rate,
             "require_input_pre_silence": config.get(
                 "require_input_pre_silence", _DEFAULT_REQUIRE_INPUT_PRE_SILENCE
             ),

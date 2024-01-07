@@ -801,7 +801,7 @@ def _get_configs(
     lr_decay: float,
     batch_size: int,
     fit_cab: bool,
-    resample_rate: int = 0
+    resample_rate: int = None
 ):
     def get_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
@@ -894,7 +894,7 @@ def _get_configs(
 
 
 def _get_dataloaders(
-    data_config: Dict, learning_config: Dict, model: Model, resample_rate: int = 0
+    data_config: Dict, learning_config: Dict, model: Model, resample_rate: int = None
 ) -> Tuple[DataLoader, DataLoader]:
     data_config, learning_config = [deepcopy(c) for c in (data_config, learning_config)]
     data_config["common"]["nx"] = model.net.receptive_field
@@ -1017,7 +1017,7 @@ def train(
     ignore_checks: bool = False,
     local: bool = False,
     fit_cab: bool = False,
-    resample_rate: int = 0, # 0 means no resample
+    resample_rate: int = None,
 ) -> Optional[Model]:
     if seed is not None:
         torch.manual_seed(seed)
