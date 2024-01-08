@@ -32,6 +32,7 @@ __all__ = ["train"]
 
 
 class Architecture(Enum):
+    HD = "hd"
     STANDARD = "standard"
     LITE = "lite"
     FEATHER = "feather"
@@ -673,6 +674,33 @@ def _check(
 
 def _get_wavenet_config(architecture):
     return {
+        Architecture.HD: {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "channels": 16,
+                    "head_size": 8,
+                    "kernel_size": 3,
+                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": False,
+                },
+                {
+                    "condition_size": 1,
+                    "input_size": 16,
+                    "channels": 8,
+                    "head_size": 1,
+                    "kernel_size": 3,
+                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+                    "activation": "Tanh",
+                    "gated": False,
+                    "head_bias": True,
+                },
+            ],
+            "head_scale": 0.02,
+        },
         Architecture.STANDARD: {
             "layers_configs": [
                 {
