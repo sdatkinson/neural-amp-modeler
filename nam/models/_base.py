@@ -24,7 +24,12 @@ from ._exportable import Exportable
 class _Base(nn.Module, InitializableFromConfig, Exportable):
     def __init__(self, sample_rate: Optional[float] = None):
         super().__init__()
-        self.sample_rate = sample_rate
+        self.register_buffer(
+            "_has_sample_rate", torch.tensor(sample_rate is not None, dtype=torch.bool)
+        )
+        self.register_buffer(
+            "_sample_rate", torch.tensor(0.0 if sample_rate is None else sample_rate)
+        )
 
     @abc.abstractproperty
     def pad_start_default(self) -> bool:
@@ -48,6 +53,15 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
                 "nam", "models/_resources/loudness_input.wav"
             )
         )
+
+    @property
+    def sample_rate(self) -> Optional[float]:
+        return self._sample_rate.item() if self._has_sample_rate else None
+
+    @sample_rate.setter
+    def sample_rate(self, val: Optional[float]):
+        self._has_sample_rate = torch.tensor(val is not None, dtype=torch.bool)
+        self._sample_rate = torch.tensor(0.0 if val is None else val)
 
     def _get_export_dict(self):
         d = super()._get_export_dict()
