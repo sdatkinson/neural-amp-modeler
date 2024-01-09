@@ -33,6 +33,7 @@ from torch.utils.data import DataLoader
 
 from nam.data import ConcatDataset, ParametricDataset, Split, init_dataset
 from nam.models import Model
+from nam.models._base import BaseNet  # HACK access
 from nam.util import filter_warnings, timestamp
 
 torch.manual_seed(0)
@@ -191,6 +192,7 @@ def main_inner(
             "Train and validation data loaders have different data set sample rates: "
             f"{dataset_train.sample_rate}, {dataset_validation.sample_rate}"
         )
+    model.net.sample_rate = dataset_train.sample_rate
     train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
     val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
 
@@ -215,7 +217,6 @@ def main_inner(
         )
     model.cpu()
     model.eval()
-    model.net.sample_rate = train_dataloader.dataset.sample_rate
     if make_plots:
         plot(
             model,
@@ -226,9 +227,9 @@ def main_inner(
             show=False,
         )
         plot(model, dataset_validation, show=not no_show)
-    # Would like to, but this doesn't work for all cases.
-    # If you're making snapshot models, you may find this convenient to uncomment :)
-    # model.net.export(outdir)
+    # Convenient export for snapshot models:
+    if isinstance(model.net, BaseNet):
+        model.net.export(outdir)
 
 
 if __name__ == "__main__":

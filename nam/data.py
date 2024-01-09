@@ -753,7 +753,7 @@ _dataset_init_registry = {
 
 
 def register_dataset_initializer(
-    name: str, constructor: Callable[[Any], AbstractDataset]
+    name: str, constructor: Callable[[Any], AbstractDataset], overwrite=False
 ):
     """
     If you have otehr data set types, you can register their initializer by name using
@@ -768,7 +768,7 @@ def register_dataset_initializer(
     :param name: The name that'll be used in the config to ask for the data set type
     :param constructor: The constructor that'll be fed the config.
     """
-    if name in _dataset_init_registry:
+    if name in _dataset_init_registry and not overwrite:
         raise KeyError(
             f"A constructor for dataset name '{name}' is already registered!"
         )

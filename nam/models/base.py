@@ -12,7 +12,7 @@ For the base *PyTorch* model containing the actual architecture, see `._base`.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, NamedTuple, Optional, Tuple
+from typing import Any, Dict, NamedTuple, Optional, Tuple
 
 import auraloss
 import logging
@@ -210,8 +210,8 @@ class Model(pl.LightningModule, InitializableFromConfig):
         }
 
     @classmethod
-    def register_net_initializer(cls, name, constructor):
-        if name in _model_net_init_registry:
+    def register_net_initializer(cls, name, constructor, overwrite: bool = False):
+        if name in _model_net_init_registry and not overwrite:
             raise KeyError(
                 f"A constructor for net name '{name}' is already registered!"
             )
@@ -237,6 +237,14 @@ class Model(pl.LightningModule, InitializableFromConfig):
 
     def forward(self, *args, **kwargs):
         return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        # Resolves https://github.com/sdatkinson/neural-amp-modeler/issues/351
+        self.net.sample_rate = checkpoint["sample_rate"]
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        # Resolves https://github.com/sdatkinson/neural-amp-modeler/issues/351
+        checkpoint["sample_rate"] = self.net.sample_rate
 
     def _shared_step(
         self, batch
