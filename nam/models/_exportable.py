@@ -61,7 +61,7 @@ class Exportable(abc.ABC):
         """
         model_dict = self._get_export_dict()
         model_dict["metadata"].update(
-            {} if user_metadata is None else _cast_enums(user_metadata.dict())
+            {} if user_metadata is None else _cast_enums(user_metadata.model_dump())
         )
 
         training = self.training
@@ -155,5 +155,5 @@ class Exportable(abc.ABC):
                 hour=t.hour,
                 minute=t.minute,
                 second=t.second,
-            ).dict()
+            ).model_dump()
         }
