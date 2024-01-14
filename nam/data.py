@@ -289,7 +289,9 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             into the data set that we're trying to use. If `None`, don't assert.
         """
         self._validate_x_y(x, y)
-        self._sample_rate = self._validate_sample_rate(sample_rate, rate)
+        self._sample_rate = self._validate_sample_rate(
+            sample_rate, rate, default=_DEFAULT_RATE
+        )
         start, stop = self._validate_start_stop(
             x,
             y,
@@ -373,15 +375,17 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def parse_config(cls, config):
-        x, x_wavinfo = wav_to_tensor(
-            config["x_path"], info=True, rate=config.get("rate")
+        config = deepcopy(config)
+        sample_rate = cls._validate_sample_rate(
+            config.pop("sample_rate", None), config.pop("rate", None)
         )
-        rate = x_wavinfo.rate
+        x, x_wavinfo = wav_to_tensor(config.pop("x_path"), info=True, rate=sample_rate)
+        sample_rate = x_wavinfo.rate
         try:
             y = wav_to_tensor(
-                config["y_path"],
-                rate=rate,
-                preroll=config.get("y_preroll"),
+                config.pop("y_path"),
+                rate=sample_rate,
+                preroll=config.pop("y_preroll", None),
                 required_shape=(len(x), 1),
                 required_wavinfo=x_wavinfo,
             )
@@ -391,8 +395,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             y_samples, y_channels = e.shape_actual
             msg = "Your audio files aren't the same shape as each other!"
             if x_channels != y_channels:
-                ctosm = {1: "mono", 2: "stereo"}
-                msg += f"\n * The input is {ctosm[x_channels]}, but the output is {ctosm[y_channels]}!"
+                channels_to_stereo_mono = {1: "mono", 2: "stereo"}
+                msg += f"\n * The input is {channels_to_stereo_mono[x_channels]}, but the output is {channels_to_stereo_mono[y_channels]}!"
             if x_samples != y_samples:
 
                 def sample_to_time(s, rate):
@@ -411,28 +415,14 @@ class Dataset(AbstractDataset, InitializableFromConfig):
                         f"{hours}:{minutes:02d}:{seconds:02d} and {remainder} samples"
                     )
 
-                msg += f"\n * The input is {sample_to_time(x_samples, rate)} long"
-                msg += f"\n * The output is {sample_to_time(y_samples, rate)} long"
+                msg += (
+                    f"\n * The input is {sample_to_time(x_samples, sample_rate)} long"
+                )
+                msg += (
+                    f"\n * The output is {sample_to_time(y_samples, sample_rate)} long"
+                )
             raise ValueError(msg)
-        return {
-            "x": x,
-            "y": y,
-            "nx": config["nx"],
-            "ny": config["ny"],
-            "start": config.get("start"),
-            "stop": config.get("stop"),
-            "delay": config.get("delay"),
-            "delay_interpolation_method": config.get(
-                "delay_interpolation_method", _DelayInterpolationMethod.CUBIC.value
-            ),
-            "y_scale": config.get("y_scale", 1.0),
-            "x_path": config["x_path"],
-            "y_path": config["y_path"],
-            "sample_rate": rate,
-            "require_input_pre_silence": config.get(
-                "require_input_pre_silence", _DEFAULT_REQUIRE_INPUT_PRE_SILENCE
-            ),
-        }
+        return {"x": x, "y": y, "sample_rate": sample_rate, **config}
 
     @classmethod
     def _apply_delay(
@@ -480,10 +470,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def _validate_sample_rate(
-        cls, sample_rate: Optional[float], rate: Optional[int]
+        cls, sample_rate: Optional[float], rate: Optional[int], default=None
     ) -> float:
         if sample_rate is None and rate is None:  # Default value
-            return _DEFAULT_RATE
+            return default
         if rate is not None:
             if sample_rate is not None:
                 raise ValueError(
