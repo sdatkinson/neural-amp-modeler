@@ -60,15 +60,24 @@ class AudioShapeMismatchError(ValueError):
 
 def wav_to_np(
     filename: Union[str, Path],
-    rate: Optional[int] = _DEFAULT_RATE,
+    rate: Optional[int] = None,
     require_match: Optional[Union[str, Path]] = None,
-    required_shape: Optional[Tuple[int]] = None,
+    required_shape: Optional[Tuple[int, ...]] = None,
     required_wavinfo: Optional[WavInfo] = None,
     preroll: Optional[int] = None,
     info: bool = False,
 ) -> Union[np.ndarray, Tuple[np.ndarray, WavInfo]]:
     """
+    :param filename: Where to load from
+    :param rate: Expected sample rate. `None` allows for anything.
+    :param require_match: If not `None`, assert that the data you get matches the shape
+        and other characteristics of another audio file at the provided location
+    :param required_shape: If not `None`, assert that the audio loaded is of shape
+        `(num_samples, num_channels)`.
+    :param required_wavinfo: If not `None`, assert that the WAV info of the laoded audio
+        matches that provided.
     :param preroll: Drop this many samples off the front
+    :param info: If `True`, also return the WAV info of this file.
     """
     x_wav = wavio.read(str(filename))
     assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
