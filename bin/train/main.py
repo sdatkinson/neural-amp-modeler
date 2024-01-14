@@ -31,9 +31,8 @@ from pytorch_lightning.utilities.warnings import PossibleUserWarning
 import torch
 from torch.utils.data import DataLoader
 
-from nam.data import ConcatDataset, ParametricDataset, Split, init_dataset
+from nam.data import ConcatDataset, Split, init_dataset
 from nam.models import Model
-from nam.models._base import BaseNet  # HACK access
 from nam.util import filter_warnings, timestamp
 
 torch.manual_seed(0)
@@ -86,8 +85,7 @@ def plot(
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx:.2f})")
         t0 = time()
-        args = (ds.vals, ds.x) if isinstance(ds, ParametricDataset) else (ds.x,)
-        output = model(*args).flatten().cpu().numpy()
+        output = model(ds.x).flatten().cpu().numpy()
         t1 = time()
         try:
             rt = f"{tx / (t1 - t0):.2f}"
@@ -96,12 +94,8 @@ def plot(
         print(f"Took {t1 - t0:.2f} ({rt}x)")
 
     plt.figure(figsize=(16, 5))
-    # plt.plot(ds.x[window_start:window_end], label="Input")
     plt.plot(output[window_start:window_end], label="Prediction")
     plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    # plt.plot(
-    #     ds.y[window_start:window_end] - output[window_start:window_end], label="Error"
-    # )
     nrmse = _rms(torch.Tensor(output) - ds.y) / _rms(ds.y)
     esr = nrmse**2
     plt.title(f"ESR={esr:.3f}")
@@ -227,9 +221,8 @@ def main_inner(
             show=False,
         )
         plot(model, dataset_validation, show=not no_show)
-    # Convenient export for snapshot models:
-    if isinstance(model.net, BaseNet):
-        model.net.export(outdir)
+    # Export!
+    model.net.export(outdir)
 
 
 if __name__ == "__main__":
