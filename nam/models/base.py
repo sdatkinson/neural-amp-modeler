@@ -24,8 +24,6 @@ from .._core import InitializableFromConfig
 from .conv_net import ConvNet
 from .linear import Linear
 from .losses import apply_pre_emphasis_filter, esr, multi_resolution_stft_loss, mse_fft
-from .parametric.catnets import CatLSTM, CatWaveNet
-from .parametric.hyper_net import HyperConvNet
 from .recurrent import LSTM
 from .wavenet import WaveNet
 
@@ -120,10 +118,7 @@ class _LossItem(NamedTuple):
 
 
 _model_net_init_registry = {
-    "CatLSTM": CatLSTM.init_from_config,
-    "CatWaveNet": CatWaveNet.init_from_config,
     "ConvNet": ConvNet.init_from_config,
-    "HyperConvNet": HyperConvNet.init_from_config,
     "Linear": Linear.init_from_config,
     "LSTM": LSTM.init_from_config,
     "WaveNet": WaveNet.init_from_config,

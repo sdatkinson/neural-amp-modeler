@@ -150,16 +150,10 @@ def np_to_wav(
 
 class AbstractDataset(_Dataset, abc.ABC):
     @abc.abstractmethod
-    def __getitem__(
-        self, idx: int
-    ) -> Union[
-        Tuple[torch.Tensor, torch.Tensor],
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-    ]:
+    def __getitem__(self, idx: int):
         """
+        Get input and output audio segment for training / evaluation.
         :return:
-            Case 1: Input (N1,), Output (N2,)
-            Case 2: Parameters (D,), Input (N1,), Output (N2,)
         """
         pass
 
@@ -226,8 +220,6 @@ _DEFAULT_REQUIRE_INPUT_PRE_SILENCE = 0.4
 class Dataset(AbstractDataset, InitializableFromConfig):
     """
     Take a pair of matched audio files and serve input + output pairs.
-
-    No conditioning parameters associated w/ the data.
     """
 
     def __init__(
@@ -666,75 +658,6 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             )
 
 
-class ParametricDataset(Dataset):
-    """
-    Additionally tracks some conditioning parameters
-    """
-
-    def __init__(self, params: Dict[str, Union[bool, float, int]], *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._keys = sorted(tuple(k for k in params.keys()))
-        self._vals = torch.Tensor([float(params[k]) for k in self._keys])
-
-    @classmethod
-    def init_from_config(cls, config):
-        if "slices" not in config:
-            return super().init_from_config(config)
-        else:
-            return cls.init_from_config_with_slices(config)
-
-    @classmethod
-    def init_from_config_with_slices(cls, config):
-        config, x, y, slices = cls.parse_config_with_slices(config)
-        datasets = []
-        for s in tqdm(slices, desc="Slices..."):
-            c = deepcopy(config)
-            start, stop, params = [s[k] for k in ("start", "stop", "params")]
-            c.update(x=x[start:stop], y=y[start:stop], params=params)
-            if "delay" in s:
-                c["delay"] = s["delay"]
-            datasets.append(ParametricDataset(**c))
-        return ConcatDataset(datasets)
-
-    @classmethod
-    def parse_config(cls, config):
-        assert "slices" not in config
-        params = config["params"]
-        return {
-            "params": params,
-            "id": config.get("id"),
-            "common_params": config.get("common_params"),
-            "param_map": config.get("param_map"),
-            **super().parse_config(config),
-        }
-
-    @classmethod
-    def parse_config_with_slices(cls, config):
-        slices = config["slices"]
-        config = super().parse_config(config)
-        x, y = [config.pop(k) for k in "xy"]
-        return config, x, y, slices
-
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        :return:
-            Parameter values (D,)
-            Input (NX+NY-1,)
-            Output (NY,)
-        """
-        # FIXME don't override signature
-        x, y = super().__getitem__(idx)
-        return self.vals, x, y
-
-    @property
-    def keys(self) -> Tuple[str]:
-        return self._keys
-
-    @property
-    def vals(self):
-        return self._vals
-
-
 class ConcatDataset(AbstractDataset, InitializableFromConfig):
     def __init__(self, datasets: Sequence[Dataset], flatten=True):
         if flatten:
@@ -815,35 +738,23 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
                 raise ValueError(
                     f"Mismatch between ny of datasets {ref_ny.index} ({ref_ny.val}) and {i} ({d.ny})"
                 )
-            if isinstance(d, ParametricDataset):
-                val = d.keys
-                if ref_keys is None:
-                    ref_keys = Reference(i, val)
-                if val != ref_keys.val:
-                    raise ValueError(
-                        f"Mismatch between keys of datasets {ref_keys.index} "
-                        f"({ref_keys.val}) and {i} ({val})"
-                    )
 
 
-_dataset_init_registry = {
-    "dataset": Dataset.init_from_config,
-    "parametric": ParametricDataset.init_from_config,  # To be removed in v0.8
-}
+_dataset_init_registry = {"dataset": Dataset.init_from_config}
 
 
 def register_dataset_initializer(
     name: str, constructor: Callable[[Any], AbstractDataset], overwrite=False
 ):
     """
-    If you have otehr data set types, you can register their initializer by name using
+    If you have other data set types, you can register their initializer by name using
     this.
 
     For example, the basic NAM is registered by default under the name "default", but if
     it weren't, you could register it like this:
 
     >>> from nam import data
-    >>> data.register_dataset_initializer("parametric", data.Dataset.init_from_config)
+    >>> data.register_dataset_initializer("parametric", MyParametricDataset.init_from_config)
 
     :param name: The name that'll be used in the config to ask for the data set type
     :param constructor: The constructor that'll be fed the config.
@@ -856,16 +767,7 @@ def register_dataset_initializer(
 
 
 def init_dataset(config, split: Split) -> AbstractDataset:
-    if "parametric" in config:
-        logger.warning(
-            "Using the 'parametric' keyword is deprecated and will be removed in next "
-            "version. Instead, register the parametric dataset type using "
-            "`nam.data.register_dataset_initializer()` and then specify "
-            '`"type": "name"` in the config, using the name you registered.'
-        )
-        name = "parametric" if config["parametric"] else "dataset"
-    else:
-        name = config.get("type", "dataset")
+    name = config.get("type", "dataset")
     base_config = config[split.value]
     common = config.get("common", {})
     if isinstance(base_config, dict):
