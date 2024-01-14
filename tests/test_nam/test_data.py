@@ -7,7 +7,7 @@ import os
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Tuple
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import pytest
@@ -168,6 +168,62 @@ class TestDataset(object):
         else:
             with pytest.raises(data.StartError):
                 init()
+
+    @pytest.mark.parametrize(
+        "start,start_samples,start_seconds,stop,stop_samples,stop_seconds,sample_rate,raises",
+        (
+            # Nones across the board (valid)
+            (None, None, None, None, None, None, None, None),
+            # start and stop (valid)
+            (1, None, None, -1, None, None, None, None),
+            # start_samples and stop_samples (valid)
+            (None, 1, None, None, -1, None, None, None),
+            # start_seconds and stop_seconds with sample_rate (valid)
+            (None, None, 0.5, None, None, -0.5, 2, None),
+            # Multiple start-like, even if they agree (invalid)
+            (1, 1, None, None, None, None, None, ValueError),
+            # Multiple stop-like, even if they agree (invalid)
+            (None, None, None, -1, -1, None, None, ValueError),
+            # seconds w/o sample rate (invalid)
+            (None, None, 1.0, None, None, None, None, ValueError),
+        ),
+    )
+    def test_validate_start_stop(
+        self,
+        start: Optional[int],
+        start_samples: Optional[int],
+        start_seconds: Optional[Union[int, float]],
+        stop: Optional[int],
+        stop_samples: Optional[int],
+        stop_seconds: Optional[Union[int, float]],
+        sample_rate: Optional[int],
+        raises: Optional[Exception],
+    ):
+        """
+        Assert correct behavior of `._validate_start_stop()` class method.
+        """
+
+        def f():
+            # Don't provide start/stop that are too large for the fake data plz.
+            x, y = torch.zeros((2, 32))
+            data.Dataset._validate_start_stop(
+                x,
+                y,
+                start,
+                stop,
+                start_samples,
+                stop_samples,
+                start_seconds,
+                stop_seconds,
+                sample_rate,
+            )
+            assert True
+
+        if raises is None:
+            f()
+        else:
+            with pytest.raises(raises):
+                f()
 
     @pytest.mark.parametrize(
         "n,stop,valid",
