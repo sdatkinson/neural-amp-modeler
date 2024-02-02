@@ -146,7 +146,7 @@ def _create_callbacks(learning_config):
         return [checkpoint_best, checkpoint_last, checkpoint_epoch]
 
 
-def main(args):
+def run(args):
     outdir = ensure_outdir(args.outdir)
     # Read
     with open(args.data_config_path, "r") as fp:
@@ -155,10 +155,10 @@ def main(args):
         model_config = json.load(fp)
     with open(args.learning_config_path, "r") as fp:
         learning_config = json.load(fp)
-    main_inner(data_config, model_config, learning_config, outdir, args.no_show)
+    run_inner(data_config, model_config, learning_config, outdir, args.no_show)
 
 
-def main_inner(
+def run_inner(
     data_config, model_config, learning_config, outdir, no_show, make_plots=True
 ):
     # Write
@@ -225,11 +225,15 @@ def main_inner(
     model.net.export(outdir)
 
 
-if __name__ == "__main__":
+def main():
     parser = ArgumentParser()
     parser.add_argument("data_config_path", type=str)
     parser.add_argument("model_config_path", type=str)
     parser.add_argument("learning_config_path", type=str)
     parser.add_argument("outdir")
     parser.add_argument("--no-show", action="store_true", help="Don't show plots")
-    main(parser.parse_args())
+    run(parser.parse_args())
+
+
+if __name__ == "__main__":
+    run()
