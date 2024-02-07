@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 
 from .._core import InitializableFromConfig
-from ..data import REQUIRED_RATE, wav_to_tensor
+from ..data import wav_to_tensor
 from ._exportable import Exportable
 
 
@@ -133,7 +133,11 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
 
     def _export_input_output(self) -> Tuple[np.ndarray, np.ndarray]:
         args = self._export_input_output_args()
-        rate = REQUIRED_RATE
+        rate = self.sample_rate
+        if rate is None:
+            raise RuntimeError(
+                "Cannot export model's input and output without a sample rate."
+            )
         x = torch.cat(
             [
                 torch.zeros((rate,)),

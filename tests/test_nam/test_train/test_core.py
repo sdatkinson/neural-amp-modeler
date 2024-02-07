@@ -180,7 +180,8 @@ def _make_t_validation_dataset_class(
             Dataset._validate_preceding_silence(
                 x,
                 data_info.validation_start,
-                int(_DEFAULT_REQUIRE_INPUT_PRE_SILENCE * data_info.rate),
+                _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
+                data_info.rate,
             )
 
     return C
