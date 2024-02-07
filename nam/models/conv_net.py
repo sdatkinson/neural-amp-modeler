@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 
 from .. import __version__
-from ..data import REQUIRED_RATE, wav_to_tensor
+from ..data import wav_to_tensor
 from ._activations import get_activation
 from ._base import BaseNet
 from ._names import ACTIVATION_NAME, BATCHNORM_NAME, CONV_NAME
@@ -217,7 +217,11 @@ class ConvNet(BaseNet):
         """
         :return: (L,)
         """
-        rate = REQUIRED_RATE
+        rate = self.sample_rate
+        if rate is None:
+            raise RuntimeError(
+                "Cannot export model's input and output without a sample rate."
+            )
         return torch.cat(
             [
                 torch.zeros((rate,)),

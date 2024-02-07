@@ -22,13 +22,16 @@ from pydantic import BaseModel
 from pytorch_lightning.utilities.warnings import PossibleUserWarning
 from torch.utils.data import DataLoader
 
-from ..data import REQUIRED_RATE, Split, init_dataset, wav_to_np, wav_to_tensor
+from ..data import Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model
 from ..models.losses import esr
 from ..util import filter_warnings
 from ._version import Version
 
 __all__ = ["train"]
+
+# Training using the simplified trainers in NAM is done at 48k.
+STANDARD_SAMPLE_RATE = 48_000.0
 
 
 class Architecture(Enum):
@@ -222,7 +225,7 @@ class _DataInfo(BaseModel):
     """
 
     major_version: int
-    rate: Optional[int]
+    rate: Optional[float]
     t_blips: int
     first_blips_start: int
     t_validate: int
@@ -234,7 +237,7 @@ class _DataInfo(BaseModel):
 
 _V1_DATA_INFO = _DataInfo(
     major_version=1,
-    rate=REQUIRED_RATE,
+    rate=STANDARD_SAMPLE_RATE,
     t_blips=48_000,
     first_blips_start=0,
     t_validate=432_000,
@@ -254,7 +257,7 @@ _V1_DATA_INFO = _DataInfo(
 # (3:09-3:11) Blips at 3:09.5 and 3:10.5
 _V2_DATA_INFO = _DataInfo(
     major_version=2,
-    rate=REQUIRED_RATE,
+    rate=STANDARD_SAMPLE_RATE,
     t_blips=96_000,
     first_blips_start=0,
     t_validate=432_000,
@@ -274,7 +277,7 @@ _V2_DATA_INFO = _DataInfo(
 # (3:01-3:10) Validation 2
 _V3_DATA_INFO = _DataInfo(
     major_version=3,
-    rate=REQUIRED_RATE,
+    rate=STANDARD_SAMPLE_RATE,
     t_blips=96_000,
     first_blips_start=480_000,
     t_validate=432_000,

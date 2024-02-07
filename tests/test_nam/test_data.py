@@ -15,7 +15,8 @@ import torch
 
 from nam import data
 
-_sample_rates = (44_100, 48_000, 88_200, 96_000)
+_SAMPLE_RATES = (44_100.0, 48_000.0, 88_200.0, 96_000.0)
+_DEFAULT_SAMPLE_RATE = 48_000.0
 
 
 class _XYMethod(Enum):
@@ -85,11 +86,11 @@ class TestDataset(object):
 
     def test_init(self):
         x, y = self._create_xy()
-        data.Dataset(x, y, 3, None)
+        data.Dataset(x, y, 3, None, sample_rate=_DEFAULT_SAMPLE_RATE)
 
     def test_init_sample_rate(self):
         x, y = self._create_xy()
-        sample_rate = 48_000.0
+        sample_rate = _DEFAULT_SAMPLE_RATE
         d = data.Dataset(x, y, 3, None, sample_rate=sample_rate)
         assert hasattr(d, "sample_rate")
         assert isinstance(d.sample_rate, float)
@@ -100,7 +101,7 @@ class TestDataset(object):
         Assert https://github.com/sdatkinson/neural-amp-modeler/issues/15 fixed
         """
         x, y = self._create_xy()
-        data.Dataset(x, y, 3, None, delay=0)
+        data.Dataset(x, y, 3, None, delay=0, sample_rate=_DEFAULT_SAMPLE_RATE)
 
     def test_input_gain(self):
         """
@@ -112,14 +113,16 @@ class TestDataset(object):
         nx = 3
         ny = None
         args = (x, y, nx, ny)
-        d1 = data.Dataset(*args)
-        d2 = data.Dataset(*args, input_gain=input_gain)
+        d1 = data.Dataset(*args, sample_rate=_DEFAULT_SAMPLE_RATE)
+        d2 = data.Dataset(
+            *args, sample_rate=_DEFAULT_SAMPLE_RATE, input_gain=input_gain
+        )
 
         sample_x1 = d1[0][0]
         sample_x2 = d2[0][0]
         assert torch.allclose(sample_x1 * x_scale, sample_x2)
 
-    @pytest.mark.parametrize("sample_rate", _sample_rates)
+    @pytest.mark.parametrize("sample_rate", _SAMPLE_RATES)
     def test_sample_rates(self, sample_rate: int):
         """
         Test that datasets with various sample rates can be made
@@ -155,7 +158,7 @@ class TestDataset(object):
         """
 
         def init():
-            data.Dataset(x, y, nx, ny, start=start)
+            data.Dataset(x, y, nx, ny, start=start, sample_rate=_DEFAULT_SAMPLE_RATE)
 
         nx = 1
         ny = None
@@ -239,7 +242,7 @@ class TestDataset(object):
     )
     def test_validate_stop(self, n: int, stop: int, valid: bool):
         def init():
-            data.Dataset(x, y, nx, ny, stop=stop)
+            data.Dataset(x, y, nx, ny, stop=stop, sample_rate=_DEFAULT_SAMPLE_RATE)
 
         nx = 1
         ny = None
@@ -257,7 +260,7 @@ class TestDataset(object):
     )
     def test_validate_x_y(self, lenx: int, leny: int, valid: bool):
         def init():
-            data.Dataset(x, y, nx, ny)
+            data.Dataset(x, y, nx, ny, sample_rate=_DEFAULT_SAMPLE_RATE)
 
         x, y = self._create_xy()
         assert len(x) >= lenx, "Invalid test!"
@@ -345,7 +348,7 @@ class TestWav(object):
         # Check if the two arrays are equal
         assert y == pytest.approx(x, abs=self.tolerance)
 
-    @pytest.mark.parametrize("sample_rate", _sample_rates)
+    @pytest.mark.parametrize("sample_rate", _SAMPLE_RATES)
     def test_np_to_wav_to_np_sample_rates(self, sample_rate: int):
         with TemporaryDirectory() as tmpdir:
             # Create random numpy array
