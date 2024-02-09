@@ -6,6 +6,8 @@
 Version utility
 """
 
+__all__ = ["PROTEUS_VERSION", "Version"]
+
 
 class Version:
     def __init__(self, major: int, minor: int, patch: int):
@@ -30,3 +32,6 @@ class Version:
 
     def __str__(self) -> str:
         return f"{self.major}.{self.minor}.{self.patch}"
+
+
+PROTEUS_VERSION = Version(4, 0, 0)
