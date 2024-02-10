@@ -26,7 +26,7 @@ from ..data import Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model
 from ..models.losses import esr
 from ..util import filter_warnings
-from ._version import Version
+from ._version import PROTEUS_VERSION, Version
 
 __all__ = ["train"]
 
@@ -70,7 +70,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             "7c3b6119c74465f79d96c761a0e27370": Version(1, 1, 1),
             "ede3b9d82135ce10c7ace3bb27469422": Version(2, 0, 0),
             "36cd1af62985c2fac3e654333e36431e": Version(3, 0, 0),
-            "80e224bd5622fd6153ff1fd9f34cb3bd": Version(4, 0, 0),
+            "80e224bd5622fd6153ff1fd9f34cb3bd": PROTEUS_VERSION,
         }.get(file_hash)
         if version is None:
             print(
@@ -211,7 +211,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
         }.get((start_hash_v1, end_hash_v1))
         if version is not None:
             return version
-        version = {"46151c8030798081acc00a725325a07d": Version(4, 0, 0)}.get(hash_v4)
+        version = {"46151c8030798081acc00a725325a07d": PROTEUS_VERSION}.get(hash_v4)
         return version
 
     version = detect_strong(input_path)
