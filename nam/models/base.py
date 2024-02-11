@@ -4,8 +4,8 @@
 
 """
 Implements the base PyTorch Lightning model.
-This is meant to combine an acutal model (subclassed from `._base.BaseNet` or 
-`._base.ParametricBaseNet`) along with loss function boilerplate.
+This is meant to combine an actual model (subclassed from `._base.BaseNet`)
+along with loss function boilerplate.
 
 For the base *PyTorch* model containing the actual architecture, see `._base`.
 """
