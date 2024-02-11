@@ -27,7 +27,7 @@ requirements = [
     "numpy",
     "onnx",
     "onnxruntime",
-    "pydantic",
+    "pydantic>=2.0.0",
     "pytorch_lightning",
     "scipy",
     "sounddevice",
