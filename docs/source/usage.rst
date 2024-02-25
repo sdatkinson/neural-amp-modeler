@@ -1,34 +1,42 @@
 Usage
 =====
 
-.. _installation:
-
-Installation
+In the cloud
 ------------
 
-To use Lumache, first install it using pip:
+TODO
+
+.. _installation:
+
+Local Installation
+------------------
+
+It's recommended to use Anaconda to manage your install. Get Anaconda from
+https://www.anaconda.com/download
+
+If your computer has an nVIDIA GPU, you should install a GPU-compatible version 
+of PyTorch first:
 
 .. code-block:: console
 
-   (.venv) $ pip install lumache
+   $ conda install -y pytorch pytorch-cuda=11.8 -c pytorch -c nvidia
 
-Creating recipes
-----------------
+Next, install NAM using pip:
 
-To retrieve a list of random ingredients,
-you can use the ``lumache.get_random_ingredients()`` function:
+.. code-block:: console
 
-.. autofunction:: lumache.get_random_ingredients
+   $ pip install neural-amp-modeler
 
-The ``kind`` parameter should be either ``"meat"``, ``"fish"``,
-or ``"veggies"``. Otherwise, :py:func:`lumache.get_random_ingredients`
-will raise an exception.
+GUI Training (simplified)
+-------------------------
 
-.. autoexception:: lumache.InvalidKindError
+After installing, type ``nam`` on the command line. You'll be greeted with a GUI
+into which you can provide your input and output files, pick where your model
+will be saved, add emtadata to your model, and configure advanecd settings.
 
-For example:
+TODO pictures, step by step.
 
->>> import lumache
->>> lumache.get_random_ingredients()
-['shells', 'gorgonzola', 'parsley']
+CLI Training (All Features)
+---------------------------
 
+TODO
