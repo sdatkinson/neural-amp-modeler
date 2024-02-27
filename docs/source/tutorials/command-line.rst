@@ -9,7 +9,7 @@ Installation
 
 Currently, you'll want to clone the source repo to train from the command line.
 
-Installation uses [Anaconda](https://www.anaconda.com/) for package management.
+Installation uses `Anaconda <https://www.anaconda.com/>`_ for package management.
 
 For computers with a CUDA-capable GPU (recommended):
 
@@ -19,8 +19,8 @@ For computers with a CUDA-capable GPU (recommended):
 
 .. note:: You may need to modify the CUDA version if your GPU is older. Have a 
     look at 
-    `nVIDIA's documentation <https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions>`_` 
-    if you're not sure._
+    `nVIDIA's documentation <https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions>`_
+    if you're not sure.
 
 Otherwise, for a CPU-only install (will train much more slowly):
 
