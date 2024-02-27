@@ -4,4 +4,7 @@ API
 .. autosummary::
    :toctree: generated
 
-   nam
+   nam.data
+   nam.models
+   nam.train
+   nam.util

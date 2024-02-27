@@ -2,6 +2,10 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+"""
+NAM's neural networks
+"""
+
 from . import _base  # noqa F401
 from . import _exportable  # noqa F401
 from . import losses  # noqa F401

@@ -1,4 +1,9 @@
 # Configuration file for the Sphinx documentation builder.
+#
+# Build locally
+# (e.g. https://readthedocs.org/projects/neural-amp-modeler/builds/23551748/)
+#
+# $ python -m sphinx -T -b html -d _build/doctrees -D language=en . ./html
 
 # -- Project information
 
