@@ -2,6 +2,10 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+"""
+Functions and classes for working with audio data with NAM
+"""
+
 import abc
 import logging
 from collections import namedtuple
@@ -610,7 +614,11 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def _validate_preceding_silence(
-        cls, x: torch.Tensor, start: Optional[int], silent_seconds: float, sample_rate: Optional[float]
+        cls,
+        x: torch.Tensor,
+        start: Optional[int],
+        silent_seconds: float,
+        sample_rate: Optional[float],
     ):
         """
         Make sure that the input is silent before the starting index.
