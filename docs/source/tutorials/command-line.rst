@@ -61,7 +61,7 @@ Next, edit ``bin/train/data/single_pair.json`` to point to relevant audio files:
         "delay": 0
     }
 
-.. note:: If you're provideding your own audio files, then you need to provide 
+.. note:: If you're providing your own audio files, then you need to provide 
     the latency (in samples) between the input and output file. A positive 
     number of samples means that the output lags the input by the provided 
     number of samples; a negative value means that the output `precedes` the 
