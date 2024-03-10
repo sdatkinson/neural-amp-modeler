@@ -16,3 +16,6 @@ Next, install NAM using pip:
 .. code-block:: console
 
    $ pip install neural-amp-modeler
+
+To update:
+   pip install --upgrade neural-amp-modeler
