@@ -16,3 +16,5 @@ files:
 * `v2_0_0.wav <https://drive.google.com/file/d/1xnyJP_IZ7NuyDSTJfn-Jmc5lw0IE7nfu/view?usp=drive_link>`_
 * `v1_1_1.wav <https://drive.google.com/file/d/1CMj2uv_x8GIs-3X1reo7squHOVfkOa6s/view?usp=drive_link>`_
 * `v1.wav <https://drive.google.com/file/d/1jxwTHOCx3Zf03DggAsuDTcVqsgokNyhm/view?usp=drive_link>`_
+
+In case it's unclear, batch training can be set up by simply choosing multiple reamp (output) files. Opting for 'silent run' is recommended.
