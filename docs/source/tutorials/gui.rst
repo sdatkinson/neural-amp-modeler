@@ -17,4 +17,4 @@ files:
 * `v1_1_1.wav <https://drive.google.com/file/d/1CMj2uv_x8GIs-3X1reo7squHOVfkOa6s/view?usp=drive_link>`_
 * `v1.wav <https://drive.google.com/file/d/1jxwTHOCx3Zf03DggAsuDTcVqsgokNyhm/view?usp=drive_link>`_
 
-.. note:: To traina  batch of models, pick all of their reamp (output) files.
+.. note:: To train a batch of models, pick all of their reamp (output) files.
