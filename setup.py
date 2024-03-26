@@ -52,7 +52,6 @@ setup(
     entry_points={
         "console_scripts": [
             "nam = nam.train.gui:run",
-            "nam-cli = nam.train.cli:main",
         ]
     },
 )

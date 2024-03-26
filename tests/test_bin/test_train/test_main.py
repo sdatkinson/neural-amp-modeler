@@ -3,7 +3,6 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import json
-from argparse import Namespace
 from enum import Enum
 from pathlib import Path
 from subprocess import check_call
@@ -15,7 +14,10 @@ import pytest
 import torch
 
 from nam.data import REQUIRED_RATE, np_to_wav
-from nam.train.cli import run
+
+_BIN_TRAIN_MAIN_PY_PATH = Path(__file__).absolute().parent.parent.parent.parent / Path(
+    "bin", "train", "main.py"
+)
 
 
 class _Device(Enum):
@@ -171,20 +173,22 @@ class Test(object):
 
     def _t_main(self, device: _Device):
         """
-        End-to-end test of the CLI
+        End-to-end test of bin/train/main.py
         """
         with TemporaryDirectory() as tempdir:
             tempdir = Path(tempdir)
             self._input_path(tempdir, ensure=True)
             self._setup_files(tempdir, device)
-            run(
-                Namespace(
-                    data_config_path=str(self._data_config_path(tempdir)),
-                    model_config_path=str(self._model_config_path(tempdir)),
-                    learning_config_path=str(self._learning_config_path(tempdir)),
-                    outdir=str(self._output_path(tempdir, ensure=True)),
-                    no_show=True,
-                )
+            check_call(
+                [
+                    "python",
+                    str(_BIN_TRAIN_MAIN_PY_PATH),
+                    str(self._data_config_path(tempdir)),
+                    str(self._model_config_path(tempdir)),
+                    str(self._learning_config_path(tempdir)),
+                    str(self._output_path(tempdir, ensure=True)),
+                    "--no-show",
+                ]
             )
 
     @classmethod

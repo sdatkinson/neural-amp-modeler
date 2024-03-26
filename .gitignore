@@ -131,4 +131,4 @@ dmypy.json
 .pyre/
 
 # Training outputs
-./train/outputs/
+./bin/train/outputs/
