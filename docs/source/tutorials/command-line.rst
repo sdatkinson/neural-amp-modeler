@@ -38,6 +38,29 @@ Then activate the environment you've created with
 
     conda activate nam
 
+Alternative: directly install the PyPi package
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+As an alternative, you can directly install the `neural-amp-modeler` package to access its advanced CLI tool:
+
+.. code-block:: console
+
+   pip install neural-amp-modeler
+
+In this case, you can just run `nam-cli` in your shell instead of cloning the repository and running the `bin/train/main.py` script as explained below in the training section.
+
+Therefore, when following the guide below, replace this kind of command
+
+.. code-block:: console
+
+   python bin/train/main.py <args>
+   
+with this
+
+.. code-block:: console
+
+   nam-cli <args>
+
 Training
 --------
 
