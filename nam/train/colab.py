@@ -12,7 +12,7 @@ from typing import NamedTuple, Optional, Tuple
 
 from ..models.metadata import UserMetadata
 from ._names import INPUT_BASENAMES, LATEST_VERSION, Version
-from ._version import Version
+from ._version import PROTEUS_VERSION, Version
 from .core import train
 
 
@@ -34,7 +34,9 @@ def _check_for_files() -> Tuple[Version, str]:
             )
     for input_version, input_basename in INPUT_BASENAMES:
         if Path(input_basename).exists():
-            if input_version != LATEST_VERSION.version:
+            if input_version == PROTEUS_VERSION:
+                print(f"Using Proteus input file...")
+            elif input_version != LATEST_VERSION.version:
                 print(
                     f"WARNING: Using out-of-date input file {input_basename}. "
                     "Recommend downloading and using the latest version, "
@@ -49,7 +51,10 @@ def _check_for_files() -> Tuple[Version, str]:
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
         )
-    print(f"Found {input_basename}, version {input_version}")
+    if input_version != PROTEUS_VERSION:
+        print(f"Found {input_basename}, version {input_version}")
+    else:
+        print(f"Found Proteus input {input_basename}.")
     return input_version, input_basename
 
 

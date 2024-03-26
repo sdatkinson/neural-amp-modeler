@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from nam.data import REQUIRED_RATE, np_to_wav
+from nam.data import np_to_wav
 
 _BIN_TRAIN_MAIN_PY_PATH = Path(__file__).absolute().parent.parent.parent.parent / Path(
     "bin", "train", "main.py"

@@ -21,6 +21,7 @@ from nam.train import core
 from nam.train._version import Version
 
 from ...resources import (
+    requires_proteus,
     requires_v1_0_0,
     requires_v1_1_1,
     requires_v2_0_0,
@@ -34,6 +35,8 @@ __all__ = []
 def _resource_path(version: Version) -> Path:
     if version == Version(1, 0, 0):
         name = "v1.wav"
+    elif version == Version(4, 0, 0):
+        name = "Proteus_Capture.wav"
     else:
         name = f'v{str(version).replace(".", "_")}.wav'
     return resource_path(name)
@@ -167,23 +170,37 @@ class TestCalibrateDelayV3(_TCalibrateDelay):
     _data_info = core._V3_DATA_INFO
 
 
+class TestCalibrateDelayV4(_TCalibrateDelay):
+    _calibrate_delay = core._calibrate_delay_v4
+    _data_info = core._V4_DATA_INFO
+
+
 def _make_t_validation_dataset_class(
     version: Version, decorator, data_info: core._DataInfo
 ):
     class C(object):
-        @decorator
-        def test_validation_preceded_by_silence(self):
-            """
-            Validate that the datasets that we've made are valid
-            """
-            x = wav_to_tensor(_resource_path(version))
-            Dataset._validate_preceding_silence(
-                x,
-                data_info.validation_start,
-                int(_DEFAULT_REQUIRE_INPUT_PRE_SILENCE * data_info.rate),
-            )
+        pass
 
-    return C
+    # Proteus has a bad validation split; don't define the silence test for it.
+    if version == Version(4, 0, 0):
+        return C
+    else:
+
+        class C2(C):
+            @decorator
+            def test_validation_preceded_by_silence(self):
+                """
+                Validate that the datasets that we've made are valid
+                """
+                x = wav_to_tensor(_resource_path(version))
+                Dataset._validate_preceding_silence(
+                    x,
+                    data_info.validation_start,
+                    _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
+                    data_info.rate,
+                )
+
+        return C2
 
 
 TestValidationDatasetV1_0_0 = _make_t_validation_dataset_class(
@@ -203,6 +220,12 @@ TestValidationDatasetV2_0_0 = _make_t_validation_dataset_class(
 
 TestValidationDatasetV3_0_0 = _make_t_validation_dataset_class(
     Version(3, 0, 0), requires_v3_0_0, core._V3_DATA_INFO
+)
+
+
+# Aka Proteus
+TestValidationDatasetV4_0_0 = _make_t_validation_dataset_class(
+    Version(4, 0, 0), requires_proteus, core._V4_DATA_INFO
 )
 
 
