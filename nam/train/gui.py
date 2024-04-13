@@ -128,7 +128,7 @@ class _PathButton(object):
 
     def _set_text(self):
         if self._path is None:
-            self._label["fg"] = "red"
+            self._label["fg"] = "#EF0000"  # Darker red
             self._label["text"] = self._info_str
         else:
             val = self.val
@@ -173,7 +173,7 @@ class _GUI(object):
         self._path_button_input = _PathButton(
             self._frame_input_path,
             "Input Audio",
-            f"Select input DI file (e.g. {LATEST_VERSION.name})",
+            f"Select input (DI) file (e.g. {LATEST_VERSION.name})",
             _PathType.FILE,
             hooks=[self._check_button_states],
         )
@@ -183,7 +183,7 @@ class _GUI(object):
         self._path_button_output = _PathButton(
             self._frame_output_path,
             "Output Audio",
-            "Select output (reamped) audio - choose multiple files to enable batch training",
+            "Select output (reamped) file - (Choose MULTIPLE FILES to enable BATCH TRAINING)",
             _PathType.MULTIFILE,
             hooks=[self._check_button_states],
         )
@@ -381,9 +381,9 @@ class _GUI(object):
             trained_model.net.export(
                 outdir,
                 basename=basename,
-                user_metadata=self.user_metadata
-                if self.user_metadata_flag
-                else UserMetadata(),
+                user_metadata=(
+                    self.user_metadata if self.user_metadata_flag else UserMetadata()
+                ),
             )
             print("Done!")
 
