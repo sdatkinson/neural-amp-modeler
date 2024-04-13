@@ -1079,6 +1079,36 @@ def _nasty_checks_modal():
     modal.mainloop()
 
 
+class _ValidationStopping(pl.callbacks.EarlyStopping):
+    """
+    Callback to indicate to stop training if the validation metric is good enough,
+    without the other conditions that EarlyStopping usually forces like patience.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.patience = np.inf
+
+
+def _get_callbacks(threshold_esr: Optional[float]):
+    callbacks = [
+        pl.callbacks.model_checkpoint.ModelCheckpoint(
+            filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4g}_{MSE:.3e}",
+            save_top_k=3,
+            monitor="val_loss",
+            every_n_epochs=1,
+        ),
+        pl.callbacks.model_checkpoint.ModelCheckpoint(
+            filename="checkpoint_last_{epoch:04d}_{step}", every_n_epochs=1
+        ),
+    ]
+    if threshold_esr is not None:
+        callbacks.append(
+            _ValidationStopping(monitor="ESR", stopping_threshold=threshold_esr)
+        )
+    return callbacks
+
+
 def train(
     input_path: str,
     output_path: str,
@@ -1099,7 +1129,11 @@ def train(
     ignore_checks: bool = False,
     local: bool = False,
     fit_cab: bool = False,
+    threshold_esr: Optional[bool] = None,
 ) -> Optional[Model]:
+    """
+    :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
+    """
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -1164,17 +1198,7 @@ def train(
         )
 
     trainer = pl.Trainer(
-        callbacks=[
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4g}_{MSE:.3e}",
-                save_top_k=3,
-                monitor="val_loss",
-                every_n_epochs=1,
-            ),
-            pl.callbacks.model_checkpoint.ModelCheckpoint(
-                filename="checkpoint_last_{epoch:04d}_{step}", every_n_epochs=1
-            ),
-        ],
+        callbacks=_get_callbacks(threshold_esr),
         default_root_dir=train_path,
         **learning_config["trainer"],
     )
