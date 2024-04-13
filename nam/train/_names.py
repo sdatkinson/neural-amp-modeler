@@ -14,7 +14,7 @@ class VersionAndName(NamedTuple):
     name: str
 
 
-# From most the least recently-released
+# From most- to the least-recently-released:
 INPUT_BASENAMES = (
     VersionAndName(Version(3, 0, 0), "v3_0_0.wav"),
     VersionAndName(Version(2, 0, 0), "v2_0_0.wav"),
