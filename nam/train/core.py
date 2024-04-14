@@ -11,6 +11,7 @@ import tkinter as tk
 from copy import deepcopy
 from enum import Enum
 from functools import partial
+from pathlib import Path
 from time import time
 from typing import Dict, Optional, Sequence, Tuple, Union
 
@@ -26,6 +27,7 @@ from ..data import Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model
 from ..models.losses import esr
 from ..util import filter_warnings
+from ._errors import IncompatibleCheckpointError
 from ._version import PROTEUS_VERSION, Version
 
 __all__ = ["train"]
@@ -868,6 +870,7 @@ def _get_configs(
     lr_decay: float,
     batch_size: int,
     fit_cab: bool,
+    checkpoint: Optional[Path] = None,
 ):
     def get_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
@@ -957,6 +960,8 @@ def _get_configs(
     if fit_cab:
         model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
         model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
+    if checkpoint:
+        model_config["checkpoint_path"] = checkpoint
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
@@ -1130,6 +1135,7 @@ def train(
     local: bool = False,
     fit_cab: bool = False,
     threshold_esr: Optional[bool] = None,
+    checkpoint: Optional[Path] = None,
 ) -> Optional[Model]:
     """
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
@@ -1178,6 +1184,7 @@ def train(
         lr_decay,
         batch_size,
         fit_cab,
+        checkpoint=checkpoint,
     )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
@@ -1186,7 +1193,16 @@ def train(
     # * Model is re-instantiated after training anyways.
     # (Hacky) solution: set sample rate in model from dataloader after second
     # instantiation from final checkpoint.
-    model = Model.init_from_config(model_config)
+    try:
+        model = Model.init_from_config(model_config)
+    except RuntimeError as e:
+        if "Error(s) in loading state_dict for Model:" in str(e):
+            raise IncompatibleCheckpointError(
+                "Model initialization failed; the checkpoint used seems to be "
+                f"incompatible.\n\nOriginal error:\n\n{e}"
+            )
+        else:
+            raise e
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
     )
@@ -1204,7 +1220,8 @@ def train(
     )
     # Suppress the PossibleUserWarning about num_workers (Issue 345)
     with filter_warnings("ignore", category=PossibleUserWarning):
-        trainer.fit(model, train_dataloader, val_dataloader)
+        trainer_fit_kwargs = {} if checkpoint is None else {"ckpt_path": checkpoint}
+        trainer.fit(model, train_dataloader, val_dataloader, **trainer_fit_kwargs)
 
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
