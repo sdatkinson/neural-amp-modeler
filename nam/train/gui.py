@@ -278,7 +278,6 @@ class _BasicModal(object):
             command=self._close,
         )
         self._ok.pack()
-        # self._root.mainloop()
         self._resume_main = resume_main
 
     def _close(self):
