@@ -495,6 +495,9 @@ class _GUI(object):
         for file in file_list:
             print("Now training {}".format(file))
             basename = re.sub(r"\.wav$", "", file.split("/")[-1])
+            user_metadata = (
+                self.user_metadata if self.user_metadata_flag else UserMetadata()
+            )
 
             trained_model = core.train(
                 self._widgets[_GUIWidgets.INPUT_PATH].val,
@@ -516,6 +519,7 @@ class _GUI(object):
                 local=True,
                 fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
                 threshold_esr=threshold_esr,
+                user_metadata=user_metadata,
             )
 
             if trained_model is None:
@@ -526,11 +530,7 @@ class _GUI(object):
             outdir = self._widgets[_GUIWidgets.TRAINING_DESTINATION].val
             print(f"Exporting trained model to {outdir}...")
             trained_model.net.export(
-                outdir,
-                basename=basename,
-                user_metadata=(
-                    self.user_metadata if self.user_metadata_flag else UserMetadata()
-                ),
+                outdir, basename=basename, user_metadata=user_metadata
             )
             print("Done!")
 
