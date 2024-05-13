@@ -25,6 +25,7 @@ from torch.utils.data import DataLoader
 
 from ..data import Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model
+from ..models.exportable import Exportable
 from ..models.losses import esr
 from ..util import filter_warnings
 from ._errors import IncompatibleCheckpointError
@@ -1095,15 +1096,56 @@ class _ValidationStopping(pl.callbacks.EarlyStopping):
         self.patience = np.inf
 
 
+class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
+    """
+    Extension to model checkpoint to save a .nam file as well as the .ckpt file.
+    """
+
+    _NAM_FILE_EXTENSION = Exportable.FILE_EXTENSION
+
+    @classmethod
+    def _get_nam_filepath(cls, filepath: str) -> Path:
+        """
+        Given a .ckpt filepath, figure out a .nam for it.
+        """
+        if not filepath.endswith(cls.FILE_EXTENSION):
+            raise ValueError(
+                f"Checkpoint filepath {filepath} doesn't end in expected extension "
+                f"{cls.FILE_EXTENSION}"
+            )
+        return Path(filepath[: -len(cls.FILE_EXTENSION)] + cls._NAM_FILE_EXTENSION)
+
+    def _save_checkpoint(self, trainer: pl.Trainer, filepath: str):
+        # Save the .ckpt:
+        super()._save_checkpoint(trainer, filepath)
+        # Save the .nam:
+        nam_filepath = self._get_nam_filepath(filepath)
+        pl_model: Model = trainer.model
+        nam_model = pl_model.net
+        outdir = nam_filepath.parent
+        # HACK: Assume the extension
+        basename = nam_filepath.name[: -len(self._NAM_FILE_EXTENSION)]
+        nam_model.export(
+            outdir,
+            basename=basename,
+        )
+
+    def _remove_checkpoint(self, trainer: pl.Trainer, filepath: str) -> None:
+        super()._remove_checkpoint(trainer, filepath)
+        nam_path = self._get_nam_filepath(filepath)
+        if nam_path.exists():
+            nam_path.unlink()
+
+
 def _get_callbacks(threshold_esr: Optional[float]):
     callbacks = [
-        pl.callbacks.model_checkpoint.ModelCheckpoint(
+        _ModelCheckpoint(
             filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4g}_{MSE:.3e}",
             save_top_k=3,
             monitor="val_loss",
             every_n_epochs=1,
         ),
-        pl.callbacks.model_checkpoint.ModelCheckpoint(
+        _ModelCheckpoint(
             filename="checkpoint_last_{epoch:04d}_{step}", every_n_epochs=1
         ),
     ]

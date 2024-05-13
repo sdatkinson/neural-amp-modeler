@@ -81,7 +81,7 @@ def run(
     fit_cab: bool = False,
 ):
     """
-    :param epochs: How amny epochs we'll train for.
+    :param epochs: How many epochs we'll train for.
     :param delay: How far the output algs the input due to round-trip latency during
         reamping, in samples.
     :param stage_1_channels: The number of channels in the WaveNet's first stage.
