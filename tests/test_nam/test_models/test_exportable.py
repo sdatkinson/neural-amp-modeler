@@ -17,7 +17,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from nam.models import _exportable
+from nam.models import exportable
 from nam.models import metadata
 
 
@@ -105,7 +105,7 @@ class TestExportable(object):
 
     @classmethod
     def _get_model(cls):
-        class Model(nn.Module, _exportable.Exportable):
+        class Model(nn.Module, exportable.Exportable):
             def __init__(self):
                 super().__init__()
                 self._scale = nn.Parameter(torch.tensor(0.0))
