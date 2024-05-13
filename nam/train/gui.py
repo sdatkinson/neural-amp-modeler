@@ -43,7 +43,6 @@ try:  # 3rd-party and 1st-party imports
     from nam.models.metadata import GearType, UserMetadata, ToneType
 
     # Ok private access here--this is technically allowed access
-    from nam.train._errors import IncompatibleCheckpointError
     from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
 
     _install_is_valid = True
@@ -67,7 +66,6 @@ _TEXT_WIDTH = 70
 _DEFAULT_DELAY = None
 _DEFAULT_IGNORE_CHECKS = False
 _DEFAULT_THRESHOLD_ESR = None
-_DEFAULT_CHECKPOINT = None
 
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
@@ -84,7 +82,6 @@ class _AdvancedOptions(object):
     :param ignore_checks: Keep going even if a check says that something is wrong.
     :param threshold_esr: Stop training if the ESR gets better than this. If None, don't
         stop.
-    :param checkpoint: If provided, try to restart from this checkpoint.
     """
 
     architecture: core.Architecture
@@ -92,7 +89,6 @@ class _AdvancedOptions(object):
     latency: Optional[int]
     ignore_checks: bool
     threshold_esr: Optional[float]
-    checkpoint: Optional[Path]
 
 
 class _PathType(Enum):
@@ -364,7 +360,6 @@ class _GUI(object):
             _DEFAULT_DELAY,
             _DEFAULT_IGNORE_CHECKS,
             _DEFAULT_THRESHOLD_ESR,
-            _DEFAULT_CHECKPOINT,
         )
         # Window to edit them:
 
@@ -487,7 +482,6 @@ class _GUI(object):
         delay = self.advanced_options.latency
         file_list = self._widgets[_GUIWidgets.OUTPUT_PATH].val
         threshold_esr = self.advanced_options.threshold_esr
-        checkpoint = self.advanced_options.checkpoint
 
         # Advanced-er options
         # If you're poking around looking for these, then maybe it's time to learn to
@@ -502,36 +496,27 @@ class _GUI(object):
             print("Now training {}".format(file))
             basename = re.sub(r"\.wav$", "", file.split("/")[-1])
 
-            try:
-                trained_model = core.train(
-                    self._widgets[_GUIWidgets.INPUT_PATH].val,
-                    file,
-                    self._widgets[_GUIWidgets.TRAINING_DESTINATION].val,
-                    epochs=num_epochs,
-                    delay=delay,
-                    architecture=architecture,
-                    batch_size=batch_size,
-                    lr=lr,
-                    lr_decay=lr_decay,
-                    seed=seed,
-                    silent=self._checkboxes[
-                        _CheckboxKeys.SILENT_TRAINING
-                    ].variable.get(),
-                    save_plot=self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.get(),
-                    modelname=basename,
-                    ignore_checks=self._checkboxes[
-                        _CheckboxKeys.IGNORE_DATA_CHECKS
-                    ].variable.get(),
-                    local=True,
-                    fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
-                    threshold_esr=threshold_esr,
-                    checkpoint=checkpoint,
-                )
-            except IncompatibleCheckpointError as e:
-                trained_model = None
-                self._wait_while_func(
-                    _BasicModal, "Training failed due to incompatible checkpoint!"
-                )
+            trained_model = core.train(
+                self._widgets[_GUIWidgets.INPUT_PATH].val,
+                file,
+                self._widgets[_GUIWidgets.TRAINING_DESTINATION].val,
+                epochs=num_epochs,
+                delay=delay,
+                architecture=architecture,
+                batch_size=batch_size,
+                lr=lr,
+                lr_decay=lr_decay,
+                seed=seed,
+                silent=self._checkboxes[_CheckboxKeys.SILENT_TRAINING].variable.get(),
+                save_plot=self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.get(),
+                modelname=basename,
+                ignore_checks=self._checkboxes[
+                    _CheckboxKeys.IGNORE_DATA_CHECKS
+                ].variable.get(),
+                local=True,
+                fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
+                threshold_esr=threshold_esr,
+            )
 
             if trained_model is None:
                 print("Model training failed! Skip exporting...")
@@ -755,17 +740,6 @@ class _AdvancedOptionsGUI(object):
             type=_float_or_null,
         )
 
-        # Restart from a checkpoint
-        self._frame_checkpoint = tk.Frame(self._root)
-        self._frame_checkpoint.pack()
-        self._path_button_checkpoint = _ClearablePathButton(
-            self._frame_checkpoint,
-            "Checkpoint",
-            "[Optional] Select a checkpoint (.ckpt file) to restart training from",
-            _PathType.FILE,
-            default=self._parent.advanced_options.checkpoint,
-        )
-
         # "Ok": apply and destory
         self._frame_ok = tk.Frame(self._root)
         self._frame_ok.pack()
@@ -798,10 +772,6 @@ class _AdvancedOptionsGUI(object):
             self._parent.advanced_options.threshold_esr = (
                 None if threshold_esr == "null" else threshold_esr
             )
-        checkpoint_path = self._path_button_checkpoint.val
-        self._parent.advanced_options.checkpoint = (
-            None if checkpoint_path is None else Path(checkpoint_path)
-        )
         self._root.destroy()
         self._resume_main()
 
