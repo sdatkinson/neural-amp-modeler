@@ -39,6 +39,8 @@ class Exportable(abc.ABC):
     Interface for my custon export format for use in the plugin.
     """
 
+    FILE_EXTENSION = ".nam"
+
     def export(
         self,
         outdir: Path,
@@ -66,7 +68,7 @@ class Exportable(abc.ABC):
 
         training = self.training
         self.eval()
-        with open(Path(outdir, f"{basename}.nam"), "w") as fp:
+        with open(Path(outdir, f"{basename}{self.FILE_EXTENSION}"), "w") as fp:
             json.dump(model_dict, fp)
         if include_snapshot:
             x, y = self._export_input_output()

@@ -7,7 +7,7 @@ NAM's neural networks
 """
 
 from . import _base  # noqa F401
-from . import _exportable  # noqa F401
+from . import exportable  # noqa F401
 from . import losses  # noqa F401
 from . import wavenet  # noqa F401
 from .base import Model  # noqa F401

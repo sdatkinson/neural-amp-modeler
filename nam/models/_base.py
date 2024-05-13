@@ -18,7 +18,7 @@ import torch.nn as nn
 
 from .._core import InitializableFromConfig
 from ..data import wav_to_tensor
-from ._exportable import Exportable
+from .exportable import Exportable
 
 
 class _Base(nn.Module, InitializableFromConfig, Exportable):

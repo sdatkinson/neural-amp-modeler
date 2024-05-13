@@ -25,9 +25,9 @@ from torch.utils.data import DataLoader
 
 from ..data import Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model
+from ..models.exportable import Exportable
 from ..models.losses import esr
 from ..util import filter_warnings
-from ._errors import IncompatibleCheckpointError
 from ._version import PROTEUS_VERSION, Version
 
 __all__ = ["train"]
@@ -870,7 +870,6 @@ def _get_configs(
     lr_decay: float,
     batch_size: int,
     fit_cab: bool,
-    checkpoint: Optional[Path] = None,
 ):
     def get_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
@@ -960,8 +959,6 @@ def _get_configs(
     if fit_cab:
         model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
         model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
-    if checkpoint:
-        model_config["checkpoint_path"] = checkpoint
 
     if torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
@@ -1095,15 +1092,56 @@ class _ValidationStopping(pl.callbacks.EarlyStopping):
         self.patience = np.inf
 
 
+class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
+    """
+    Extension to model checkpoint to save a .nam file as well as the .ckpt file.
+    """
+
+    _NAM_FILE_EXTENSION = Exportable.FILE_EXTENSION
+
+    @classmethod
+    def _get_nam_filepath(cls, filepath: str) -> Path:
+        """
+        Given a .ckpt filepath, figure out a .nam for it.
+        """
+        if not filepath.endswith(cls.FILE_EXTENSION):
+            raise ValueError(
+                f"Checkpoint filepath {filepath} doesn't end in expected extension "
+                f"{cls.FILE_EXTENSION}"
+            )
+        return Path(filepath[: -len(cls.FILE_EXTENSION)] + cls._NAM_FILE_EXTENSION)
+
+    def _save_checkpoint(self, trainer: pl.Trainer, filepath: str):
+        # Save the .ckpt:
+        super()._save_checkpoint(trainer, filepath)
+        # Save the .nam:
+        nam_filepath = self._get_nam_filepath(filepath)
+        pl_model: Model = trainer.model
+        nam_model = pl_model.net
+        outdir = nam_filepath.parent
+        # HACK: Assume the extension
+        basename = nam_filepath.name[: -len(self._NAM_FILE_EXTENSION)]
+        nam_model.export(
+            outdir,
+            basename=basename,
+        )
+
+    def _remove_checkpoint(self, trainer: pl.Trainer, filepath: str) -> None:
+        super()._remove_checkpoint(trainer, filepath)
+        nam_path = self._get_nam_filepath(filepath)
+        if nam_path.exists():
+            nam_path.unlink()
+
+
 def _get_callbacks(threshold_esr: Optional[float]):
     callbacks = [
-        pl.callbacks.model_checkpoint.ModelCheckpoint(
+        _ModelCheckpoint(
             filename="checkpoint_best_{epoch:04d}_{step}_{ESR:.4g}_{MSE:.3e}",
             save_top_k=3,
             monitor="val_loss",
             every_n_epochs=1,
         ),
-        pl.callbacks.model_checkpoint.ModelCheckpoint(
+        _ModelCheckpoint(
             filename="checkpoint_last_{epoch:04d}_{step}", every_n_epochs=1
         ),
     ]
@@ -1135,7 +1173,6 @@ def train(
     local: bool = False,
     fit_cab: bool = False,
     threshold_esr: Optional[bool] = None,
-    checkpoint: Optional[Path] = None,
 ) -> Optional[Model]:
     """
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
@@ -1184,7 +1221,6 @@ def train(
         lr_decay,
         batch_size,
         fit_cab,
-        checkpoint=checkpoint,
     )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
@@ -1193,16 +1229,7 @@ def train(
     # * Model is re-instantiated after training anyways.
     # (Hacky) solution: set sample rate in model from dataloader after second
     # instantiation from final checkpoint.
-    try:
-        model = Model.init_from_config(model_config)
-    except RuntimeError as e:
-        if "Error(s) in loading state_dict for Model:" in str(e):
-            raise IncompatibleCheckpointError(
-                "Model initialization failed; the checkpoint used seems to be "
-                f"incompatible.\n\nOriginal error:\n\n{e}"
-            )
-        else:
-            raise e
+    model = Model.init_from_config(model_config)
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
     )
@@ -1212,6 +1239,8 @@ def train(
             f"{train_dataloader.dataset.sample_rate}, "
             f"{val_dataloader.dataset.sample_rate}"
         )
+    sample_rate = train_dataloader.dataset.sample_rate
+    model.net.sample_rate = sample_rate
 
     trainer = pl.Trainer(
         callbacks=_get_callbacks(threshold_esr),
@@ -1220,8 +1249,7 @@ def train(
     )
     # Suppress the PossibleUserWarning about num_workers (Issue 345)
     with filter_warnings("ignore", category=PossibleUserWarning):
-        trainer_fit_kwargs = {} if checkpoint is None else {"ckpt_path": checkpoint}
-        trainer.fit(model, train_dataloader, val_dataloader, **trainer_fit_kwargs)
+        trainer.fit(model, train_dataloader, val_dataloader)
 
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
@@ -1232,7 +1260,8 @@ def train(
         )
     model.cpu()
     model.eval()
-    model.net.sample_rate = train_dataloader.dataset.sample_rate
+    # HACK set again
+    model.net.sample_rate = sample_rate
 
     def window_kwargs(version: Version):
         if version.major == 1:
