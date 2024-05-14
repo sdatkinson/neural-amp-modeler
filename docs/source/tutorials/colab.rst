@@ -11,7 +11,7 @@ Opening the notebook
 --------------------
 
 To open the notebook in Colab, follow 
-`this link <https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/6b124ae/bin/train/easy_colab.ipynb>`_.
+`this link <https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/c1b0c18/bin/train/easy_colab.ipynb>`_.
 
 .. note:: Most browsers work, but Firefox can be a bit temperamental. This isn't
     NAM's fault; Colab just prefers Chrome (unsurprisingly).
