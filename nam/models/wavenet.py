@@ -318,7 +318,7 @@ class _WaveNet(nn.Module):
         weights = torch.cat([layer.export_weights() for layer in self._layers])
         if self._head is not None:
             weights = torch.cat([weights, self._head.export_weights()])
-        weights = torch.cat([weights, torch.Tensor([self._head_scale])])
+        weights = torch.cat([weights.cpu(), torch.Tensor([self._head_scale])])
         return weights.detach().cpu().numpy()
 
     def import_weights(self, weights: torch.Tensor):

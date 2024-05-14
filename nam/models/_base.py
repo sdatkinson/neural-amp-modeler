@@ -55,6 +55,18 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         )
 
     @property
+    def device(self) -> Optional[torch.device]:
+        """
+        Helpful property, where the parameters of the model live.
+        """
+        # We can do this because the models are tiny and I don't expect a NAM to be on
+        # multiple devices
+        try:
+            return next(self.parameters()).device
+        except StopIteration:
+            return None
+
+    @property
     def sample_rate(self) -> Optional[float]:
         return self._sample_rate.item() if self._has_sample_rate else None
 
@@ -81,7 +93,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
 
         :param gain: Multiplies input signal
         """
-        x = self._metadata_loudness_x()
+        x = self._metadata_loudness_x().to(self.device)
         y = self._at_nominal_settings(gain * x)
         loudness = torch.sqrt(torch.mean(torch.square(y)))
         if db:
