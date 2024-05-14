@@ -256,13 +256,35 @@ class _CheckboxKeys(Enum):
     IGNORE_DATA_CHECKS = "ignore_data_checks"
 
 
+class _TopLevelWithOk(tk.Toplevel):
+    """
+    Toplevel with an Ok button (provide yourself!)
+    """
+
+    def __init__(
+        self, on_ok: Callable[[None], None], resume_main: Callable[[None], None]
+    ):
+        """
+        :param on_ok: What to do when "Ok" button is pressed
+        """
+        super().__init__()
+        self._on_ok = on_ok
+        self._resume_main = resume_main
+
+    def destroy(self, pressed_ok: bool = False):
+        if pressed_ok:
+            self._on_ok()
+        self._resume_main()
+        super().destroy()
+
+
 class _BasicModal(object):
     """
     Message and OK button
     """
 
     def __init__(self, resume_main, msg: str):
-        self._root = tk.Toplevel()
+        self._root = _TopLevelWithOk((lambda: None), resume_main)
         self._text = tk.Label(self._root, text=msg)
         self._text.pack()
         self._ok = tk.Button(
@@ -271,14 +293,9 @@ class _BasicModal(object):
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             fg="black",
-            command=self._close,
+            command=lambda: self._root.destroy(pressed_ok=True),
         )
         self._ok.pack()
-        self._resume_main = resume_main
-
-    def _close(self):
-        self._root.destroy()
-        self._resume_main()
 
 
 class _GUIWidgets(Enum):
@@ -693,9 +710,8 @@ class _AdvancedOptionsGUI(object):
     """
 
     def __init__(self, resume_main, parent: _GUI):
-        self._resume_main = resume_main
         self._parent = parent
-        self._root = tk.Toplevel()
+        self._root = _TopLevelWithOk(self._apply, resume_main)
         self._root.title("Advanced Options")
 
         # Architecture: radio buttons
@@ -749,11 +765,11 @@ class _AdvancedOptionsGUI(object):
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             fg="black",
-            command=self._apply_and_destroy,
+            command=lambda: self._root.destroy(pressed_ok=True),
         )
         self._button_ok.pack()
 
-    def _apply_and_destroy(self):
+    def _apply(self):
         """
         Set values to parent and destroy this object
         """
@@ -772,8 +788,6 @@ class _AdvancedOptionsGUI(object):
             self._parent.advanced_options.threshold_esr = (
                 None if threshold_esr == "null" else threshold_esr
             )
-        self._root.destroy()
-        self._resume_main()
 
 
 class _UserMetadataGUI(object):
@@ -781,9 +795,8 @@ class _UserMetadataGUI(object):
     # Model date
     # gain
     def __init__(self, resume_main, parent: _GUI):
-        self._resume_main = resume_main
         self._parent = parent
-        self._root = tk.Tk()
+        self._root = _TopLevelWithOk(self._apply, resume_main)
         self._root.title("Metadata")
 
         LabeledText = partial(_LabeledText, right_width=_METADATA_RIGHT_WIDTH)
@@ -852,11 +865,11 @@ class _UserMetadataGUI(object):
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             fg="black",
-            command=self._apply_and_destroy,
+            command=lambda: self._root.destroy(pressed_ok=True),
         )
         self._button_ok.pack()
 
-    def _apply_and_destroy(self):
+    def _apply(self):
         """
         Set values to parent and destroy this object
         """
@@ -867,9 +880,6 @@ class _UserMetadataGUI(object):
         self._parent.user_metadata.gear_type = self._gear_type.get()
         self._parent.user_metadata.tone_type = self._tone_type.get()
         self._parent.user_metadata_flag = True
-
-        self._root.destroy()
-        self._resume_main()
 
 
 def _install_error():
