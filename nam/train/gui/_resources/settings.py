@@ -8,7 +8,7 @@ from functools import partial
 from pathlib import Path
 from typing import Optional
 
-__all__ = ["PathKey" "get_last_path", "set_last_path"]
+__all__ = ["PathKey", "get_last_path", "set_last_path"]
 
 _THIS_DIR = Path(__file__).parent.resolve()
 _SETTINGS_JSON_PATH = Path(_THIS_DIR, "settings.json")
