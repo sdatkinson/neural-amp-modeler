@@ -40,6 +40,7 @@ try:  # 3rd-party and 1st-party imports
 
     from nam import __version__
     from nam.train import core
+    from nam.train.gui._resources import settings
     from nam.models.metadata import GearType, UserMetadata, ToneType
 
     # Ok private access here--this is technically allowed access
@@ -50,6 +51,8 @@ try:  # 3rd-party and 1st-party imports
 except ImportError:
     _install_is_valid = False
     _HAVE_ACCELERATOR = False
+
+__all__ = ["run"]
 
 if _HAVE_ACCELERATOR:
     _DEFAULT_NUM_EPOCHS = 100
@@ -108,6 +111,7 @@ class _PathButton(object):
         button_text: str,
         info_str: str,
         path_type: _PathType,
+        path_key: settings.PathKey,
         hooks: Optional[Sequence[Callable[[], None]]] = None,
         color_when_not_set: str = "#EF0000",  # Darker red
         default: Optional[Path] = None,
@@ -119,6 +123,7 @@ class _PathButton(object):
         self._info_str = info_str
         self._path: Optional[Path] = default
         self._path_type = path_type
+        self._path_key = path_key
         self._frame = frame
         self._widgets = {}
         self._widgets["button"] = tk.Button(
@@ -172,13 +177,24 @@ class _PathButton(object):
             ] = f"{self._button_text.capitalize()} set to {val}"
 
     def _set_val(self):
-        res = {
+        last_path = settings.get_last_path(self._path_key)
+        if last_path is None:
+            initial_dir = None
+        elif not last_path.is_dir():
+            initial_dir = last_path.parent
+        else:
+            initial_dir = last_path
+        result = {
             _PathType.FILE: filedialog.askopenfilename,
             _PathType.DIRECTORY: filedialog.askdirectory,
             _PathType.MULTIFILE: filedialog.askopenfilenames,
-        }[self._path_type]()
-        if res != "":
-            self._path = res
+        }[self._path_type](initialdir=str(initial_dir))
+        if result != "":
+            self._path = result
+            settings.set_last_path(
+                self._path_key,
+                Path(result[0] if self._path_type == _PathType.MULTIFILE else result),
+            )
         self._set_text()
 
         if self._hooks is not None:
@@ -321,6 +337,7 @@ class _GUI(object):
             "Input Audio",
             f"Select input (DI) file (e.g. {LATEST_VERSION.name})",
             _PathType.FILE,
+            settings.PathKey.INPUT_FILE,
             hooks=[self._check_button_states],
         )
 
@@ -331,6 +348,7 @@ class _GUI(object):
             "Output Audio",
             "Select output (reamped) file - (Choose MULTIPLE FILES to enable BATCH TRAINING)",
             _PathType.MULTIFILE,
+            settings.PathKey.OUTPUT_FILE,
             hooks=[self._check_button_states],
         )
 
@@ -341,6 +359,7 @@ class _GUI(object):
             "Train Destination",
             "Select training output directory",
             _PathType.DIRECTORY,
+            settings.PathKey.TRAINING_DESTINATION,
             hooks=[self._check_button_states],
         )
 
