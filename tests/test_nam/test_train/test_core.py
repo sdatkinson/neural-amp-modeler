@@ -112,8 +112,11 @@ class _TCalibrateDelay(object):
             # the blip section, so `first_blips_start` isn't used.
             x[i + expected_delay] = 1.0
 
-        delay = self._calibrate_delay(x)
-        assert delay == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
+        delay_calibration = self._calibrate_delay(x)
+        actual_recommended = delay_calibration.recommended
+        assert (
+            actual_recommended == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
+        )
 
     def test_lookahead_warning(self):
         """

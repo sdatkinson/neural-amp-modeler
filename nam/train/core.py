@@ -13,7 +13,7 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from time import time
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -336,13 +336,19 @@ def _warn_lookaheads(indices: Sequence[int]) -> str:
     )
 
 
+class _CalibrateDelayOutput(BaseModel):
+    delays: List[int]
+    safety_factor: int
+    recommended: int
+
+
 def _calibrate_delay_v_all(
     data_info: _DataInfo,
     y,
     abs_threshold=_DELAY_CALIBRATION_ABS_THRESHOLD,
     rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
     safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
-) -> int:
+) -> _CalibrateDelayOutput:
     """
     Calibrate the delay in teh input-output pair based on blips.
     This only uses the blips in the first set of blip locations!
@@ -421,9 +427,14 @@ def _calibrate_delay_v_all(
         print(f" Blip {i_rel:2d}: {d}")
     report_any_delay_warnings(delays)
 
-    delay = int(np.min(delays)) - safety_factor
-    print(f"After aplying safety factor of {safety_factor}, the final delay is {delay}")
-    return delay
+    delay_post_safety_factor = int(np.min(delays)) - safety_factor
+    print(
+        f"After aplying safety factor of {safety_factor}, the final delay is "
+        f"{delay_post_safety_factor}"
+    )
+    return _CalibrateDelayOutput(
+        delays=delays, safety_factor=safety_factor, recommended=delay_post_safety_factor
+    )
 
 
 _calibrate_delay_v1 = partial(_calibrate_delay_v_all, _V1_DATA_INFO)
@@ -486,14 +497,15 @@ _plot_delay_v4 = partial(_plot_delay_v_all, _V4_DATA_INFO)
 
 
 def _calibrate_delay(
-    delay: Optional[int],
+    user_delay: Optional[int],
     input_version: Version,
     input_path: str,
     output_path: str,
     silent: bool = False,
-) -> int:
+) -> _CalibrateDelayOutput:
     """
-    :param is_proteus: Forget the version; do"""
+    :param is_proteus: Forget the version; d
+    """
     if input_version.major == 1:
         calibrate, plot = _calibrate_delay_v1, _plot_delay_v1
     elif input_version.major == 2:
@@ -506,14 +518,14 @@ def _calibrate_delay(
         raise NotImplementedError(
             f"Input calibration not implemented for input version {input_version}"
         )
-    if delay is not None:
-        print(f"Delay is specified as {delay}")
-    else:
-        print("Delay wasn't provided; attempting to calibrate automatically...")
-        delay = calibrate(wav_to_np(output_path))
+    if user_delay is not None:
+        print(f"Delay is specified as {user_delay}")
+    calibration_output = calibrate(wav_to_np(output_path))
+    delay = user_delay if user_delay is not None else calibration_output.recommended
     if not silent:
         plot(delay, input_path, output_path)
-    return delay
+
+    return calibration_output
 
 
 def _get_lstm_config(architecture):
@@ -1192,12 +1204,14 @@ def train(
     if input_version is None:
         input_version, strong_match = _detect_input_version(input_path)
 
+    delay_calibration = _calibrate_delay(
+        delay, input_version, input_path, output_path, silent=silent
+    )
     if delay is None:
-        delay = _calibrate_delay(
-            delay, input_version, input_path, output_path, silent=silent
-        )
+        delay = delay_calibration.recommended
+        print(f"Set delay to recommended {delay_calibration.recommended}")
     else:
-        print(f"Delay provided as {delay}; skip calibration")
+        print(f"Delay provided as {delay}; override calibration")
 
     if _check(input_path, output_path, input_version, delay, silent):
         print("-Checks passed")
