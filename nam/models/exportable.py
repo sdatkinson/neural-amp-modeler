@@ -30,6 +30,8 @@ def _cast_enums(d: Dict[Any, Any]) -> Dict[Any, Any]:
     for key, val in d.items():
         if isinstance(val, Enum):
             val = val.value
+        if isinstance(val, dict):
+            val = _cast_enums(val)
         out[key] = val
     return out
 
@@ -66,6 +68,10 @@ class Exportable(abc.ABC):
         model_dict["metadata"].update(
             {} if user_metadata is None else _cast_enums(user_metadata.model_dump())
         )
+        if training_metadata is not None:
+            model_dict["metadata"]["training"] = _cast_enums(
+                training_metadata.model_dump()
+            )
 
         training = self.training
         self.eval()
