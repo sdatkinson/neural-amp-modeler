@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from ..data import np_to_wav
-from .metadata import Date, UserMetadata
+from .metadata import Date, TrainingMetadata, UserMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class Exportable(abc.ABC):
         include_snapshot: bool = False,
         basename: str = "model",
         user_metadata: Optional[UserMetadata] = None,
+        training_metadata: Optional[TrainingMetadata] = None,
     ):
         """
         Interface for exporting.
