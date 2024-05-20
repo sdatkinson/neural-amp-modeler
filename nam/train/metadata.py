@@ -19,7 +19,7 @@ __all__ = [
     "Latency",
     "LatencyCalibration",
     "Settings",
-    "TrainerMetadata",
+    "TrainingMetadata",
     "TRAINING_KEY",
 ]
 
