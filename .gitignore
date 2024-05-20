@@ -134,4 +134,7 @@ dmypy.json
 ./bin/train/outputs/
 
 # cache files
-./nam/train/gui/_resources/settings.json
+nam/train/gui/_resources/settings.json
+
+# Resources downloaded into tests/
+tests/resources/*.reapeaks

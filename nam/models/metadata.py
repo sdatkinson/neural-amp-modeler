@@ -54,39 +54,3 @@ class UserMetadata(BaseModel):
     gear_make: Optional[str] = None
     gear_model: Optional[str] = None
     tone_type: Optional[ToneType] = None
-
-
-class LatencyMetadata(BaseModel):
-    """
-    Metadata about the data latency when using a standardized trainer (GUI, Colab)
-
-    :param user_samples: What the audio latency was provided as. If None, it was
-        not provided and we attempted to figure it out automatically.
-    :param estimation_algorithm_version: What algorithm was used to estimate latency.
-        1: Introduced in version TK
-    :param estimated_samples: What the algoirthm estimated the latency was. One
-        estimation for each blip.
-    :param safety_factor_samples: Latency safety factor
-    """
-
-    user_samples: Optional[int]
-    estimation_algorithm_version: int
-    estimated_samples: List[int]
-    safety_factor_samples: int
-
-
-class TrainingMetadata(BaseModel):
-    """
-    Metadata from training when using a standardized trainer.
-
-    :param validation_esr: ESR on the standardized validation signal
-    :fit_cab: Whether cab fitting was enabled
-    :param ignored_checks: Whether the checks were ignored
-    :param latency: Information about the input-output audio latency in the training
-        data.
-    """
-
-    validation_esr: float
-    fit_cab: bool
-    ignored_checks: bool
-    latency: LatencyMetadata

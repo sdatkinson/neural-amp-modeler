@@ -3,7 +3,9 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-Functions used by the GUI trainer.
+The core of the "simplified trainer"
+
+Used by the GUI and Colab trainers.
 """
 
 import hashlib
@@ -13,7 +15,7 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from time import time
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, NamedTuple, Optional, Sequence, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,6 +32,7 @@ from ..models.losses import esr
 from ..models.metadata import UserMetadata
 from ..util import filter_warnings
 from ._version import PROTEUS_VERSION, Version
+from . import metadata
 
 __all__ = ["train"]
 
@@ -336,19 +339,13 @@ def _warn_lookaheads(indices: Sequence[int]) -> str:
     )
 
 
-class _CalibrateDelayOutput(BaseModel):
-    delays: List[int]
-    safety_factor: int
-    recommended: int
-
-
-def _calibrate_delay_v_all(
+def _calibrate_latency_v_all(
     data_info: _DataInfo,
     y,
     abs_threshold=_DELAY_CALIBRATION_ABS_THRESHOLD,
     rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
     safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
-) -> _CalibrateDelayOutput:
+) -> metadata.LatencyCalibration:
     """
     Calibrate the delay in teh input-output pair based on blips.
     This only uses the blips in the first set of blip locations!
@@ -432,21 +429,24 @@ def _calibrate_delay_v_all(
         f"After aplying safety factor of {safety_factor}, the final delay is "
         f"{delay_post_safety_factor}"
     )
-    return _CalibrateDelayOutput(
-        delays=delays, safety_factor=safety_factor, recommended=delay_post_safety_factor
+    return metadata.LatencyCalibration(
+        algorithm_version=1,
+        delays=delays,
+        safety_factor=safety_factor,
+        recommended=delay_post_safety_factor,
     )
 
 
-_calibrate_delay_v1 = partial(_calibrate_delay_v_all, _V1_DATA_INFO)
-_calibrate_delay_v2 = partial(_calibrate_delay_v_all, _V2_DATA_INFO)
-_calibrate_delay_v3 = partial(_calibrate_delay_v_all, _V3_DATA_INFO)
-_calibrate_delay_v4 = partial(_calibrate_delay_v_all, _V4_DATA_INFO)
+_calibrate_latency_v1 = partial(_calibrate_latency_v_all, _V1_DATA_INFO)
+_calibrate_latency_v2 = partial(_calibrate_latency_v_all, _V2_DATA_INFO)
+_calibrate_latency_v3 = partial(_calibrate_latency_v_all, _V3_DATA_INFO)
+_calibrate_latency_v4 = partial(_calibrate_latency_v_all, _V4_DATA_INFO)
 
 
-def _plot_delay_v_all(
-    data_info: _DataInfo, delay: int, input_path: str, output_path: str, _nofail=True
+def _plot_latency_v_all(
+    data_info: _DataInfo, latency: int, input_path: str, output_path: str, _nofail=True
 ):
-    print("Plotting the delay for manual inspection...")
+    print("Plotting the latency for manual inspection...")
     x = wav_to_np(input_path)[
         data_info.first_blips_start : data_info.first_blips_start + data_info.t_blips
     ]
@@ -481,7 +481,7 @@ def _plot_delay_v_all(
         for e, ii in enumerate(i, 1):
             plt.plot(
                 np.arange(-di, di),
-                y[ii - di + delay : ii + di + delay],
+                y[ii - di + latency : ii + di + latency],
                 ".-",
                 label=f"Output {e}",
             )
@@ -490,42 +490,44 @@ def _plot_delay_v_all(
         plt.show()  # This doesn't freeze the notebook
 
 
-_plot_delay_v1 = partial(_plot_delay_v_all, _V1_DATA_INFO)
-_plot_delay_v2 = partial(_plot_delay_v_all, _V2_DATA_INFO)
-_plot_delay_v3 = partial(_plot_delay_v_all, _V3_DATA_INFO)
-_plot_delay_v4 = partial(_plot_delay_v_all, _V4_DATA_INFO)
+_plot_latency_v1 = partial(_plot_latency_v_all, _V1_DATA_INFO)
+_plot_latency_v2 = partial(_plot_latency_v_all, _V2_DATA_INFO)
+_plot_latency_v3 = partial(_plot_latency_v_all, _V3_DATA_INFO)
+_plot_latency_v4 = partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
-def _calibrate_delay(
-    user_delay: Optional[int],
+def _calibrate_latency(
+    user_latency: Optional[int],
     input_version: Version,
     input_path: str,
     output_path: str,
     silent: bool = False,
-) -> _CalibrateDelayOutput:
+) -> metadata.Latency:
     """
     :param is_proteus: Forget the version; d
     """
     if input_version.major == 1:
-        calibrate, plot = _calibrate_delay_v1, _plot_delay_v1
+        calibrate, plot = _calibrate_latency_v1, _plot_latency_v1
     elif input_version.major == 2:
-        calibrate, plot = _calibrate_delay_v2, _plot_delay_v2
+        calibrate, plot = _calibrate_latency_v2, _plot_latency_v2
     elif input_version.major == 3:
-        calibrate, plot = _calibrate_delay_v3, _plot_delay_v3
+        calibrate, plot = _calibrate_latency_v3, _plot_latency_v3
     elif input_version.major == 4:
-        calibrate, plot = _calibrate_delay_v4, _plot_delay_v4
+        calibrate, plot = _calibrate_latency_v4, _plot_latency_v4
     else:
         raise NotImplementedError(
             f"Input calibration not implemented for input version {input_version}"
         )
-    if user_delay is not None:
-        print(f"Delay is specified as {user_delay}")
+    if user_latency is not None:
+        print(f"Delay is specified as {user_latency}")
     calibration_output = calibrate(wav_to_np(output_path))
-    delay = user_delay if user_delay is not None else calibration_output.recommended
+    latency = (
+        user_latency if user_latency is not None else calibration_output.recommended
+    )
     if not silent:
-        plot(delay, input_path, output_path)
+        plot(latency, input_path, output_path)
 
-    return calibration_output
+    return metadata.Latency(manual=user_latency, calibration=calibration_output)
 
 
 def _get_lstm_config(architecture):
@@ -557,8 +559,8 @@ def _get_lstm_config(architecture):
     }[architecture]
 
 
-def _check_v1(*args, **kwargs):
-    return True
+def _check_v1(*args, **kwargs) -> metadata.DataChecks:
+    return metadata.DataChecks(version=1, passed=True)
 
 
 def _esr_validation_replicate_msg(threshold: float) -> str:
@@ -573,7 +575,7 @@ def _esr_validation_replicate_msg(threshold: float) -> str:
     )
 
 
-def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
+def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.DataChecks:
     with torch.no_grad():
         print("V2 checks...")
         rate = _V2_DATA_INFO.rate
@@ -665,7 +667,7 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
                     blip_pair,
                     ("Replicate 1", "Replicate 2"),
                 )
-                # return False  # Stop bothering me! :(
+                return metadata.DataChecks(version=2, passed=False)
         # Check blips between start & end of train signal
         for e, blip_pair, replicate in zip(
             (esr_cross_0, esr_cross_1), blips.permute(1, 0, 2), (1, 2)
@@ -679,11 +681,13 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> bool:
                     blip_pair,
                     (f"Start, replicate {replicate}", f"End, replicate {replicate}"),
                 )
-                # return False  # Stop bothering me! :(
-        return True
+                return metadata.DataChecks(version=2, passed=False)
+        return metadata.DataChecks(version=2, passed=True)
 
 
-def _check_v3(input_path, output_path, silent: bool, *args, **kwargs) -> bool:
+def _check_v3(
+    input_path, output_path, silent: bool, *args, **kwargs
+) -> metadata.DataChecks:
     with torch.no_grad():
         print("V3 checks...")
         rate = _V3_DATA_INFO.rate
@@ -704,11 +708,13 @@ def _check_v3(input_path, output_path, silent: bool, *args, **kwargs) -> bool:
                 plt.legend()
                 plt.title("V3 check: Validation replicate FAILURE")
                 plt.show()
-            return False
-    return True
+            return metadata.DataChecks(version=3, passed=False)
+    return metadata.DataChecks(version=3, passed=True)
 
 
-def _check_v4(input_path, output_path, silent: bool, *args, **kwargs) -> bool:
+def _check_v4(
+    input_path, output_path, silent: bool, *args, **kwargs
+) -> metadata.DataChecks:
     # Things we can't check:
     # Latency compensation agreement
     # Data replicability
@@ -728,12 +734,12 @@ def _check_v4(input_path, output_path, silent: bool, *args, **kwargs) -> bool:
             "File doesn't meet the minimum length requirements for latency compensation and validation signal!"
         )
         passed = False
-    return passed
+    return metadata.DataChecks(version=4, passed=passed)
 
 
-def _check(
+def _check_data(
     input_path: str, output_path: str, input_version: Version, delay: int, silent: bool
-) -> bool:
+) -> Optional[metadata.DataChecks]:
     """
     Ensure that everything should go smoothly
 
@@ -749,7 +755,7 @@ def _check(
         f = _check_v4
     else:
         print(f"Checks not implemented for input version {input_version}; skip")
-        return True
+        return None
     return f(input_path, output_path, delay, silent)
 
 
@@ -1020,7 +1026,10 @@ def _plot(
     window_end: Optional[int] = None,
     filepath: Optional[str] = None,
     silent: bool = False,
-):
+) -> float:
+    """
+    :return: The ESR
+    """
     print("Plotting a comparison of your model with the target output...")
     with torch.no_grad():
         tx = len(ds.x) / 48_000
@@ -1054,6 +1063,7 @@ def _plot(
         plt.savefig(filepath + ".png")
     if not silent:
         plt.show()
+    return esr
 
 
 def _print_nasty_checks_warning():
@@ -1171,13 +1181,25 @@ def _get_callbacks(
     return callbacks
 
 
+class TrainOutput(NamedTuple):
+    """
+    :param model: The trained model
+    :param simpliifed_trianer_metadata: The metadata summarizing training with the
+        simplified trainer.
+    """
+
+    model: Optional[Model]
+    metadata: metadata.TrainingMetadata
+
+
 def train(
     input_path: str,
     output_path: str,
     train_path: str,
-    input_version: Optional[Version] = None,
+    input_version: Optional[Version] = None,  # Deprecate?
     epochs=100,
-    delay=None,
+    delay: Optional[int] = None,
+    latency: Optional[int] = None,
     model_type: str = "WaveNet",
     architecture: Union[Architecture, str] = Architecture.STANDARD,
     batch_size: int = 16,
@@ -1193,10 +1215,20 @@ def train(
     fit_cab: bool = False,
     threshold_esr: Optional[bool] = None,
     user_metadata: Optional[UserMetadata] = None,
-) -> Optional[Model]:
+) -> Optional[TrainOutput]:
     """
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
     """
+
+    def parse_user_latency(
+        delay: Optional[int], latency: Optional[int]
+    ) -> Optional[int]:
+        if delay is not None:
+            if latency is not None:
+                raise ValueError("Both delay and latency are provided; use latency!")
+            print("WARNING: use of `delay` is deprecated; use `latency` instead")
+            return delay
+        return latency
 
     if seed is not None:
         torch.manual_seed(seed)
@@ -1204,38 +1236,55 @@ def train(
     if input_version is None:
         input_version, strong_match = _detect_input_version(input_path)
 
-    delay_calibration = _calibrate_delay(
-        delay, input_version, input_path, output_path, silent=silent
+    user_latency = parse_user_latency(delay, latency)
+    latency_calibration = _calibrate_latency(
+        latency, input_version, input_path, output_path, silent=silent
     )
-    if delay is None:
-        delay = delay_calibration.recommended
-        print(f"Set delay to recommended {delay_calibration.recommended}")
+    if latency_calibration.manual is not None:
+        latency = latency_calibration.manual
+        print(f"Latency provided as {user_latency}; override calibration")
     else:
-        print(f"Delay provided as {delay}; override calibration")
+        latency = latency_calibration.calibrated.recommended
+        print(f"Set latency to recommended {latency_calibration.recommended}")
 
-    if _check(input_path, output_path, input_version, delay, silent):
-        print("-Checks passed")
-    else:
-        print("Failed checks!")
-        if ignore_checks:
-            if local and not silent:
-                _nasty_checks_modal()
-            else:
-                _print_nasty_checks_warning()
-        elif not local:  # And not ignore_checks
-            print(
-                "(To disable this check, run AT YOUR OWN RISK with "
-                "`ignore_checks=True`.)"
-            )
-        if not ignore_checks:
-            print("Exiting core training...")
-            return
+    data_check_output = _check_data(
+        input_path, output_path, input_version, latency, silent
+    )
+    if data_check_output is not None:
+        if data_check_output.passed:
+            print("-Checks passed")
+        else:
+            print("Failed checks!")
+            if ignore_checks:
+                if local and not silent:
+                    _nasty_checks_modal()
+                else:
+                    _print_nasty_checks_warning()
+            elif not local:  # And not ignore_checks
+                print(
+                    "(To disable this check, run AT YOUR OWN RISK with "
+                    "`ignore_checks=True`.)"
+                )
+            if not ignore_checks:
+                print("Exiting core training...")
+                return TrainOutput(
+                    model=None,
+                    metadata=metadata.TrainingMetadata(
+                        settings=metadata.Settings(
+                            fit_cab=fit_cab, ignore_checks=ignore_checks
+                        ),
+                        data=metadata.Data(
+                            latency=latency_calibration, checks=data_check_output
+                        ),
+                        validation_esr=None,
+                    ),
+                )
 
     data_config, model_config, learning_config = _get_configs(
         input_version,
         input_path,
         output_path,
-        delay,
+        latency,
         epochs,
         model_type,
         Architecture(architecture),
@@ -1303,11 +1352,18 @@ def train(
             window_end=101_000,  # End of the plotting window, in samples
         )
 
-    _plot(
+    validation_esr = _plot(
         model,
         val_dataloader.dataset,
         filepath=train_path + "/" + modelname if save_plot else None,
         silent=silent,
         **window_kwargs(input_version),
     )
-    return model
+    return TrainOutput(
+        model=model,
+        metadata=metadata.TrainingMetadata(
+            settings=metadata.Settings(fit_cab=fit_cab, ignore_checks=ignore_checks),
+            data=metadata.Data(latency=latency_calibration, checks=data_check_output),
+            validation_esr=validation_esr,
+        ),
+    )

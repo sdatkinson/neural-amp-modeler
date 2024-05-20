@@ -12,8 +12,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from ..data import np_to_wav
-from .metadata import Date, TrainingMetadata, UserMetadata
+from .metadata import Date, UserMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ class Exportable(abc.ABC):
         include_snapshot: bool = False,
         basename: str = "model",
         user_metadata: Optional[UserMetadata] = None,
-        training_metadata: Optional[TrainingMetadata] = None,
+        other_metadata: Optional[dict] = None,
     ):
         """
         Interface for exporting.
@@ -68,10 +67,8 @@ class Exportable(abc.ABC):
         model_dict["metadata"].update(
             {} if user_metadata is None else _cast_enums(user_metadata.model_dump())
         )
-        if training_metadata is not None:
-            model_dict["metadata"]["training"] = _cast_enums(
-                training_metadata.model_dump()
-            )
+        if other_metadata is not None:
+            model_dict["metadata"].update(_cast_enums(other_metadata))
 
         training = self.training
         self.eval()

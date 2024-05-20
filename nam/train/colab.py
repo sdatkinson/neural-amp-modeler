@@ -6,14 +6,16 @@
 Hide the mess in Colab to make things look pretty for users.
 """
 
-
 from pathlib import Path
-from typing import NamedTuple, Optional, Tuple
+from typing import Optional, Tuple
 
 from ..models.metadata import UserMetadata
 from ._names import INPUT_BASENAMES, LATEST_VERSION, Version
 from ._version import PROTEUS_VERSION, Version
-from .core import train
+from .core import TrainOutput, train
+from .metadata import TRAINING_KEY
+
+__all__ = ["run"]
 
 
 _BUGGY_INPUT_BASENAMES = {
@@ -95,13 +97,13 @@ def run(
 
     input_version, input_basename = _check_for_files()
 
-    model = train(
+    train_output: TrainOutput = train(
         input_basename,
         _OUTPUT_BASENAME,
         _TRAIN_PATH,
         input_version=input_version,
         epochs=epochs,
-        delay=delay,
+        latency=delay,
         model_type=model_type,
         architecture=architecture,
         lr=lr,
@@ -111,6 +113,8 @@ def run(
         ignore_checks=ignore_checks,
         fit_cab=fit_cab,
     )
+    model = train_output.model
+    training_metadata = train_output.metadata
 
     if model is None:
         print("No model returned; skip exporting!")
@@ -118,5 +122,9 @@ def run(
         print("Exporting your model...")
         model_export_outdir = _get_valid_export_directory()
         model_export_outdir.mkdir(parents=True, exist_ok=False)
-        model.net.export(model_export_outdir, user_metadata=user_metadata)
+        model.net.export(
+            model_export_outdir,
+            user_metadata=user_metadata,
+            other_metadata={TRAINING_KEY: training_metadata.model_dump()},
+        )
         print(f"Model exported to {model_export_outdir}. Enjoy!")

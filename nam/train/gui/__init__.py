@@ -45,6 +45,7 @@ try:  # 3rd-party and 1st-party imports
 
     # Ok private access here--this is technically allowed access
     from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
+    from nam.train.metadata import TRAINING_KEY
 
     _install_is_valid = True
     _HAVE_ACCELERATOR = torch.cuda.is_available() or torch.backends.mps.is_available()
@@ -535,12 +536,12 @@ class _GUI(object):
                 self.user_metadata if self.user_metadata_flag else UserMetadata()
             )
 
-            trained_model = core.train(
+            train_output = core.train(
                 self._widgets[_GUIWidgets.INPUT_PATH].val,
                 file,
                 self._widgets[_GUIWidgets.TRAINING_DESTINATION].val,
                 epochs=num_epochs,
-                delay=delay,
+                latency=delay,
                 architecture=architecture,
                 batch_size=batch_size,
                 lr=lr,
@@ -558,15 +559,18 @@ class _GUI(object):
                 user_metadata=user_metadata,
             )
 
-            if trained_model is None:
+            if train_output.model is None:
                 print("Model training failed! Skip exporting...")
                 continue
             print("Model training complete!")
             print("Exporting...")
             outdir = self._widgets[_GUIWidgets.TRAINING_DESTINATION].val
             print(f"Exporting trained model to {outdir}...")
-            trained_model.net.export(
-                outdir, basename=basename, user_metadata=user_metadata
+            train_output.model.net.export(
+                outdir,
+                basename=basename,
+                user_metadata=user_metadata,
+                other_metadata={TRAINING_KEY: train_output.metadata.model_dump()},
             )
             print("Done!")
 

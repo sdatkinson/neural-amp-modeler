@@ -159,22 +159,22 @@ class _TCalibrateDelay(object):
 
 
 class TestCalibrateDelayV1(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v1
+    _calibrate_delay = core._calibrate_latency_v1
     _data_info = core._V1_DATA_INFO
 
 
 class TestCalibrateDelayV2(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v2
+    _calibrate_delay = core._calibrate_latency_v2
     _data_info = core._V2_DATA_INFO
 
 
 class TestCalibrateDelayV3(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v3
+    _calibrate_delay = core._calibrate_latency_v3
     _data_info = core._V3_DATA_INFO
 
 
 class TestCalibrateDelayV4(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v4
+    _calibrate_delay = core._calibrate_latency_v4
     _data_info = core._V4_DATA_INFO
 
 
