@@ -68,6 +68,15 @@ class Exportable(abc.ABC):
             {} if user_metadata is None else _cast_enums(user_metadata.model_dump())
         )
         if other_metadata is not None:
+            overwritten_keys = []
+            for key in other_metadata:
+                if key in model_dict["metadata"]:
+                    overwritten_keys.append(key)
+            if overwritten_keys:
+                logger.warning(
+                    "other_metadata provided keys that will overwrite existing keys!\n "
+                    + "\n ".join(overwritten_keys)
+                )
             model_dict["metadata"].update(_cast_enums(other_metadata))
 
         training = self.training

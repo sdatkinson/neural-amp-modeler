@@ -279,7 +279,6 @@ def test_end_to_end():
             input_path,
             output_path,
             train_path,
-            epochs=1,
             silent=True,
             fast_dev_run=True,
         )
