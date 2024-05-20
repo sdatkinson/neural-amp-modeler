@@ -496,7 +496,7 @@ _plot_latency_v3 = partial(_plot_latency_v_all, _V3_DATA_INFO)
 _plot_latency_v4 = partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
-def _calibrate_latency(
+def _analyze_latency(
     user_latency: Optional[int],
     input_version: Version,
     input_path: str,
@@ -1120,9 +1120,18 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
     Extension to model checkpoint to save a .nam file as well as the .ckpt file.
     """
 
-    def __init__(self, *args, user_metadata: Optional[UserMetadata] = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        user_metadata: Optional[UserMetadata] = None,
+        settings_metadata: Optional[metadata.Settings] = None,
+        data_metadata: Optional[metadata.Data] = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._user_metadata = user_metadata
+        self._settings_metadata = settings_metadata
+        self._data_metadata = data_metadata
 
     _NAM_FILE_EXTENSION = Exportable.FILE_EXTENSION
 
@@ -1138,6 +1147,10 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
             )
         return Path(filepath[: -len(cls.FILE_EXTENSION)] + cls._NAM_FILE_EXTENSION)
 
+    @property
+    def _include_other_metadata(self) -> bool:
+        return self._settings_metadata is not None and self._data_metadata is not None
+
     def _save_checkpoint(self, trainer: pl.Trainer, filepath: str):
         # Save the .ckpt:
         super()._save_checkpoint(trainer, filepath)
@@ -1148,7 +1161,23 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
         outdir = nam_filepath.parent
         # HACK: Assume the extension
         basename = nam_filepath.name[: -len(self._NAM_FILE_EXTENSION)]
-        nam_model.export(outdir, basename=basename, user_metadata=self._user_metadata)
+        other_metadata = (
+            None
+            if not self._include_other_metadata
+            else {
+                metadata.TRAINING_KEY: metadata.TrainingMetadata(
+                    settings=self._settings_metadata,
+                    data=self._data_metadata,
+                    validation_esr=None,  # TODO how to get this?
+                ).model_dump()
+            }
+        )
+        nam_model.export(
+            outdir,
+            basename=basename,
+            user_metadata=self._user_metadata,
+            other_metadata=other_metadata,
+        )
 
     def _remove_checkpoint(self, trainer: pl.Trainer, filepath: str) -> None:
         super()._remove_checkpoint(trainer, filepath)
@@ -1158,7 +1187,10 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
 
 
 def _get_callbacks(
-    threshold_esr: Optional[float], user_metadata: Optional[UserMetadata] = None
+    threshold_esr: Optional[float],
+    user_metadata: Optional[UserMetadata] = None,
+    settings_metadata: Optional[metadata.Settings] = None,
+    data_metadata: Optional[metadata.Data] = None,
 ):
     callbacks = [
         _ModelCheckpoint(
@@ -1167,11 +1199,15 @@ def _get_callbacks(
             monitor="val_loss",
             every_n_epochs=1,
             user_metadata=user_metadata,
+            settings_metadata=settings_metadata,
+            data_metadata=data_metadata,
         ),
         _ModelCheckpoint(
             filename="checkpoint_last_{epoch:04d}_{step}",
             every_n_epochs=1,
             user_metadata=user_metadata,
+            settings_metadata=settings_metadata,
+            data_metadata=data_metadata,
         ),
     ]
     if threshold_esr is not None:
@@ -1215,9 +1251,11 @@ def train(
     fit_cab: bool = False,
     threshold_esr: Optional[bool] = None,
     user_metadata: Optional[UserMetadata] = None,
+    fast_dev_run: Union[bool, int] = False,
 ) -> Optional[TrainOutput]:
     """
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
+    :param fast_dev_run: One-step training, used for tests.
     """
 
     def parse_user_latency(
@@ -1237,15 +1275,15 @@ def train(
         input_version, strong_match = _detect_input_version(input_path)
 
     user_latency = parse_user_latency(delay, latency)
-    latency_calibration = _calibrate_latency(
+    latency_analysis = _analyze_latency(
         latency, input_version, input_path, output_path, silent=silent
     )
-    if latency_calibration.manual is not None:
-        latency = latency_calibration.manual
+    if latency_analysis.manual is not None:
+        latency = latency_analysis.manual
         print(f"Latency provided as {user_latency}; override calibration")
     else:
-        latency = latency_calibration.calibrated.recommended
-        print(f"Set latency to recommended {latency_calibration.recommended}")
+        latency = latency_analysis.calibration.recommended
+        print(f"Set latency to recommended {latency_analysis.calibration.recommended}")
 
     data_check_output = _check_data(
         input_path, output_path, input_version, latency, silent
@@ -1274,7 +1312,7 @@ def train(
                             fit_cab=fit_cab, ignore_checks=ignore_checks
                         ),
                         data=metadata.Data(
-                            latency=latency_calibration, checks=data_check_output
+                            latency=latency_analysis, checks=data_check_output
                         ),
                         validation_esr=None,
                     ),
@@ -1294,6 +1332,9 @@ def train(
         batch_size,
         fit_cab,
     )
+    assert (
+        "fast_dev_run" not in learning_config
+    ), "fast_dev_run is set as a kwarg to train()"
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
     # Issue:
@@ -1314,9 +1355,19 @@ def train(
     sample_rate = train_dataloader.dataset.sample_rate
     model.net.sample_rate = sample_rate
 
+    # Put together the metadata that's needed in checkpoints:
+    settings_metadata = metadata.Settings(fit_cab=fit_cab, ignore_checks=ignore_checks)
+    data_metadata = metadata.Data(latency=latency_analysis, checks=data_check_output)
+
     trainer = pl.Trainer(
-        callbacks=_get_callbacks(threshold_esr, user_metadata=user_metadata),
+        callbacks=_get_callbacks(
+            threshold_esr,
+            user_metadata=user_metadata,
+            settings_metadata=settings_metadata,
+            data_metadata=data_metadata,
+        ),
         default_root_dir=train_path,
+        fast_dev_run=fast_dev_run,
         **learning_config["trainer"],
     )
     # Suppress the PossibleUserWarning about num_workers (Issue 345)
@@ -1362,8 +1413,8 @@ def train(
     return TrainOutput(
         model=model,
         metadata=metadata.TrainingMetadata(
-            settings=metadata.Settings(fit_cab=fit_cab, ignore_checks=ignore_checks),
-            data=metadata.Data(latency=latency_calibration, checks=data_check_output),
+            settings=settings_metadata,
+            data=data_metadata,
             validation_esr=validation_esr,
         ),
     )

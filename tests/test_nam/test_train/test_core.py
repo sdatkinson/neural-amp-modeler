@@ -17,6 +17,7 @@ from nam.data import (
     wav_to_tensor,
     _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
 )
+from nam.models import Model
 from nam.train import core
 from nam.train._version import Version
 
@@ -262,6 +263,28 @@ def test_v3_check_doesnt_make_figure_if_silent(mocker):
         input_path = None  # Isn't used right now.
         # If this makes a figure, then it wasn't silent!
         core._check_v3(input_path, output_path, silent=True)
+
+
+@requires_v3_0_0
+def test_end_to_end():
+    """
+    Run a training using core.train()
+    """
+    with TemporaryDirectory() as tmpdir:
+        basename = "v3_0_0"
+        input_path = resource_path(basename + ".wav")
+        output_path = input_path  # Identity mapping!
+        train_path = Path(tmpdir)
+        train_output = core.train(
+            input_path,
+            output_path,
+            train_path,
+            epochs=1,
+            silent=True,
+            fast_dev_run=True,
+        )
+        # Assertions...
+        assert isinstance(train_output.model, Model)
 
 
 if __name__ == "__main__":
