@@ -12,7 +12,6 @@ from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from ..data import np_to_wav
 from .metadata import Date, UserMetadata
 
 logger = logging.getLogger(__name__)
@@ -30,6 +29,8 @@ def _cast_enums(d: Dict[Any, Any]) -> Dict[Any, Any]:
     for key, val in d.items():
         if isinstance(val, Enum):
             val = val.value
+        if isinstance(val, dict):
+            val = _cast_enums(val)
         out[key] = val
     return out
 
@@ -47,6 +48,7 @@ class Exportable(abc.ABC):
         include_snapshot: bool = False,
         basename: str = "model",
         user_metadata: Optional[UserMetadata] = None,
+        other_metadata: Optional[dict] = None,
     ):
         """
         Interface for exporting.
@@ -65,6 +67,17 @@ class Exportable(abc.ABC):
         model_dict["metadata"].update(
             {} if user_metadata is None else _cast_enums(user_metadata.model_dump())
         )
+        if other_metadata is not None:
+            overwritten_keys = []
+            for key in other_metadata:
+                if key in model_dict["metadata"]:
+                    overwritten_keys.append(key)
+            if overwritten_keys:
+                logger.warning(
+                    "other_metadata provided keys that will overwrite existing keys!\n "
+                    + "\n ".join(overwritten_keys)
+                )
+            model_dict["metadata"].update(_cast_enums(other_metadata))
 
         training = self.training
         self.eval()

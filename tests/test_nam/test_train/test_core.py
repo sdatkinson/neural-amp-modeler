@@ -17,6 +17,7 @@ from nam.data import (
     wav_to_tensor,
     _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
 )
+from nam.models import Model
 from nam.train import core
 from nam.train._version import Version
 
@@ -112,8 +113,11 @@ class _TCalibrateDelay(object):
             # the blip section, so `first_blips_start` isn't used.
             x[i + expected_delay] = 1.0
 
-        delay = self._calibrate_delay(x)
-        assert delay == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
+        delay_calibration = self._calibrate_delay(x)
+        actual_recommended = delay_calibration.recommended
+        assert (
+            actual_recommended == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
+        )
 
     def test_lookahead_warning(self):
         """
@@ -156,22 +160,22 @@ class _TCalibrateDelay(object):
 
 
 class TestCalibrateDelayV1(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v1
+    _calibrate_delay = core._calibrate_latency_v1
     _data_info = core._V1_DATA_INFO
 
 
 class TestCalibrateDelayV2(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v2
+    _calibrate_delay = core._calibrate_latency_v2
     _data_info = core._V2_DATA_INFO
 
 
 class TestCalibrateDelayV3(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v3
+    _calibrate_delay = core._calibrate_latency_v3
     _data_info = core._V3_DATA_INFO
 
 
 class TestCalibrateDelayV4(_TCalibrateDelay):
-    _calibrate_delay = core._calibrate_delay_v4
+    _calibrate_delay = core._calibrate_latency_v4
     _data_info = core._V4_DATA_INFO
 
 
@@ -259,6 +263,27 @@ def test_v3_check_doesnt_make_figure_if_silent(mocker):
         input_path = None  # Isn't used right now.
         # If this makes a figure, then it wasn't silent!
         core._check_v3(input_path, output_path, silent=True)
+
+
+@requires_v3_0_0
+def test_end_to_end():
+    """
+    Run a training using core.train()
+    """
+    with TemporaryDirectory() as tmpdir:
+        basename = "v3_0_0"
+        input_path = resource_path(basename + ".wav")
+        output_path = input_path  # Identity mapping!
+        train_path = Path(tmpdir)
+        train_output = core.train(
+            input_path,
+            output_path,
+            train_path,
+            silent=True,
+            fast_dev_run=True,
+        )
+        # Assertions...
+        assert isinstance(train_output.model, Model)
 
 
 if __name__ == "__main__":
