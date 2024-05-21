@@ -40,7 +40,15 @@ class WavInfo:
     rate: int
 
 
-class AudioShapeMismatchError(ValueError):
+class DataError(Exception):
+    """
+    Parent class for all special exceptions raised by NAM data sets
+    """
+
+    pass
+
+
+class AudioShapeMismatchError(ValueError, DataError):
     """
     Exception where the shape (number of samples, number of channels) of two audio files
     don't match but were supposed to.
@@ -191,7 +199,7 @@ def _interpolate_delay(
     )
 
 
-class XYError(ValueError):
+class XYError(ValueError, DataError):
     """
     Exceptions related to invalid x and y provided for data sets
     """
@@ -199,7 +207,7 @@ class XYError(ValueError):
     pass
 
 
-class StartStopError(ValueError):
+class StartStopError(ValueError, DataError):
     """
     Exceptions related to invalid start and stop arguments
     """

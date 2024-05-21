@@ -18,6 +18,7 @@ __all__ = [
     "DataChecks",
     "Latency",
     "LatencyCalibration",
+    "LatencyCalibrationWarnings",
     "Settings",
     "TrainingMetadata",
     "TRAINING_KEY",
@@ -36,11 +37,28 @@ class Settings(BaseModel):
     ignore_checks: bool
 
 
+class LatencyCalibrationWarnings(BaseModel):
+    """
+    Things that aren't necessarily wrong with the latency calibration but are
+    worth looking into.
+
+    :param matches_lookahead: The calibrated latency is as far forard as
+        possible, i.e. the very first sample we looked at tripped the trigger.
+        That's probably not a coincidence but the trigger is too sensitive.
+    :param max_disagreement: The max disagreement between latency estimates. If
+        it's too large, then there's a risk that something was warong.
+    """
+
+    matches_lookahead: bool
+    disagreement_too_high: int
+
+
 class LatencyCalibration(BaseModel):
     algorithm_version: int
     delays: List[int]
     safety_factor: int
     recommended: int
+    warnings: LatencyCalibrationWarnings
 
 
 class Latency(BaseModel):

@@ -75,6 +75,10 @@ class TestExportable(object):
                                     delays=[1, 3],
                                     safety_factor=4,
                                     recommended=-3,
+                                    warnings=train_metadata.LatencyCalibrationWarnings(
+                                        matches_lookahead=False,
+                                        disagreement_too_high=False,
+                                    ),
                                 ),
                             ),
                             checks=train_metadata.DataChecks(version=4, passed=True),
@@ -105,6 +109,10 @@ class TestExportable(object):
                                     delays=[1, 3],
                                     safety_factor=4,
                                     recommended=-3,
+                                    warnings=train_metadata.LatencyCalibrationWarnings(
+                                        matches_lookahead=False,
+                                        disagreement_too_high=False,
+                                    ),
                                 ),
                             ),
                             checks=train_metadata.DataChecks(version=4, passed=True),
