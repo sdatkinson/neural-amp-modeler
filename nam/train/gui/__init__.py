@@ -39,11 +39,13 @@ try:  # 3rd-party and 1st-party imports
     import torch
 
     from nam import __version__
+    from nam.data import Split
     from nam.train import core
     from nam.train.gui._resources import settings
     from nam.models.metadata import GearType, UserMetadata, ToneType
 
     # Ok private access here--this is technically allowed access
+    from nam.train import metadata
     from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
     from nam.train.metadata import TRAINING_KEY
 
@@ -115,6 +117,7 @@ class _PathButton(object):
         path_key: settings.PathKey,
         hooks: Optional[Sequence[Callable[[], None]]] = None,
         color_when_not_set: str = "#EF0000",  # Darker red
+        color_when_set: str = "systemTextColor",
         default: Optional[Path] = None,
     ):
         """
@@ -132,7 +135,6 @@ class _PathButton(object):
             text=button_text,
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=self._set_val,
         )
         self._widgets["button"].pack(side=tk.LEFT)
@@ -140,13 +142,13 @@ class _PathButton(object):
             self._frame,
             width=_TEXT_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             bg=None,
             anchor="w",
         )
         self._widgets["label"].pack(side=tk.LEFT)
         self._hooks = hooks
         self._color_when_not_set = color_when_not_set
+        self._color_when_set = color_when_set
         self._set_text()
 
     def __setitem__(self, key, val):
@@ -172,7 +174,7 @@ class _PathButton(object):
         else:
             val = self.val
             val = val[0] if isinstance(val, tuple) and len(val) == 1 else val
-            self._widgets["label"]["fg"] = "black"
+            self._widgets["label"]["fg"] = self._color_when_set
             self._widgets["label"][
                 "text"
             ] = f"{self._button_text.capitalize()} set to {val}"
@@ -212,7 +214,6 @@ class _InputPathButton(_PathButton):
             text="Download input file",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=self._download_input_file,
         )
         self._widgets["button_download_input"].pack(side=tk.RIGHT)
@@ -252,7 +253,6 @@ class _ClearablePathButton(_PathButton):
             text="Clear",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=self._clear_path,
         )
         self._widgets["button_clear"].pack(side=tk.RIGHT)
@@ -270,7 +270,6 @@ class _CheckboxKeys(Enum):
     FIT_CAB = "fit_cab"
     SILENT_TRAINING = "silent_training"
     SAVE_PLOT = "save_plot"
-    IGNORE_DATA_CHECKS = "ignore_data_checks"
 
 
 class _TopLevelWithOk(tk.Toplevel):
@@ -295,7 +294,42 @@ class _TopLevelWithOk(tk.Toplevel):
         super().destroy()
 
 
-class _BasicModal(object):
+class _TopLevelWithYesNo(tk.Toplevel):
+    """
+    Toplevel holding functions for yes/no buttons to close
+    """
+
+    def __init__(
+        self,
+        on_yes: Callable[[None], None],
+        on_no: Callable[[None], None],
+        on_close: Optional[Callable[[None], None]],
+        resume_main: Callable[[None], None],
+    ):
+        """
+        :param on_yes: What to do when "Yes" button is pressed.
+        :param on_no: What to do when "No" button is pressed.
+        :param on_close: Do this regardless when closing (via yes/no/x) before
+            resuming.
+        """
+        super().__init__()
+        self._on_yes = on_yes
+        self._on_no = on_no
+        self._on_close = on_close
+        self._resume_main = resume_main
+
+    def destroy(self, pressed_yes: bool = False, pressed_no: bool = False):
+        if pressed_yes:
+            self._on_yes()
+        if pressed_no:
+            self._on_no()
+        if self._on_close is not None:
+            self._on_close()
+        self._resume_main()
+        super().destroy()
+
+
+class _OkModal(object):
     """
     Message and OK button
     """
@@ -309,10 +343,47 @@ class _BasicModal(object):
             text="Ok",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=lambda: self._root.destroy(pressed_ok=True),
         )
         self._ok.pack()
+
+
+class _YesNoModal(object):
+    """
+    Modal w/ yes/no buttons
+    """
+
+    def __init__(
+        self,
+        on_yes: Callable[[None], None],
+        on_no: Callable[[None], None],
+        resume_main,
+        msg: str,
+        on_close: Optional[Callable[[None], None]] = None,
+        label_kwargs: Optional[dict] = None,
+    ):
+        label_kwargs = {} if label_kwargs is None else label_kwargs
+        self._root = _TopLevelWithYesNo(on_yes, on_no, on_close, resume_main)
+        self._text = tk.Label(self._root, text=msg, **label_kwargs)
+        self._text.pack()
+        self._buttons_frame = tk.Frame(self._root)
+        self._buttons_frame.pack()
+        self._yes = tk.Button(
+            self._buttons_frame,
+            text="Yes",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=lambda: self._root.destroy(pressed_yes=True),
+        )
+        self._yes.pack(side=tk.LEFT)
+        self._no = tk.Button(
+            self._buttons_frame,
+            text="No",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=lambda: self._root.destroy(pressed_no=True),
+        )
+        self._no.pack(side=tk.RIGHT)
 
 
 class _GUIWidgets(Enum):
@@ -373,7 +444,6 @@ class _GUI(object):
             text="Metadata...",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=self._open_metadata,
         )
         self._widgets["metadata"].pack()
@@ -405,7 +475,6 @@ class _GUI(object):
             text="Advanced options...",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=self._open_advanced_options,
         )
         self._widgets[_GUIWidgets.ADVANCED_OPTIONS].pack()
@@ -417,7 +486,6 @@ class _GUI(object):
             text="Train",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=self._train,
         )
         self._widgets[_GUIWidgets.TRAIN].pack()
@@ -472,11 +540,6 @@ class _GUI(object):
             False,
         )
         make_checkbox(_CheckboxKeys.SAVE_PLOT, "Save ESR plot automatically", True)
-        make_checkbox(
-            _CheckboxKeys.IGNORE_DATA_CHECKS,
-            "Ignore data quality checks (DO AT YOUR OWN RISK!)",
-            False,
-        )
 
         # Grid them:
         row = 1
@@ -513,10 +576,20 @@ class _GUI(object):
             widget["state"] = state
 
     def _train(self):
+        input_path = self._widgets[_GUIWidgets.INPUT_PATH].val
+        output_paths = self._widgets[_GUIWidgets.OUTPUT_PATH].val
+        # Validate all files before running:
+        success = self._validate_all_data(input_path, output_paths)
+        if success:
+            self._train2()
+
+    def _train2(self, ignore_checks=False):
+        input_path = self._widgets[_GUIWidgets.INPUT_PATH].val
+
         # Advanced options:
         num_epochs = self.advanced_options.num_epochs
         architecture = self.advanced_options.architecture
-        delay = self.advanced_options.latency
+        user_latency = self.advanced_options.latency
         file_list = self._widgets[_GUIWidgets.OUTPUT_PATH].val
         threshold_esr = self.advanced_options.threshold_esr
 
@@ -527,21 +600,20 @@ class _GUI(object):
         lr_decay = _DEFAULT_LR_DECAY
         batch_size = _DEFAULT_BATCH_SIZE
         seed = 0
-
         # Run it
         for file in file_list:
-            print("Now training {}".format(file))
+            print(f"Now training {file}")
             basename = re.sub(r"\.wav$", "", file.split("/")[-1])
             user_metadata = (
                 self.user_metadata if self.user_metadata_flag else UserMetadata()
             )
 
             train_output = core.train(
-                self._widgets[_GUIWidgets.INPUT_PATH].val,
+                input_path,
                 file,
                 self._widgets[_GUIWidgets.TRAINING_DESTINATION].val,
                 epochs=num_epochs,
-                latency=delay,
+                latency=user_latency,
                 architecture=architecture,
                 batch_size=batch_size,
                 lr=lr,
@@ -550,9 +622,7 @@ class _GUI(object):
                 silent=self._checkboxes[_CheckboxKeys.SILENT_TRAINING].variable.get(),
                 save_plot=self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.get(),
                 modelname=basename,
-                ignore_checks=self._checkboxes[
-                    _CheckboxKeys.IGNORE_DATA_CHECKS
-                ].variable.get(),
+                ignore_checks=ignore_checks,
                 local=True,
                 fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
                 threshold_esr=threshold_esr,
@@ -570,13 +640,113 @@ class _GUI(object):
                 outdir,
                 basename=basename,
                 user_metadata=user_metadata,
-                other_metadata={TRAINING_KEY: train_output.metadata.model_dump()},
+                other_metadata={
+                    metadata.TRAINING_KEY: train_output.metadata.model_dump()
+                },
             )
             print("Done!")
 
         # Metadata was only valid for 1 run, so make sure it's not used again unless
         # the user re-visits the window and clicks "ok"
         self.user_metadata_flag = False
+
+    def _validate_all_data(
+        self, input_path: Path, output_paths: Sequence[Path]
+    ) -> bool:
+        """
+        Validate all the data.
+        If something doesn't pass, then alert the user and ask them whether they
+        want to continue.
+
+        :return: whether we passed (NOTE: Training in spite of failure is
+            triggered by a modal that is produced on failure.)
+        """
+
+        def make_message_for_file(
+            output_path: str, validation_output: core.DataValidationOutput
+        ) -> str:
+            """
+            File and explain what's wrong with it.
+            """
+            # TODO put this closer to what it looks at, i.e. core.DataValidationOutput
+            msg = f" {Path(output_path).name}:\n"  # They all have the same directory so
+            if validation_output.latency.manual is None:
+                if validation_output.latency.calibration.warnings.matches_lookahead:
+                    msg += (
+                        "  * The calibrated latency is the maximum allowed. This is "
+                        "probably because the latency calibration was triggered by noise.\n"
+                    )
+                if validation_output.latency.calibration.warnings.disagreement_too_high:
+                    msg += "  * The calculated latencies are too different from each other.\n"
+            if not validation_output.checks.passed:
+                msg += "  * A data check failed (TODO in more detail).\n"
+            if not validation_output.pytorch.passed:
+                msg += "  * PyTorch data set errors:\n"
+                for split in Split:
+                    split_validation = getattr(validation_output.pytorch, split.value)
+                    if not split_validation.passed:
+                        msg += f"   * {split.value:10s}: {split_validation.msg}\n"
+            return msg
+
+        # Validate input
+        input_validation = core.validate_input(input_path)
+        if not input_validation.passed:
+            self._wait_while_func(
+                (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
+                f"Input file {input_path} is not recognized as a standardized input "
+                "file.\nTraining cannot proceed.",
+            )
+            return False
+
+        user_latency = self.advanced_options.latency
+        file_validation_outputs = {
+            output_path: core.validate_data(
+                input_path,
+                output_path,
+                user_latency,
+            )
+            for output_path in output_paths
+        }
+        if any(not fv.passed for fv in file_validation_outputs.values()):
+            msg = (
+                "The following output files failed checks:\n"
+                + "".join(
+                    [
+                        make_message_for_file(output_path, fv)
+                        for output_path, fv in file_validation_outputs.items()
+                        if not fv.passed
+                    ]
+                )
+                + "\nIgnore and proceed?"
+            )
+
+            # Hacky to listen to the modal:
+            modal_listener = {"proceed": False, "still_open": True}
+
+            def on_yes():
+                modal_listener["proceed"] = True
+
+            def on_no():
+                modal_listener["proceed"] = False
+
+            def on_close():
+                if modal_listener["proceed"]:
+                    self._train2(ignore_checks=True)
+
+            self._wait_while_func(
+                (
+                    lambda resume, on_yes, on_no, *args, **kwargs: _YesNoModal(
+                        on_yes, on_no, resume, *args, **kwargs
+                    )
+                ),
+                on_yes=on_yes,
+                on_no=on_no,
+                msg=msg,
+                on_close=on_close,
+                label_kwargs={"anchor": "w"},
+            )
+            return False
+        return True
 
     def _wait_while_func(self, func, *args, **kwargs):
         """
@@ -631,12 +801,10 @@ class _LabeledOptionMenu(object):
         self._choices = choices
         height = _BUTTON_HEIGHT
         bg = None
-        fg = "black"
         self._label = tk.Label(
             frame,
             width=_ADVANCED_OPTIONS_LEFT_WIDTH,
             height=height,
-            fg=fg,
             bg=bg,
             anchor="w",
             text=label,
@@ -696,7 +864,6 @@ class _LabeledText(object):
             frame,
             width=left_width,
             height=label_height,
-            fg="black",
             bg=None,
             anchor="w",
             text=label,
@@ -707,7 +874,6 @@ class _LabeledText(object):
             frame,
             width=right_width,
             height=text_height,
-            fg="black",
             bg=None,
         )
         self._text.pack(side=tk.RIGHT)
@@ -779,7 +945,7 @@ class _AdvancedOptionsGUI(object):
             type=_float_or_null,
         )
 
-        # "Ok": apply and destory
+        # "Ok": apply and destroy
         self._frame_ok = tk.Frame(self._root)
         self._frame_ok.pack()
         self._button_ok = tk.Button(
@@ -787,7 +953,6 @@ class _AdvancedOptionsGUI(object):
             text="Ok",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=lambda: self._root.destroy(pressed_ok=True),
         )
         self._button_ok.pack()
@@ -879,7 +1044,7 @@ class _UserMetadataGUI(object):
             default=parent.user_metadata.tone_type,
         )
 
-        # "Ok": apply and destory
+        # "Ok": apply and destroy
         self._frame_ok = tk.Frame(self._root)
         self._frame_ok.pack()
         self._button_ok = tk.Button(
@@ -887,7 +1052,6 @@ class _UserMetadataGUI(object):
             text="Ok",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
-            fg="black",
             command=lambda: self._root.destroy(pressed_ok=True),
         )
         self._button_ok.pack()

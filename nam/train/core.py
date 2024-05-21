@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from pytorch_lightning.utilities.warnings import PossibleUserWarning
 from torch.utils.data import DataLoader
 
-from ..data import Split, init_dataset, wav_to_np, wav_to_tensor
+from ..data import DataError, Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models import Model
 from ..models.exportable import Exportable
 from ..models.losses import esr
@@ -34,10 +34,20 @@ from ..util import filter_warnings
 from ._version import PROTEUS_VERSION, Version
 from . import metadata
 
-__all__ = ["train"]
+__all__ = [
+    "Architecture",
+    "DataValidationOutput",
+    "STANDARD_SAMPLE_RATE",
+    "TrainOutput",
+    "train",
+    "validate_data",
+    "validate_input",
+]
 
 # Training using the simplified trainers in NAM is done at 48k.
 STANDARD_SAMPLE_RATE = 48_000.0
+# Default number of output samples per datum.
+_NY_DEFAULT = 8192
 
 
 class Architecture(Enum):
@@ -45,6 +55,10 @@ class Architecture(Enum):
     LITE = "lite"
     FEATHER = "feather"
     NANO = "nano"
+
+
+class _InputValidationError(ValueError):
+    pass
 
 
 def _detect_input_version(input_path) -> Tuple[Version, bool]:
@@ -227,7 +241,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
     print("Falling back to weak-matching...")
     version = detect_weak(input_path)
     if version is None:
-        raise ValueError(
+        raise _InputValidationError(
             f"Input file at {input_path} cannot be recognized as any known version!"
         )
     strong_match = False
@@ -353,21 +367,36 @@ def _calibrate_latency_v_all(
     :param y: The output audio, in complete.
     """
 
-    def report_any_delay_warnings(delays: Sequence[int]):
+    def report_any_latency_warnings(
+        delays: Sequence[int],
+    ) -> metadata.LatencyCalibrationWarnings:
         # Warnings associated with any single delay:
 
+        # "Lookahead warning": if the delay is equal to the lookahead, then it's
+        # probably an error.
         lookahead_warnings = [i for i, d in enumerate(delays, 1) if d == -lookahead]
-        if len(lookahead_warnings) > 0:
+        matches_lookahead = len(lookahead_warnings) > 0
+        if matches_lookahead:
             print(_warn_lookaheads(lookahead_warnings))
 
         # Ensemble warnings
 
         # If they're _really_ different, then something might be wrong.
-        if np.max(delays) - np.min(delays) >= 20:
+        max_disagreement_threshold = 20
+        max_disagreement_too_high = (
+            np.max(delays) - np.min(delays) >= max_disagreement_threshold
+        )
+        if max_disagreement_too_high:
             print(
-                "WARNING: Delays are anomalously different from each other. If this model "
-                "turns out badly, then you might need to provide the delay manually."
+                "WARNING: Latencies are anomalously different from each other (more "
+                f"than {max_disagreement_threshold} samples). If this model turns out "
+                "badly, then you might need to provide the latency manually."
             )
+
+        return metadata.LatencyCalibrationWarnings(
+            matches_lookahead=matches_lookahead,
+            disagreement_too_high=max_disagreement_too_high,
+        )
 
     lookahead = 1_000
     lookback = 10_000
@@ -422,7 +451,7 @@ def _calibrate_latency_v_all(
     print("Delays:")
     for i_rel, d in enumerate(delays, 1):
         print(f" Blip {i_rel:2d}: {d}")
-    report_any_delay_warnings(delays)
+    warnings = report_any_latency_warnings(delays)
 
     delay_post_safety_factor = int(np.min(delays)) - safety_factor
     print(
@@ -434,6 +463,7 @@ def _calibrate_latency_v_all(
         delays=delays,
         safety_factor=safety_factor,
         recommended=delay_post_safety_factor,
+        warnings=warnings,
     )
 
 
@@ -876,20 +906,9 @@ _CAB_MRSTFT_PRE_EMPH_WEIGHT = 2.0e-4
 _CAB_MRSTFT_PRE_EMPH_COEF = 0.85
 
 
-def _get_configs(
-    input_version: Version,
-    input_path: str,
-    output_path: str,
-    delay: int,
-    epochs: int,
-    model_type: str,
-    architecture: Architecture,
-    ny: int,
-    lr: float,
-    lr_decay: float,
-    batch_size: int,
-    fit_cab: bool,
-):
+def _get_data_config(
+    input_version: Version, input_path: Path, output_path: Path, ny: int, latency: int
+) -> dict:
     def get_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
             train_val_split = data_info.validation_start
@@ -941,9 +960,34 @@ def _get_configs(
         "common": {
             "x_path": input_path,
             "y_path": output_path,
-            "delay": delay,
+            "delay": latency,
         },
     }
+    return data_config
+
+
+def _get_configs(
+    input_version: Version,
+    input_path: str,
+    output_path: str,
+    latency: int,
+    epochs: int,
+    model_type: str,
+    architecture: Architecture,
+    ny: int,
+    lr: float,
+    lr_decay: float,
+    batch_size: int,
+    fit_cab: bool,
+):
+
+    data_config = _get_data_config(
+        input_version=input_version,
+        input_path=input_path,
+        output_path=output_path,
+        ny=ny,
+        latency=latency,
+    )
 
     if model_type == "WaveNet":
         model_config = {
@@ -1228,6 +1272,16 @@ class TrainOutput(NamedTuple):
     metadata: metadata.TrainingMetadata
 
 
+def _get_final_latency(latency_analysis: metadata.Latency) -> int:
+    if latency_analysis.manual is not None:
+        latency = latency_analysis.manual
+        print(f"Latency provided as {latency_analysis.manual}; override calibration")
+    else:
+        latency = latency_analysis.calibration.recommended
+        print(f"Set latency to recommended {latency_analysis.calibration.recommended}")
+    return latency
+
+
 def train(
     input_path: str,
     output_path: str,
@@ -1239,7 +1293,7 @@ def train(
     model_type: str = "WaveNet",
     architecture: Union[Architecture, str] = Architecture.STANDARD,
     batch_size: int = 16,
-    ny: int = 8192,
+    ny: int = _NY_DEFAULT,
     lr=0.004,
     lr_decay=0.007,
     seed: Optional[int] = 0,
@@ -1254,6 +1308,7 @@ def train(
     fast_dev_run: Union[bool, int] = False,
 ) -> Optional[TrainOutput]:
     """
+    :param lr_decay: =1-gamma for Exponential learning rate decay.
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
     :param fast_dev_run: One-step training, used for tests.
     """
@@ -1276,17 +1331,12 @@ def train(
 
     user_latency = parse_user_latency(delay, latency)
     latency_analysis = _analyze_latency(
-        latency, input_version, input_path, output_path, silent=silent
+        user_latency, input_version, input_path, output_path, silent=silent
     )
-    if latency_analysis.manual is not None:
-        latency = latency_analysis.manual
-        print(f"Latency provided as {user_latency}; override calibration")
-    else:
-        latency = latency_analysis.calibration.recommended
-        print(f"Set latency to recommended {latency_analysis.calibration.recommended}")
+    final_latency = _get_final_latency(latency_analysis)
 
     data_check_output = _check_data(
-        input_path, output_path, input_version, latency, silent
+        input_path, output_path, input_version, final_latency, silent
     )
     if data_check_output is not None:
         if data_check_output.passed:
@@ -1322,7 +1372,7 @@ def train(
         input_version,
         input_path,
         output_path,
-        latency,
+        final_latency,
         epochs,
         model_type,
         Architecture(architecture),
@@ -1417,4 +1467,120 @@ def train(
             data=data_metadata,
             validation_esr=validation_esr,
         ),
+    )
+
+
+class DataInputValidation(BaseModel):
+    passed: bool
+
+
+def validate_input(input_path) -> DataInputValidation:
+    """
+    :return: Could it be validated?
+    """
+    try:
+        _detect_input_version(input_path)
+        # succeeded...
+        return DataInputValidation(passed=True)
+    except _InputValidationError as e:
+        print(f"Input validation failed!\n\n{e}")
+        return DataInputValidation(passed=False)
+
+
+class _PyTorchDataSplitValidation(BaseModel):
+    """
+    :param msg: On exception, catch and assign. Otherwise None
+    """
+
+    passed: bool
+    msg: Optional[str]
+
+
+class _PyTorchDataValidation(BaseModel):
+    passed: bool
+    train: _PyTorchDataSplitValidation  # cf Split.TRAIN
+    validation: _PyTorchDataSplitValidation  # Split.VALIDATION
+
+
+class DataValidationOutput(BaseModel):
+    passed: bool
+    input_version: str
+    latency: metadata.Latency
+    checks: metadata.DataChecks
+    pytorch: _PyTorchDataValidation
+
+
+def validate_data(
+    input_path: Path,
+    output_path: Path,
+    user_latency: Optional[int],
+    num_output_samples_per_datum: int = _NY_DEFAULT,
+):
+    """
+    Just do the checks to make sure that the data are ok.
+
+    * Version identification
+    * Latency calibration
+    * Other checks
+    """
+    passed = True  # Until proven otherwise
+
+    # Data version ID
+    input_version, strong_match = _detect_input_version(input_path)
+
+    # Latency analysis
+    latency_analysis = _analyze_latency(
+        user_latency, input_version, input_path, output_path, silent=True
+    )
+    if latency_analysis.manual is None and any(
+        val for val in latency_analysis.calibration.warnings.model_dump().values()
+    ):
+        passed = False
+    final_latency = _get_final_latency(latency_analysis)
+
+    # Other data checks based on input file version
+    data_checks = _check_data(
+        input_path,
+        output_path,
+        input_version,
+        latency_analysis.calibration.recommended,
+        silent=True,
+    )
+    passed = passed and data_checks.passed
+
+    # Finally, try to make the PyTorch Dataset objects and note any failures:
+    data_config = _get_data_config(
+        input_version=input_version,
+        input_path=input_path,
+        output_path=output_path,
+        ny=num_output_samples_per_datum,
+        latency=final_latency,
+    )
+    # HACK this should depend on the model that's going to be used, but I think it will
+    # be unlikely to make a difference. Still, would be nice to fix.
+    data_config["common"]["nx"] = 4096
+
+    pytorch_data_split_validation_dict: Dict[str, _PyTorchDataSplitValidation] = {}
+    for split in Split:
+        try:
+            init_dataset(data_config, split)
+            pytorch_data_split_validation_dict[split.value] = (
+                _PyTorchDataSplitValidation(passed=True, msg=None)
+            )
+        except DataError as e:
+            pytorch_data_split_validation_dict[split.value] = (
+                _PyTorchDataSplitValidation(passed=False, msg=str(e))
+            )
+    pytorch_data_validation = _PyTorchDataValidation(
+        passed=all(v.passed for v in pytorch_data_split_validation_dict.values()),
+        **pytorch_data_split_validation_dict,
+    )
+    passed = passed and pytorch_data_validation.passed
+
+    return DataValidationOutput(
+        passed=passed,
+        input_version=str(input_version),
+        latency=latency_analysis,
+        checks=data_checks,
+        pytorch=pytorch_data_validation,
     )
