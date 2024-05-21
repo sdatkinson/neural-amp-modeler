@@ -47,6 +47,7 @@ try:  # 3rd-party and 1st-party imports
     # Ok private access here--this is technically allowed access
     from nam.train import metadata
     from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
+    from nam.train.metadata import TRAINING_KEY
 
     _install_is_valid = True
     _HAVE_ACCELERATOR = torch.cuda.is_available() or torch.backends.mps.is_available()
