@@ -31,6 +31,7 @@ import webbrowser
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
+from os import name as _OS_NAME
 from pathlib import Path
 from tkinter import filedialog
 from typing import Callable, Dict, Optional, Sequence
@@ -76,6 +77,7 @@ _DEFAULT_THRESHOLD_ESR = None
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
 _METADATA_RIGHT_WIDTH = 60
+_SYSTEM_TEXT_COLOR = "black" if _OS_NAME == "nt" else "systemTextColor"
 
 
 @dataclass
@@ -117,7 +119,7 @@ class _PathButton(object):
         path_key: settings.PathKey,
         hooks: Optional[Sequence[Callable[[], None]]] = None,
         color_when_not_set: str = "#EF0000",  # Darker red
-        color_when_set: str = "systemTextColor",
+        color_when_set: str = _SYSTEM_TEXT_COLOR,
         default: Optional[Path] = None,
     ):
         """
