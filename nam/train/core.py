@@ -919,7 +919,10 @@ def _get_data_config(
             train_stop = validation_start
             validation_stop = validation_start + data_info.t_validate
             train_kwargs = {"stop_samples": train_stop}
-            validation_kwargs = {"start_samples": validation_start, "stop_samples": validation_stop}
+            validation_kwargs = {
+                "start_samples": validation_start,
+                "stop_samples": validation_stop,
+            }
         elif data_info.major_version == 3:
             validation_start = data_info.validation_start
             train_stop = validation_start

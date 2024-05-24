@@ -27,11 +27,11 @@ _ensure_graceful_shutdowns()
 
 import re
 import tkinter as tk
+import sys
 import webbrowser
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
-from os import name as _OS_NAME
 from pathlib import Path
 from tkinter import filedialog
 from typing import Callable, Dict, Optional, Sequence
@@ -77,7 +77,13 @@ _DEFAULT_THRESHOLD_ESR = None
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
 _METADATA_RIGHT_WIDTH = 60
-_SYSTEM_TEXT_COLOR = "black" if _OS_NAME == "nt" else "systemTextColor"
+
+
+def _is_mac() -> bool:
+    return sys.platform == "darwin"
+
+
+_SYSTEM_TEXT_COLOR = "systemTextColor" if _is_mac() else "black"
 
 
 @dataclass
