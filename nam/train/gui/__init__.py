@@ -27,6 +27,7 @@ _ensure_graceful_shutdowns()
 
 import re
 import tkinter as tk
+import sys
 import webbrowser
 from dataclasses import dataclass
 from enum import Enum
@@ -78,6 +79,13 @@ _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
 _METADATA_RIGHT_WIDTH = 60
 
 
+def _is_mac() -> bool:
+    return sys.platform == "darwin"
+
+
+_SYSTEM_TEXT_COLOR = "systemTextColor" if _is_mac() else "black"
+
+
 @dataclass
 class _AdvancedOptions(object):
     """
@@ -117,7 +125,7 @@ class _PathButton(object):
         path_key: settings.PathKey,
         hooks: Optional[Sequence[Callable[[], None]]] = None,
         color_when_not_set: str = "#EF0000",  # Darker red
-        color_when_set: str = "systemTextColor",
+        color_when_set: str = _SYSTEM_TEXT_COLOR,
         default: Optional[Path] = None,
     ):
         """
