@@ -677,19 +677,19 @@ class _GUI(object):
             File and explain what's wrong with it.
             """
             # TODO put this closer to what it looks at, i.e. core.DataValidationOutput
-            msg = f" {Path(output_path).name}:\n"  # They all have the same directory so
+            msg = f"\t{Path(output_path).name}:\n"  # They all have the same directory so
             if validation_output.latency.manual is None:
                 if validation_output.latency.calibration.warnings.matches_lookahead:
                     msg += (
-                        "  * The calibrated latency is the maximum allowed. This is "
+                        "\t\t* The calibrated latency is the maximum allowed. This is "
                         "probably because the latency calibration was triggered by noise.\n"
                     )
                 if validation_output.latency.calibration.warnings.disagreement_too_high:
-                    msg += "  * The calculated latencies are too different from each other.\n"
+                    msg += "\t\t* The calculated latencies are too different from each other.\n"
             if not validation_output.checks.passed:
-                msg += "  * A data check failed (TODO in more detail).\n"
+                msg += "\t\t* A data check failed (TODO in more detail).\n"
             if not validation_output.pytorch.passed:
-                msg += "  * PyTorch data set errors:\n"
+                msg += "\t\t* PyTorch data set errors:\n"
                 for split in Split:
                     split_validation = getattr(validation_output.pytorch, split.value)
                     if not split_validation.passed:
@@ -751,7 +751,7 @@ class _GUI(object):
                 on_no=on_no,
                 msg=msg,
                 on_close=on_close,
-                label_kwargs={"anchor": "w"},
+                label_kwargs={"justify": "left"},
             )
             return False
         return True
