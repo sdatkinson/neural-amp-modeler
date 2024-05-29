@@ -45,12 +45,13 @@ class LatencyCalibrationWarnings(BaseModel):
     :param matches_lookahead: The calibrated latency is as far forard as
         possible, i.e. the very first sample we looked at tripped the trigger.
         That's probably not a coincidence but the trigger is too sensitive.
-    :param max_disagreement: The max disagreement between latency estimates. If
-        it's too large, then there's a risk that something was warong.
+    :param disagreement_too_high: The range of the latency estimates is greater
+        than the max_disagreement_threshold. Indication that something may have
+        gone wrong.
     """
 
     matches_lookahead: bool
-    disagreement_too_high: int
+    disagreement_too_high: bool
 
 
 class LatencyCalibration(BaseModel):
