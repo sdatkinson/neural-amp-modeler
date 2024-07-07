@@ -15,3 +15,4 @@ Contents
    installation
    tutorials/main
    api
+   model-file
