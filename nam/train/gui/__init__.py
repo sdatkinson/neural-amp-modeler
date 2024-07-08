@@ -27,6 +27,12 @@ _ensure_graceful_shutdowns()
 
 
 def _apply_extensions():
+    def removesuffix(s: str, suffix: str) -> str:
+        # Remove once 3.8 is dropped
+        if len(suffix) == 0:
+            return s
+        return s[: -len(suffix)] if s.endswith(suffix) else s
+
     import importlib
     import os
     import sys
@@ -51,7 +57,7 @@ def _apply_extensions():
         if name in {"__pycache__", ".DS_Store"}:
             continue
         try:
-            importlib.import_module(name.removesuffix(".py"))  # Runs it
+            importlib.import_module(removesuffix(name, ".py"))  # Runs it
             print(f"  {name} [SUCCESS]")
         except Exception as e:
             print(f"  {name} [FAILED]")
@@ -721,7 +727,9 @@ class _GUI(object):
             File and explain what's wrong with it.
             """
             # TODO put this closer to what it looks at, i.e. core.DataValidationOutput
-            msg = f"\t{Path(output_path).name}:\n"  # They all have the same directory so
+            msg = (
+                f"\t{Path(output_path).name}:\n"  # They all have the same directory so
+            )
             if validation_output.latency.manual is None:
                 if validation_output.latency.calibration.warnings.matches_lookahead:
                     msg += (
