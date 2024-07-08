@@ -25,6 +25,49 @@ def _ensure_graceful_shutdowns():
 
 _ensure_graceful_shutdowns()
 
+
+def _apply_extensions():
+    import importlib
+    import os
+    import sys
+
+    extensions_path = os.path.join(
+        os.environ["HOME"], ".neural-amp-modeler", "extensions"
+    )
+    if not os.path.exists(extensions_path):
+        return
+    if not os.path.isdir(extensions_path):
+        print(
+            f"WARNING: non-directory object found at expected extensions path {extensions_path}; skip"
+        )
+    print("Applying extensions...")
+    if extensions_path not in sys.path:
+        sys.path.append(extensions_path)
+        extensions_path_not_in_sys_path = True
+    else:
+        extensions_path_not_in_sys_path = False
+    for name in os.listdir(extensions_path):
+        if name in {"__pycache__", ".DS_Store"}:
+            continue
+        try:
+            importlib.import_module(name.removesuffix(".py"))  # Runs it
+            print(f"  {name} [SUCCESS]")
+        except Exception as e:
+            print(f"  {name} [FAILED]")
+            print(e)
+    if extensions_path_not_in_sys_path:
+        for i, p in enumerate(sys.path):
+            if p == extensions_path:
+                sys.path = sys.path[:i] + sys.path[i + 1 :]
+                break
+        else:
+            raise RuntimeError("Failed to remove extensions path from sys.path?")
+    print("Done!")
+
+
+_apply_extensions()
+
+
 import re
 import tkinter as tk
 import webbrowser
