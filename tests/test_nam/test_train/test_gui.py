@@ -42,6 +42,7 @@ def test_extensions():
                 i += 1
 
     path = get_name()
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         # Make the extension
