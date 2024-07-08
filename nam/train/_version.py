@@ -15,6 +15,11 @@ class Version:
         self.minor = minor
         self.patch = patch
 
+    @classmethod
+    def from_string(cls, s: str):
+        major, minor, patch = [int(x) for x in s.split(".")]
+        return cls(major, minor, patch)
+
     def __eq__(self, other) -> bool:
         return (
             self.major == other.major
@@ -23,6 +28,8 @@ class Version:
         )
 
     def __lt__(self, other) -> bool:
+        if self == other:
+            return False
         if self.major != other.major:
             return self.major < other.major
         if self.minor != other.minor:

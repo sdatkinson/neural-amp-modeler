@@ -26,7 +26,9 @@ def _ensure_graceful_shutdowns():
 _ensure_graceful_shutdowns()
 
 import re
+import requests
 import tkinter as tk
+import subprocess
 import sys
 import webbrowser
 from dataclasses import dataclass
@@ -34,7 +36,7 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from tkinter import filedialog
-from typing import Callable, Dict, Optional, Sequence
+from typing import Callable, Dict, NamedTuple, Optional, Sequence
 
 try:  # 3rd-party and 1st-party imports
     import torch
@@ -48,6 +50,7 @@ try:  # 3rd-party and 1st-party imports
     # Ok private access here--this is technically allowed access
     from nam.train import metadata
     from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
+    from nam.train._version import Version
     from nam.train.metadata import TRAINING_KEY
 
     _install_is_valid = True
@@ -463,7 +466,9 @@ class _GUI(object):
         # Last frames: avdanced options & train in the SE corner:
         self._frame_advanced_options = tk.Frame(self._root)
         self._frame_train = tk.Frame(self._root)
-        # Pack train first so that it's on bottom.
+        self._frame_update = tk.Frame(self._root)
+        # Pack must be in reverse order
+        self._frame_update.pack(side=tk.BOTTOM, anchor="e")
         self._frame_train.pack(side=tk.BOTTOM, anchor="e")
         self._frame_advanced_options.pack(side=tk.BOTTOM, anchor="e")
 
@@ -497,6 +502,8 @@ class _GUI(object):
             command=self._train,
         )
         self._widgets[_GUIWidgets.TRAIN].pack()
+
+        self._update_button_if_available()
 
         self._check_button_states()
 
@@ -677,7 +684,9 @@ class _GUI(object):
             File and explain what's wrong with it.
             """
             # TODO put this closer to what it looks at, i.e. core.DataValidationOutput
-            msg = f"\t{Path(output_path).name}:\n"  # They all have the same directory so
+            msg = (
+                f"\t{Path(output_path).name}:\n"  # They all have the same directory so
+            )
             if validation_output.latency.manual is None:
                 if validation_output.latency.calibration.warnings.matches_lookahead:
                     msg += (
@@ -764,6 +773,80 @@ class _GUI(object):
         """
         self._disable()
         func(self._resume, *args, **kwargs)
+
+    def _update_button(self, version_from: str, version_to: str):
+        """
+        Pack a button that a user can click to update
+        """
+
+        def update_nam():
+            retcode = subprocess.run(
+                [
+                    f"{sys.executable}",
+                    "-m",
+                    "pip",
+                    "install",
+                    "--upgrade",
+                    "neural-amp-modeler",
+                ]
+            )
+            if retcode.returncode == 0:
+                self._wait_while_func(
+                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
+                    "Update complete! Restart NAM for changes to take effect.",
+                )
+            else:
+                self._wait_while_func(
+                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
+                    "Update failed! See logs.",
+                )
+
+        self._widgets["update"] = tk.Button(
+            self._frame_update,
+            text=f"Update available! {version_from} -> {version_to}",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=update_nam,
+        )
+        self._widgets["update"].pack()
+
+    def _update_button_if_available(self):
+        class UpdateInfo(NamedTuple):
+            available: bool
+            current_version: str
+            new_version: str
+
+        def get_info() -> UpdateInfo:
+            # TODO error handling
+            url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
+            response = requests.get(url)
+
+            if response.status_code != 200:
+                print(f"Failed to fetch releases. Status code: {response.status_code}")
+            else:
+                releases = response.json()
+                latest_version = None
+                if releases:
+                    for release in releases:
+                        tag = release["tag_name"]
+                        assert tag.startswith("v")
+                        this_version = Version.from_string(tag[1:])
+                        if latest_version is None or this_version > latest_version:
+                            latest_version = this_version
+                else:
+                    print("No releases found for this repository.")
+            if latest_version is None:
+                return
+            available = latest_version > Version.from_string(__version__)
+            return UpdateInfo(
+                available=available,
+                current_version=__version__,
+                new_version=str(latest_version),
+            )
+
+        update_info = get_info()
+        if update_info.available:
+            self._update_button(update_info.current_version, update_info.new_version)
 
 
 # some typing functions
