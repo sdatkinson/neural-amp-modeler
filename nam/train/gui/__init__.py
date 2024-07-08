@@ -31,6 +31,7 @@ def _apply_extensions():
     import os
     import sys
 
+    # DRY: Make sure this matches the test!
     extensions_path = os.path.join(
         os.environ["HOME"], ".neural-amp-modeler", "extensions"
     )
