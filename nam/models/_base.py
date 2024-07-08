@@ -31,11 +31,13 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
             "_sample_rate", torch.tensor(0.0 if sample_rate is None else sample_rate)
         )
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def pad_start_default(self) -> bool:
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def receptive_field(self) -> int:
         """
         Receptive field of the model

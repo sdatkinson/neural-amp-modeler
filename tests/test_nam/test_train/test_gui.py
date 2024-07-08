@@ -1,11 +1,25 @@
 # File: test_gui.py
-# Created Date: Sunday July 7th 2024
+# Created Date: Friday May 24th 2024
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import importlib
 import os
+import tkinter as tk
 from pathlib import Path
 
 import pytest
+
+from nam.train import gui
+
+
+class TestPathButton(object):
+    def test_system_text_color(self):
+        """
+        Issue 428
+        """
+        top_level = tk.Toplevel()
+        label = tk.Label(master=top_level, text="My text", fg=gui._SYSTEM_TEXT_COLOR)
+        label.pack()
 
 
 def test_extensions():
@@ -47,7 +61,13 @@ def test_extensions():
             )
 
         # Now trigger the extension by importing from the GUI module:
-        # NOTE: We may have to trigger re-loading the module.
+        from nam.train import gui  # noqa F401
+
+        # If some other test already imported this, then we need to trigger a re-load or
+        # else the extension won't get picked up!
+        importlib.reload(gui)
+
+        # Now let's have a look:
         from nam.train import core
 
         assert hasattr(core, attr_name)
@@ -58,3 +78,7 @@ def test_extensions():
         # You might want to comment that .unlink() and uncomment this if this test isn't
         # passing and you're struggling:
         # pass
+
+
+if __name__ == "__main__":
+    pytest.main()

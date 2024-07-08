@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Model version is independent from package version as of package version 0.5.2 so that
 # the API of the package can iterate at a different pace from that of the model files.
-_MODEL_VERSION = "0.5.2"
+_MODEL_VERSION = "0.5.3"
 
 
 def _cast_enums(d: Dict[Any, Any]) -> Dict[Any, Any]:

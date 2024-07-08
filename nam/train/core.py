@@ -912,23 +912,26 @@ def _get_data_config(
     def get_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
             train_val_split = data_info.validation_start
-            train_kwargs = {"stop": train_val_split}
-            validation_kwargs = {"start": train_val_split}
+            train_kwargs = {"stop_samples": train_val_split}
+            validation_kwargs = {"start_samples": train_val_split}
         elif data_info.major_version == 2:
             validation_start = data_info.validation_start
             train_stop = validation_start
             validation_stop = validation_start + data_info.t_validate
-            train_kwargs = {"stop": train_stop}
-            validation_kwargs = {"start": validation_start, "stop": validation_stop}
+            train_kwargs = {"stop_samples": train_stop}
+            validation_kwargs = {
+                "start_samples": validation_start,
+                "stop_samples": validation_stop,
+            }
         elif data_info.major_version == 3:
             validation_start = data_info.validation_start
             train_stop = validation_start
-            train_kwargs = {"start": 480_000, "stop": train_stop}
-            validation_kwargs = {"start": validation_start}
+            train_kwargs = {"start_samples": 480_000, "stop_samples": train_stop}
+            validation_kwargs = {"start_samples": validation_start}
         elif data_info.major_version == 4:
             validation_start = data_info.validation_start
             train_stop = validation_start
-            train_kwargs = {"stop": train_stop}
+            train_kwargs = {"stop_samples": train_stop}
             # Proteus doesn't have silence to get a clean split. Bite the bullet.
             print(
                 "Using Proteus files:\n"
@@ -940,7 +943,7 @@ def _get_data_config(
                 "model aren't comparable to those from the other 'NAM' training files."
             )
             validation_kwargs = {
-                "start": validation_start,
+                "start_samples": validation_start,
                 "require_input_pre_silence": False,
             }
         else:
