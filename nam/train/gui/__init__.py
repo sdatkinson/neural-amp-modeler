@@ -38,8 +38,9 @@ def _apply_extensions():
     import sys
 
     # DRY: Make sure this matches the test!
+    home_path = os.environ["HOMEPATH"] if os.name == "nt" else os.environ["HOME"]
     extensions_path = os.path.join(
-        os.environ["HOME"], ".neural-amp-modeler", "extensions"
+        home_path, ".neural-amp-modeler", "extensions"
     )
     if not os.path.exists(extensions_path):
         return
