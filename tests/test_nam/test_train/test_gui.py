@@ -27,8 +27,9 @@ def test_extensions():
     Test that we can use a simple extension.
     """
     # DRY: Make sure this matches the code!
-    extensions_path = Path(
-        os.path.join(os.environ["HOME"], ".neural-amp-modeler", "extensions")
+    home_path = os.environ["HOMEPATH"] if os.name == "nt" else os.environ["HOME"]
+    extensions_path = os.path.join(
+        home_path, ".neural-amp-modeler", "extensions"
     )
 
     def get_name():
