@@ -3,7 +3,7 @@ Training in the cloud with Google Colab
 
 If you don't have a good computer for training ML models, you use Google Colab
 to train in the cloud using the pre-made Jupyter notebook at 
-`colab.ipynb <https://github.com/sdatkinson/NAMTrainerColab/blob/main/notebook.ipynb>`_, 
+`notebook.ipynb <https://github.com/sdatkinson/NAMTrainerColab/blob/main/notebook.ipynb>`_, 
 which is designed to be used with 
 `Google Colab <https://colab.research.google.com/>`_.
 
