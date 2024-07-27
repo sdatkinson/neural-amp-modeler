@@ -15,10 +15,6 @@ import torch
 
 from nam.data import np_to_wav
 
-_BIN_TRAIN_MAIN_PY_PATH = Path(__file__).absolute().parent.parent.parent.parent / Path(
-    "bin", "train", "main.py"
-)
-
 
 class _Device(Enum):
     CPU = "cpu"
@@ -181,8 +177,7 @@ class Test(object):
             self._setup_files(tempdir, device)
             check_call(
                 [
-                    "python",
-                    str(_BIN_TRAIN_MAIN_PY_PATH),
+                    "nam-full",  # HACK not DRY w/ setup.py
                     str(self._data_config_path(tempdir)),
                     str(self._model_config_path(tempdir)),
                     str(self._learning_config_path(tempdir)),
