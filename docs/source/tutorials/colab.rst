@@ -3,7 +3,7 @@ Training in the cloud with Google Colab
 
 If you don't have a good computer for training ML models, you use Google Colab
 to train in the cloud using the pre-made Jupyter notebook at 
-`colab.ipynb <https://github.com/sdatkinson/neural-amp-modeler/blob/main/colab.ipynb>`_, 
+`colab.ipynb <https://github.com/sdatkinson/NAMTrainerColab/blob/main/notebook.ipynb>`_, 
 which is designed to be used with 
 `Google Colab <https://colab.research.google.com/>`_.
 
@@ -11,7 +11,7 @@ Opening the notebook
 --------------------
 
 To open the notebook in Colab, follow 
-`this link <https://colab.research.google.com/github/sdatkinson/neural-amp-modeler/blob/d248a71/blob/main/colab.ipynb>`_.
+`this link <https://colab.research.google.com/github/sdatkinson/NAMTrainerColab/blob/main/notebook.ipynb>`_.
 
 .. note:: Most browsers work, but Firefox can be a bit temperamental. This isn't
     NAM's fault; Google Colab just prefers Chrome (unsurprisingly).
