@@ -54,8 +54,8 @@ setup(
     include_package_data=True,
     entry_points={
         "console_scripts": [
-            "nam = nam.train.gui:run",
-            "nam-full = nam.train.cli:run",
+            "nam = nam.cli:nam_gui",  # GUI trainer
+            "nam-full = nam.cli:nam_full",  # Full-featured trainer
         ]
     },
 )
