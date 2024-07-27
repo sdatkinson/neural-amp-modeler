@@ -1,24 +1,8 @@
-# File: cli.py
+# File: full.py
 # Created Date: Tuesday March 26th 2024
 # Author: Enrico Schifano (eraz1997@live.it)
 
-
-# Hack to recover graceful shutdowns in Windows.
-# This has to happen ASAP
-# See:
-# https://github.com/sdatkinson/neural-amp-modeler/issues/105
-# https://stackoverflow.com/a/44822794
-def _ensure_graceful_shutdowns():
-    import os
-
-    if os.name == "nt":  # OS is Windows
-        os.environ["FOR_DISABLE_CONSOLE_CTRL_HANDLER"] = "1"
-
-
-_ensure_graceful_shutdowns()
-
 import json
-from argparse import ArgumentParser
 from pathlib import Path
 from time import time
 from typing import Optional, Union
@@ -33,15 +17,9 @@ from torch.utils.data import DataLoader
 
 from nam.data import ConcatDataset, Split, init_dataset
 from nam.models import Model
-from nam.util import filter_warnings, timestamp
+from nam.util import filter_warnings
 
 torch.manual_seed(0)
-
-
-def ensure_outdir(outdir: str) -> Path:
-    outdir = Path(outdir, timestamp())
-    outdir.mkdir(parents=True, exist_ok=False)
-    return outdir
 
 
 def _rms(x: Union[np.ndarray, torch.Tensor]) -> float:
@@ -53,7 +31,7 @@ def _rms(x: Union[np.ndarray, torch.Tensor]) -> float:
         raise TypeError(type(x))
 
 
-def plot(
+def _plot(
     model,
     ds,
     savefig=None,
@@ -72,7 +50,7 @@ def plot(
             return Path(savefig.parent, f"{stem}_{i}.{extension}")
 
         for i, ds_i in enumerate(ds.datasets):
-            plot(
+            _plot(
                 model,
                 ds_i,
                 savefig=extend_savefig(i, savefig),
@@ -146,21 +124,16 @@ def _create_callbacks(learning_config):
         return [checkpoint_best, checkpoint_last, checkpoint_epoch]
 
 
-def main(args):
-    outdir = ensure_outdir(args.outdir)
-    # Read
-    with open(args.data_config_path, "r") as fp:
-        data_config = json.load(fp)
-    with open(args.model_config_path, "r") as fp:
-        model_config = json.load(fp)
-    with open(args.learning_config_path, "r") as fp:
-        learning_config = json.load(fp)
-    main_inner(data_config, model_config, learning_config, outdir, args.no_show)
-
-
-def main_inner(
-    data_config, model_config, learning_config, outdir, no_show, make_plots=True
+def main(
+    data_config,
+    model_config,
+    learning_config,
+    outdir: Path,
+    no_show: bool = False,
+    make_plots=True,
 ):
+    if not outdir.exists():
+        raise RuntimeError(f"No output location found at {outdir}")
     # Write
     for basename, config in (
         ("data", data_config),
@@ -212,7 +185,7 @@ def main_inner(
     model.cpu()
     model.eval()
     if make_plots:
-        plot(
+        _plot(
             model,
             dataset_validation,
             savefig=Path(outdir, "comparison.png"),
@@ -220,20 +193,6 @@ def main_inner(
             window_end=110_000,
             show=False,
         )
-        plot(model, dataset_validation, show=not no_show)
+        _plot(model, dataset_validation, show=not no_show)
     # Export!
     model.net.export(outdir)
-
-
-def run():
-    parser = ArgumentParser()
-    parser.add_argument("data_config_path", type=str)
-    parser.add_argument("model_config_path", type=str)
-    parser.add_argument("learning_config_path", type=str)
-    parser.add_argument("outdir")
-    parser.add_argument("--no-show", action="store_true", help="Don't show plots")
-    main(parser.parse_args())
-
-
-if __name__ == "__main__":
-    run()
