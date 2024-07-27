@@ -6,4 +6,4 @@ Tutorials
 
    colab
    gui
-   command-line
+   full
