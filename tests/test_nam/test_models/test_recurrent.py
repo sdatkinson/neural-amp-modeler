@@ -69,3 +69,16 @@ class TestLSTM(Base):
         assert y_expected == approx(y_actual)
         assert hout_expected == approx(hout_actual)
         assert cout_expected == approx(cout_actual)
+
+    def test_get_initial_state_cpu(self):
+        return self._t_initial_state("cpu")
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU test")
+    def test_get_initial_state_gpu(self):
+        self._t_initial_state("cuda")
+
+    def _t_initial_state(self, device):
+        model = self._construct().to(device)
+        h, c = model._get_initial_state()
+        assert isinstance(h, torch.Tensor)
+        assert isinstance(c, torch.Tensor)
