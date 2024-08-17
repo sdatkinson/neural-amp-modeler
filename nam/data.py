@@ -449,6 +449,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             return cls._apply_delay_int(x, y, delay)
         elif isinstance(delay, float):
             return cls._apply_delay_float(x, y, delay, method)
+        else:
+            raise TypeError(type(delay))
 
     @classmethod
     def _apply_delay_int(
