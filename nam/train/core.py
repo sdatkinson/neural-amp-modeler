@@ -788,8 +788,8 @@ def _check_data(
         return None
     return f(input_path, output_path, delay, silent)
 
-#!# STANDARD is HIGH. NEED TO UPDATE WHEN FINAL REVISION IS DONE.
-#!# LITE is STANDARD
+#!# STANDARD is HIGH mod. NEED TO UPDATE WHEN FINAL REVISION IS DONE.
+#!# LITE is STANDARD mod
 def _get_wavenet_config(architecture):
     return {
         Architecture.STANDARD: {
@@ -797,21 +797,21 @@ def _get_wavenet_config(architecture):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "channels": 16,
+                    "channels": 9,
                     "head_size": 8,
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+                    "kernel_size": 5,
+                    "dilations": [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768, 2304],
                     "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": False,
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 16,
+                    "input_size": 9,
                     "channels": 8,
                     "head_size": 1,
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+                    "kernel_size": 5,
+                    "dilations": [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768, 2304],
                     "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": True,
