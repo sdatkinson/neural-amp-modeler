@@ -788,7 +788,8 @@ def _check_data(
         return None
     return f(input_path, output_path, delay, silent)
 
-
+#!# STANDARD is HIGH. NEED TO UPDATE WHEN FINAL REVISION IS DONE.
+#!# LITE is STANDARD
 def _get_wavenet_config(architecture):
     return {
         Architecture.STANDARD: {
@@ -800,7 +801,7 @@ def _get_wavenet_config(architecture):
                     "head_size": 8,
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": False,
                 },
@@ -811,7 +812,7 @@ def _get_wavenet_config(architecture):
                     "head_size": 1,
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": True,
                 },
@@ -823,22 +824,22 @@ def _get_wavenet_config(architecture):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "channels": 12,
-                    "head_size": 6,
+                    "channels": 8,
+                    "head_size": 5,
                     "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
+                    "dilations": [1, 2, 3, 4, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768],
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": False,
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 12,
-                    "channels": 6,
+                    "input_size": 8,
+                    "channels": 5,
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
+                    "dilations": [1, 2, 3, 4, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768],
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": True,
                 },
@@ -854,7 +855,7 @@ def _get_wavenet_config(architecture):
                     "head_size": 4,
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": False,
                 },
@@ -865,7 +866,7 @@ def _get_wavenet_config(architecture):
                     "head_size": 1,
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": True,
                 },
@@ -881,7 +882,7 @@ def _get_wavenet_config(architecture):
                     "head_size": 2,
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": False,
                 },
@@ -892,7 +893,7 @@ def _get_wavenet_config(architecture):
                     "head_size": 1,
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
+                    "activation": "Hardtanh",
                     "gated": False,
                     "head_bias": True,
                 },
@@ -903,7 +904,7 @@ def _get_wavenet_config(architecture):
 
 
 _CAB_MRSTFT_PRE_EMPH_WEIGHT = 2.0e-4
-_CAB_MRSTFT_PRE_EMPH_COEF = 0.85
+_CAB_MRSTFT_PRE_EMPH_COEF = 0.90
 
 
 def _get_data_config(
@@ -1039,7 +1040,7 @@ def _get_configs(
             "shuffle": True,
             "pin_memory": True,
             "drop_last": True,
-            "num_workers": 0,
+            "num_workers": 8, #!# 0
         },
         "val_dataloader": {},
         "trainer": {"max_epochs": epochs, **device_config},
