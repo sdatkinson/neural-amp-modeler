@@ -8,7 +8,7 @@
         "shuffle": true,
         "pin_memory": true,
         "drop_last": true,
-        "num_workers": 0
+        "num_workers": 8
     },
     "val_dataloader": {},
     "trainer": {
