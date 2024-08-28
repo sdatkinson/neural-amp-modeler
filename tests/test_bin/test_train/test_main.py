@@ -99,7 +99,7 @@ class Test(object):
                 },
             },
             "optimizer": {"lr": 0.004},
-            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.993}},
+            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.997}},
         }
 
         def extra_trainer_kwargs(device) -> Dict[str, Union[int, str]]:
@@ -110,11 +110,11 @@ class Test(object):
 
         learning_config = {
             "train_dataloader": {
-                "batch_size": 3,
+                "batch_size": 16,
                 "shuffle": True,
                 "pin_memory": True,
                 "drop_last": True,
-                "num_workers": 0,
+                "num_workers": 8,
             },
             "val_dataloader": {},
             "trainer": {"max_epochs": 2, **extra_trainer_kwargs(device)},
