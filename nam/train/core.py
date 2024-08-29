@@ -797,8 +797,8 @@ def _get_wavenet_config(architecture):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "channels": 9,
-                    "head_size": 8,
+                    "channels": 11,
+                    "head_size": 9,
                     "kernel_size": 5,
                     "dilations": [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768, 2304],
                     "activation": "Hardtanh",
@@ -807,8 +807,8 @@ def _get_wavenet_config(architecture):
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 9,
-                    "channels": 8,
+                    "input_size": 11,
+                    "channels": 9,
                     "head_size": 1,
                     "kernel_size": 5,
                     "dilations": [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768, 2304],
