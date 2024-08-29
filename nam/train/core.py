@@ -1,7 +1,7 @@
 # File: core.py
 # Created Date: Tuesday December 20th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
-
+# Tunings by R Gerthsson
 """
 The core of the "simplified trainer"
 
