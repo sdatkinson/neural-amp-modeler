@@ -1,7 +1,7 @@
 # NAM: Neural Amp Modeler (tweaks)
 # MODDED Parameters/settings
 
-I wanted to improve the already very good default settings but make them extremelly good. The default settings unfortunately start to sound the same and kind of what I believe many would say "transistor like" and becomes more obvious the more gain that is modeled. I think my settings sound much better. Aliasing sounding artifacts which I believe causes the "transistor like" sound are attenuated and also high frequency post-echos.
+I wanted to improve the already very good default settings but make them extremelly good. The default settings unfortunately start to sound the same and kind of what I believe some would say "transistor like" and becomes more obvious the more gain that is modeled. I think my settings sound much better and "aliasing sounding" artifacts which I believe causes the "transistor like" sound are attenuated and also high frequency post-echos. Compare my HIGH or EXTREME to a model "generic" STANDARD model and listen to when tones/notes decay. Lower quality tend to bring up the low frequencies and distort them. Most of this is subjective but I have also listened to them and compared and played finished models. What is needed is an ABX type of comparison.
 
 * STANDARD is what I call XTRM (EXTREME) and uses about ~?x CPU compared to official STANDARD Wavenet models but the quality is precisely EXTREME.
 
