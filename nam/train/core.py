@@ -154,6 +154,21 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
                 start_hash = _hash(x[:end_of_start_interval])
                 end_hash = _hash(x[start_of_end_interval:])
                 return start_hash, end_hash
+#!#
+            def assign_hashes_x_train_48khz_20240622(path) -> Hashes:
+                # Use this to create recognized hashes for new files
+                x, info = wav_to_np(path, info=True)
+                rate = info.rate
+                if rate != _x_train_48khz_20240622_DATA_INFO.rate:
+                    return None, None
+                # Times of intervals, in seconds
+                # See below.
+                end_of_start_interval = 17 * rate  # Start at 0
+                start_of_end_interval = -9 * rate
+                start_hash = _hash(x[:end_of_start_interval])
+                end_hash = _hash(x[start_of_end_interval:])
+                return start_hash, end_hash
+#!#
 
             def assign_hash_v4(path) -> Hash:
                 # Use this to create recognized hashes for new files
@@ -168,6 +183,8 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             start_hash_v1, end_hash_v1 = assign_hashes_v1(path)
             start_hash_v2, end_hash_v2 = assign_hashes_v2(path)
             start_hash_v3, end_hash_v3 = assign_hashes_v3(path)
+            start_hash_x_train_48khz_20240622, end_hash_x_train_48khz_20240622 = assign_hashes_x_train_48khz_20240622(path)
+            
             hash_v4 = assign_hash_v4(path)
             return (
                 start_hash_v1,
@@ -176,6 +193,8 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
                 end_hash_v2,
                 start_hash_v3,
                 end_hash_v3,
+                start_hash_x_train_48khz_20240622, #!#
+                end_hash_x_train_48khz_20240622, #!#
                 hash_v4,
             )
 
@@ -186,6 +205,8 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             end_hash_v2,
             start_hash_v3,
             end_hash_v3,
+            start_hash_x_train_48khz_20240622, #!#
+            end_hash_x_train_48khz_20240622, #!#            
             hash_v4,
         ) = assign_hash(input_path)
         print(
@@ -196,11 +217,21 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             f" End (v2)   : {end_hash_v2}\n"
             f" Start (v3) : {start_hash_v3}\n"
             f" End (v3)   : {end_hash_v3}\n"
+            f" Start (x_train_48khz_20240622) : {start_hash_x_train_48khz_20240622}\n" #!#
+            f" End (x_train_48khz_20240622)   : {end_hash_x_train_48khz_20240622}\n" #!#
             f" Proteus    : {hash_v4}\n"
         )
 
         # Check for matches, starting with most recent. Proteus last since its match is
         # the most permissive.
+         version = {
+            (
+                "dadb5d62f6c3973a59bf01439799809b", #!# NEED TO CORRECT
+                "8458126969a3f9d8e19a53554eb1fd52", #!# NEED TO CORRECT
+            ): Version(3, 0, 0)
+        }.get((start_hash_x_train_48khz_20240622, end_hash_x_train_48khz_20240622))
+        if version is not None:
+            return version
         version = {
             (
                 "dadb5d62f6c3973a59bf01439799809b",
@@ -315,6 +346,26 @@ _V3_DATA_INFO = _DataInfo(
     noise_interval=(492_000, 498_000),
     blip_locations=((504_000, 552_000),),
 )
+# x_train_48khz_20240622: #!#
+# (0:00-0:09) Validation 1
+# (0:09-0:10) Silence
+# (0:10-0:12) Blips at 0:10.5 and 0:11.5
+# (0:12-0:15) Chirps
+# (0:15-0:17) Noise
+# (0:17-3:00.5) General training data
+# (3:00.5-3:01) Silence
+# (3:01-3:10) Validation 2
+_x_train_48khz_20240622_DATA_INFO = _DataInfo(
+    major_version=3,
+    rate=STANDARD_SAMPLE_RATE,
+    t_blips=96_000,
+    first_blips_start=480_000,
+    t_validate=432_000,
+    train_start=480_000,
+    validation_start=-432_000,
+    noise_interval=(492_000, 498_000),
+    blip_locations=((504_000, 552_000),),
+) #!#
 # V4 (aka GuitarML Proteus)
 # https://github.com/GuitarML/Releases/releases/download/v1.0.0/Proteus_Capture_Utility.zip
 # * 44.1k
@@ -470,6 +521,7 @@ def _calibrate_latency_v_all(
 _calibrate_latency_v1 = partial(_calibrate_latency_v_all, _V1_DATA_INFO)
 _calibrate_latency_v2 = partial(_calibrate_latency_v_all, _V2_DATA_INFO)
 _calibrate_latency_v3 = partial(_calibrate_latency_v_all, _V3_DATA_INFO)
+_calibrate_latency_x_train_48khz_20240622 = partial(_calibrate_latency_v_all, _x_train_48khz_20240622_DATA_INFO) #!#
 _calibrate_latency_v4 = partial(_calibrate_latency_v_all, _V4_DATA_INFO)
 
 
@@ -523,6 +575,7 @@ def _plot_latency_v_all(
 _plot_latency_v1 = partial(_plot_latency_v_all, _V1_DATA_INFO)
 _plot_latency_v2 = partial(_plot_latency_v_all, _V2_DATA_INFO)
 _plot_latency_v3 = partial(_plot_latency_v_all, _V3_DATA_INFO)
+_plot_latency_x_train_48khz_20240622 = partial(_plot_latency_v_all, _x_train_48khz_20240622_DATA_INFO) #!#
 _plot_latency_v4 = partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
