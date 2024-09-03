@@ -91,6 +91,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             "ede3b9d82135ce10c7ace3bb27469422": Version(2, 0, 0),
             "36cd1af62985c2fac3e654333e36431e": Version(3, 0, 0),
             "80e224bd5622fd6153ff1fd9f34cb3bd": PROTEUS_VERSION,
+            "54f786135d8a214ab9ca0e11561adbb2": Version(x, train, 48khz), #!# md5
         }.get(file_hash)
         if version is None:
             print(
@@ -228,7 +229,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             (
                 "dadb5d62f6c3973a59bf01439799809b", #!# NEED TO CORRECT
                 "8458126969a3f9d8e19a53554eb1fd52", #!# NEED TO CORRECT
-            ): Version(3, 0, 0)
+            ): Version(x, train, 48khz) #!# ?
         }.get((start_hash_x_train_48khz_20240622, end_hash_x_train_48khz_20240622))
         if version is not None:
             return version
@@ -362,7 +363,7 @@ _x_train_48khz_20240622_DATA_INFO = _DataInfo(
     first_blips_start=480_000,
     t_validate=432_000,
     train_start=480_000,
-    validation_start=-432_000,
+    validation_start=8688000, #!# -432_000
     noise_interval=(492_000, 498_000),
     blip_locations=((504_000, 552_000),),
 ) #!#
@@ -597,6 +598,8 @@ def _analyze_latency(
         calibrate, plot = _calibrate_latency_v3, _plot_latency_v3
     elif input_version.major == 4:
         calibrate, plot = _calibrate_latency_v4, _plot_latency_v4
+    elif input_version.major == 5: #!#
+        calibrate, plot = _calibrate_latency_x_train_48khz_20240622, _plot_latency_x_train_48khz_20240622 #!#
     else:
         raise NotImplementedError(
             f"Input calibration not implemented for input version {input_version}"
@@ -819,6 +822,32 @@ def _check_v4(
         passed = False
     return metadata.DataChecks(version=4, passed=passed)
 
+def _check_x_train_48khz_20240622(
+    input_path, output_path, silent: bool, *args, **kwargs
+) -> metadata.DataChecks:
+    with torch.no_grad():
+        print("x_train_48khz_20240622 checks...")
+        rate = _x_train_48khz_20240622_DATA_INFO.rate
+        y = wav_to_tensor(output_path, rate=rate)
+        y_val_1 = y[: _x_train_48khz_20240622_DATA_INFO.t_validate]
+        y_val_2 = y[-_x_train_48khz_20240622_DATA_INFO.t_validate :]
+        esr_replicate = esr(y_val_1, y_val_2).item()
+        print(f"Replicate ESR is {esr_replicate:.8f}.")
+        esr_replicate_threshold = 0.01
+        if esr_replicate > esr_replicate_threshold:
+            print(_esr_validation_replicate_msg(esr_replicate_threshold))
+            if not silent:
+                plt.figure()
+                t = np.arange(len(y_val_1)) / rate
+                plt.plot(t, y_val_1, label="Validation 1")
+                plt.plot(t, y_val_2, label="Validation 2")
+                plt.xlabel("Time (sec)")
+                plt.legend()
+                plt.title("x_train_48khz_20240622 check: Validation replicate FAILURE")
+                plt.show()
+            return metadata.DataChecks(version=3, passed=False)
+    return metadata.DataChecks(version=3, passed=True)
+
 
 def _check_data(
     input_path: str, output_path: str, input_version: Version, delay: int, silent: bool
@@ -836,6 +865,8 @@ def _check_data(
         f = _check_v3
     elif input_version.major == 4:
         f = _check_v4
+    elif input_version.major == 5:
+        f = _check_x_train_48khz_20240622
     else:
         print(f"Checks not implemented for input version {input_version}; skip")
         return None
@@ -1009,6 +1040,8 @@ def _get_data_config(
         2: _V2_DATA_INFO,
         3: _V3_DATA_INFO,
         4: _V4_DATA_INFO,
+        5: _x_train_48khz_20240622_DATA_INFO,
+        x_train_48khz_20240622
     }[input_version.major]
     train_kwargs, validation_kwargs = get_kwargs(data_info)
     data_config = {
