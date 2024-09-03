@@ -48,7 +48,7 @@ setup(
     description="Neural amp modeler",
     author="Steven Atkinson",
     author_email="steven@atkinson.mn",
-    url="https://github.com/sdatkinson/",
+    url="https://github.com/38github/",
     install_requires=requirements,
     packages=find_packages(),
     include_package_data=True,
