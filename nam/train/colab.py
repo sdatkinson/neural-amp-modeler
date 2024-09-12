@@ -34,7 +34,7 @@ def _check_for_files() -> Tuple[Version, str]:
             raise RuntimeError(
                 f"Detected input signal {name} that has known bugs. Please download the latest input signal, {LATEST_VERSION[1]}"
             )
-    for input_version, input_basename in INPUT_BASENAMES:
+    for input_version, input_basename, other_names in INPUT_BASENAMES:
         if Path(input_basename).exists():
             if input_version == PROTEUS_VERSION:
                 print(f"Using Proteus input file...")
@@ -45,10 +45,17 @@ def _check_for_files() -> Tuple[Version, str]:
                     f"{LATEST_VERSION.name}."
                 )
             break
+        if other_names is not None:
+            for other_name in other_names:
+                if Path(input_basename).exists():
+                    raise RuntimeError(
+                        f"Found out-of-date input file {other_name}. Rename it to {input_basename} and re-run."
+                    )
     else:
         raise FileNotFoundError(
             f"Didn't find NAM's input audio file. Please upload {LATEST_VERSION.name}"
         )
+    # We found it
     if not Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."

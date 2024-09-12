@@ -214,6 +214,7 @@ class _InputPathButton(_PathButton):
     @classmethod
     def _download_input_file(cls):
         file_urls = {
+            "input.wav": "https://drive.google.com/file/d/1KbaS4oXXNEuh2aCPLwKrPdf5KFOjda8G/view?usp=drive_link",
             "v3_0_0.wav": "https://drive.google.com/file/d/1Pgf8PdE0rKB1TD4TRPKbpNo1ByR3IOm9/view?usp=drive_link",
             "v2_0_0.wav": "https://drive.google.com/file/d/1xnyJP_IZ7NuyDSTJfn-Jmc5lw0IE7nfu/view?usp=drive_link",
             "v1_1_1.wav": "",
