@@ -47,7 +47,7 @@ def _check_for_files() -> Tuple[Version, str]:
             break
         if other_names is not None:
             for other_name in other_names:
-                if Path(input_basename).exists():
+                if Path(other_name).exists():
                     raise RuntimeError(
                         f"Found out-of-date input file {other_name}. Rename it to {input_basename} and re-run."
                     )
