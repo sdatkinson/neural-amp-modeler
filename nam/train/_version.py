@@ -6,8 +6,6 @@
 Version utility
 """
 
-__all__ = ["PROTEUS_VERSION", "Version"]
-
 
 class Version:
     def __init__(self, major: int, minor: int, patch: int):
