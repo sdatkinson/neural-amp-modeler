@@ -87,7 +87,7 @@ def run(
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
     ignore_checks: bool = False,
-    fit_cab: bool = False,
+    fit_mrstft: bool = True,
 ):
     """
     :param epochs: How many epochs we'll train for.
@@ -118,7 +118,7 @@ def run(
         seed=seed,
         local=False,
         ignore_checks=ignore_checks,
-        fit_mrstft=fit_cab,
+        fit_mrstft=fit_mrstft,
     )
     model = train_output.model
     training_metadata = train_output.metadata
