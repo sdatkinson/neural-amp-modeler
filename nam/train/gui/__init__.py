@@ -261,7 +261,6 @@ class _CheckboxKeys(Enum):
     Keys for checkboxes
     """
 
-    FIT_CAB = "fit_cab"
     SILENT_TRAINING = "silent_training"
     SAVE_PLOT = "save_plot"
 
@@ -486,6 +485,18 @@ class _GUI(object):
 
         self._check_button_states()
 
+    def get_mrstft_fit(self) -> bool:
+        """
+        Use a pre-emphasized multi-resolution shot-time Fourier transform loss during
+        training.
+
+        This improves agreement in the high frequencies, usually with a minimial loss in
+        ESR.
+        """
+        # Leave this as a public method to anticipate an extension to make it
+        # changeable.
+        return True
+
     def _check_button_states(self):
         """
         Determine if any buttons should be disabled
@@ -527,7 +538,6 @@ class _GUI(object):
             self._widgets[key] = check_button  # For tracking in set-all-widgets ops
 
         self._checkboxes: Dict[_CheckboxKeys, Checkbox] = dict()
-        make_checkbox(_CheckboxKeys.FIT_CAB, "Cab modeling", False)
         make_checkbox(
             _CheckboxKeys.SILENT_TRAINING,
             "Silent run (suggested for batch training)",
@@ -618,7 +628,7 @@ class _GUI(object):
                 modelname=basename,
                 ignore_checks=ignore_checks,
                 local=True,
-                fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
+                fit_mrstft=self.get_mrstft_fit(),
                 threshold_esr=threshold_esr,
                 user_metadata=user_metadata,
             )

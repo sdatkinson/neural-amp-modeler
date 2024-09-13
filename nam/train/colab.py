@@ -118,7 +118,7 @@ def run(
         seed=seed,
         local=False,
         ignore_checks=ignore_checks,
-        fit_cab=fit_cab,
+        fit_mrstft=fit_cab,
     )
     model = train_output.model
     training_metadata = train_output.metadata
