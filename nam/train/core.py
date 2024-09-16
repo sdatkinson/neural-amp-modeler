@@ -971,7 +971,7 @@ def _get_configs(
     lr: float,
     lr_decay: float,
     batch_size: int,
-    fit_cab: bool,
+    fit_mrstft: bool,
 ):
 
     data_config = _get_data_config(
@@ -1012,7 +1012,7 @@ def _get_configs(
             "optimizer": {"lr": 0.01},
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
-    if fit_cab:
+    if fit_mrstft:
         model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
         model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
 
@@ -1295,7 +1295,7 @@ def train(
     modelname: str = "model",
     ignore_checks: bool = False,
     local: bool = False,
-    fit_cab: bool = False,
+    fit_mrstft: bool = True,
     threshold_esr: Optional[bool] = None,
     user_metadata: Optional[UserMetadata] = None,
     fast_dev_run: Union[bool, int] = False,
@@ -1351,9 +1351,7 @@ def train(
                 return TrainOutput(
                     model=None,
                     metadata=metadata.TrainingMetadata(
-                        settings=metadata.Settings(
-                            fit_cab=fit_cab, ignore_checks=ignore_checks
-                        ),
+                        settings=metadata.Settings(ignore_checks=ignore_checks),
                         data=metadata.Data(
                             latency=latency_analysis, checks=data_check_output
                         ),
@@ -1373,7 +1371,7 @@ def train(
         lr,
         lr_decay,
         batch_size,
-        fit_cab,
+        fit_mrstft,
     )
     assert (
         "fast_dev_run" not in learning_config
@@ -1399,7 +1397,7 @@ def train(
     model.net.sample_rate = sample_rate
 
     # Put together the metadata that's needed in checkpoints:
-    settings_metadata = metadata.Settings(fit_cab=fit_cab, ignore_checks=ignore_checks)
+    settings_metadata = metadata.Settings(ignore_checks=ignore_checks)
     data_metadata = metadata.Data(latency=latency_analysis, checks=data_check_output)
 
     trainer = pl.Trainer(

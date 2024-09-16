@@ -13,17 +13,6 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-__all__ = [
-    "Data",
-    "DataChecks",
-    "Latency",
-    "LatencyCalibration",
-    "LatencyCalibrationWarnings",
-    "Settings",
-    "TrainingMetadata",
-    "TRAINING_KEY",
-]
-
 # The key under which the metadata are saved in the .nam:
 TRAINING_KEY = "training"
 
@@ -33,7 +22,6 @@ class Settings(BaseModel):
     User-provided settings
     """
 
-    fit_cab: bool
     ignore_checks: bool
 
 
