@@ -9,8 +9,6 @@ Helpful utilities
 import warnings
 from datetime import datetime
 
-__all__ = ["filter_warnings", "timestamp"]
-
 
 def timestamp() -> str:
     t = datetime.now()

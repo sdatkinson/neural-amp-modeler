@@ -41,8 +41,6 @@ except ImportError:
     _install_is_valid = False
     _HAVE_ACCELERATOR = False
 
-__all__ = ["run"]
-
 if _HAVE_ACCELERATOR:
     _DEFAULT_NUM_EPOCHS = 100
     _DEFAULT_BATCH_SIZE = 16

@@ -15,9 +15,6 @@ from ._version import PROTEUS_VERSION, Version
 from .core import TrainOutput, train
 from .metadata import TRAINING_KEY
 
-__all__ = ["run"]
-
-
 _BUGGY_INPUT_BASENAMES = {
     # 1.1.0 has the spikes at the wrong spots.
     "v1_1_0.wav"
