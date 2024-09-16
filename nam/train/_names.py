@@ -6,8 +6,6 @@ from typing import NamedTuple, Optional, Set
 
 from ._version import PROTEUS_VERSION, Version
 
-__all__ = ["INPUT_BASENAMES", "LATEST_VERSION", "VersionAndName"]
-
 
 class VersionAndName(NamedTuple):
     version: Version
