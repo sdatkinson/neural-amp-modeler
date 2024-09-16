@@ -4,13 +4,13 @@
         "representative of this!"
     ],
     "train": {
-        "start": null,
-        "stop": -432000,
+        "start_seconds": null,
+        "stop_seconds": -9.0,
         "ny": 8192
     },
     "validation": {
-        "start": -432000,
-        "stop": null,
+        "start_seconds": -9.0,
+        "stop_seconds": null,
         "ny": null
     },
     "common": {
