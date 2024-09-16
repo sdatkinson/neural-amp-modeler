@@ -6,9 +6,7 @@
 Code for standardized training with NAM
 """
 
-__all__ = ["colab", "core", "gui", "metadata"]
-
-from . import colab
-from . import core
-from . import gui
-from . import metadata
+from . import colab  # noqa F401
+from . import core  # noqa F401
+from . import gui  # noqa F401
+from . import metadata  # noqa F401
