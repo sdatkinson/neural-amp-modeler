@@ -235,6 +235,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             f"Input file at {input_path} cannot be recognized as any known version!"
         )
     strong_match = False
+
     return version, strong_match
 
 
@@ -776,7 +777,15 @@ def _check_data(
     else:
         print(f"Checks not implemented for input version {input_version}; skip")
         return None
-    return f(input_path, output_path, delay, silent)
+    out = f(input_path, output_path, delay, silent)
+    # Issue 442: Deprecate inputs
+    if input_version.major != 3:
+        print(
+            f"Input version {input_version} is deprecated and will be removed in "
+            "version 0.11 of the trainer. To continue using it, you must ignore checks."
+        )
+        out.passed = False
+    return out
 
 
 def _get_wavenet_config(architecture):
