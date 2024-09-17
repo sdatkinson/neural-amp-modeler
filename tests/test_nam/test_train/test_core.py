@@ -56,6 +56,10 @@ class TestDetectInputVersion(object):
     def test_detect_input_version_v2_0_0_strong(self):
         self._t_detect_input_version_strong(Version(2, 0, 0))
 
+    @requires_v3_0_0
+    def test_detect_input_version_v3_0_0_strong(self):
+        self._t_detect_input_version_strong(Version(3, 0, 0))
+
     @requires_v1_0_0
     def test_detect_input_version_v1_0_0_weak(self):
         self._t_detect_input_version_weak(Version(1, 0, 0))
@@ -67,6 +71,10 @@ class TestDetectInputVersion(object):
     @requires_v2_0_0
     def test_detect_input_version_v2_0_0_weak(self):
         self._t_detect_input_version_weak(Version(2, 0, 0))
+
+    @requires_v3_0_0
+    def test_detect_input_version_v3_0_0_weak(self):
+        self._t_detect_input_version_weak(Version(3, 0, 0))
 
     @classmethod
     def _customize_resource(cls, path_in, path_out):
