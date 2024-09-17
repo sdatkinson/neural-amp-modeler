@@ -18,19 +18,19 @@
         "name": "LSTM",
         "config": {
             "num_layers": 3,
-            "hidden_size": 24,
-            "train_burn_in": 4096,
-            "train_truncate": 512            
+            "hidden_size": 18,
+            "train_burn_in": 8192,
+            "train_truncate": null
         }
     },
     "loss": {
-        "val_loss": "mse",
-        "mask_first": 4096,    
-        "pre_emph_weight": 1.0,
-        "pre_emph_coef": 0.85
+        "val_loss": "esr",
+        "mask_first": 8192,
+        "pre_emph_mrstft_weight": 0.002,
+        "pre_emph_mrstft_coef": 0.85
     },
     "optimizer": {
-        "lr": 0.01
+        "lr": 0.008
     },
     "lr_scheduler": {
         "class": "ExponentialLR",
