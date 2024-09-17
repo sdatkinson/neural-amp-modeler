@@ -42,13 +42,38 @@ def _get_settings() -> dict:
     """
     Make sure that ./settings.json exists; if it does, then read it. If not, empty dict.
     """
-
     if not _SETTINGS_JSON_PATH.exists():
-        _write_settings({})
-    with open(_SETTINGS_JSON_PATH, "r") as fp:
-        return json.load(fp)
+        return dict()
+    else:
+        with open(_SETTINGS_JSON_PATH, "r") as fp:
+            return json.load(fp)
 
 
-def _write_settings(obj: dict):
+class _WriteSettings(object):
+    def __init__(self):
+        self._oserror = False
+
+    def __call__(self, *args, **kwargs):
+        if self._oserror:
+            return
+        # Try-catch for Issue 448
+        try:
+            return _write_settings_unsafe(*args, **kwargs)
+        except OSError as e:
+            if "Read-only filesystem" in str(e):
+                print(
+                    "Failed to write settings--NAM appears to be installed to a "
+                    "read-only filesystem. This is discouraged; consider installing to "
+                    "a location with user-level access."
+                )
+                self._oserror = True
+            else:
+                raise e
+
+
+_write_settings = _WriteSettings()
+
+
+def _write_settings_unsafe(obj: dict):
     with open(_SETTINGS_JSON_PATH, "w") as fp:
         json.dump(obj, fp, indent=4)

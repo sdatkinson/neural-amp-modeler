@@ -982,7 +982,6 @@ def _get_configs(
     batch_size: int,
     fit_mrstft: bool,
 ):
-
     data_config = _get_data_config(
         input_version=input_version,
         input_path=input_path,
@@ -1564,13 +1563,13 @@ def validate_data(
     for split in Split:
         try:
             init_dataset(data_config, split)
-            pytorch_data_split_validation_dict[split.value] = (
-                _PyTorchDataSplitValidation(passed=True, msg=None)
-            )
+            pytorch_data_split_validation_dict[
+                split.value
+            ] = _PyTorchDataSplitValidation(passed=True, msg=None)
         except DataError as e:
-            pytorch_data_split_validation_dict[split.value] = (
-                _PyTorchDataSplitValidation(passed=False, msg=str(e))
-            )
+            pytorch_data_split_validation_dict[
+                split.value
+            ] = _PyTorchDataSplitValidation(passed=False, msg=str(e))
     pytorch_data_validation = _PyTorchDataValidation(
         passed=all(v.passed for v in pytorch_data_split_validation_dict.values()),
         **pytorch_data_split_validation_dict,
