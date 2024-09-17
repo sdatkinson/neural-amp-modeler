@@ -4,22 +4,10 @@
 
 from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import pytest
 
 from nam.train.gui._resources import settings
-
-
-# @contextmanager
-# def _mock_settings_directory():
-#     with TemporaryDirectory() as tmpdir:
-#         try:
-#             old_settings_path = settings._SETTINGS_JSON_PATH
-#             settings._SETTINGS_JSON_PATH = Path(tmpdir)
-#             yield
-#         finally:
-#             settings._SETTINGS_JSON_PATH = old_settings_path
 
 
 class TestReadOnly(object):
