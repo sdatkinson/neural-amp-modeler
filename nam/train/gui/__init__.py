@@ -387,6 +387,7 @@ class _GUIWidgets(Enum):
     METADATA = "metadata"
     ADVANCED_OPTIONS = "advanced_options"
     TRAIN = "train"
+    UPDATE = "update"
 
 
 class _GUI(object):
@@ -486,7 +487,7 @@ class _GUI(object):
         )
         self._widgets[_GUIWidgets.TRAIN].pack()
 
-        self._update_button_if_available()
+        self._pack_update_button_if_update_is_available()
 
         self._check_button_states()
 
@@ -575,6 +576,84 @@ class _GUI(object):
         """
 
         self._wait_while_func(lambda resume: _UserMetadataGUI(resume, self))
+
+    def _pack_update_button(self, version_from: str, version_to: str):
+        """
+        Pack a button that a user can click to update
+        """
+
+        def update_nam():
+            result = subprocess.run(
+                [
+                    f"{sys.executable}",
+                    "-m",
+                    "pip",
+                    "install",
+                    "--upgrade",
+                    "neural-amp-modeler",
+                ]
+            )
+            if result.returncode == 0:
+                self._wait_while_func(
+                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
+                    "Update complete! Restart NAM for changes to take effect.",
+                )
+            else:
+                self._wait_while_func(
+                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
+                    "Update failed! See logs.",
+                )
+
+        self._widgets[_GUIWidgets.UPDATE] = tk.Button(
+            self._frame_update,
+            text=f"Update available! {version_from} -> {version_to}",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=update_nam,
+        )
+        self._widgets[_GUIWidgets.UPDATE].pack()
+
+    def _pack_update_button_if_update_is_available(self):
+        class UpdateInfo(NamedTuple):
+            available: bool
+            current_version: str
+            new_version: str
+
+        def get_info() -> UpdateInfo:
+            # TODO error handling
+            url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
+            response = requests.get(url)
+
+            if response.status_code != 200:
+                print(f"Failed to fetch releases. Status code: {response.status_code}")
+            else:
+                releases = response.json()
+                latest_version = None
+                if releases:
+                    for release in releases:
+                        tag = release["tag_name"]
+                        if not tag.startswith("v"):
+                            print(f"Found invalid version {tag}")
+                        else:
+                            this_version = Version.from_string(tag[1:])
+                            if latest_version is None or this_version > latest_version:
+                                latest_version = this_version
+                else:
+                    print("No releases found for this repository.")
+            if latest_version is None:
+                return
+            available = latest_version > Version.from_string(__version__)
+            return UpdateInfo(
+                available=available,
+                current_version=__version__,
+                new_version=str(latest_version),
+            )
+
+        update_info = get_info()
+        if update_info.available:
+            self._pack_update_button(
+                update_info.current_version, update_info.new_version
+            )
 
     def _resume(self):
         self._set_all_widget_states_to(tk.NORMAL)
@@ -767,80 +846,6 @@ class _GUI(object):
         """
         self._disable()
         func(self._resume, *args, **kwargs)
-
-    def _update_button(self, version_from: str, version_to: str):
-        """
-        Pack a button that a user can click to update
-        """
-
-        def update_nam():
-            retcode = subprocess.run(
-                [
-                    f"{sys.executable}",
-                    "-m",
-                    "pip",
-                    "install",
-                    "--upgrade",
-                    "neural-amp-modeler",
-                ]
-            )
-            if retcode.returncode == 0:
-                self._wait_while_func(
-                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
-                    "Update complete! Restart NAM for changes to take effect.",
-                )
-            else:
-                self._wait_while_func(
-                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
-                    "Update failed! See logs.",
-                )
-
-        self._widgets["update"] = tk.Button(
-            self._frame_update,
-            text=f"Update available! {version_from} -> {version_to}",
-            width=_BUTTON_WIDTH,
-            height=_BUTTON_HEIGHT,
-            command=update_nam,
-        )
-        self._widgets["update"].pack()
-
-    def _update_button_if_available(self):
-        class UpdateInfo(NamedTuple):
-            available: bool
-            current_version: str
-            new_version: str
-
-        def get_info() -> UpdateInfo:
-            # TODO error handling
-            url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
-            response = requests.get(url)
-
-            if response.status_code != 200:
-                print(f"Failed to fetch releases. Status code: {response.status_code}")
-            else:
-                releases = response.json()
-                latest_version = None
-                if releases:
-                    for release in releases:
-                        tag = release["tag_name"]
-                        assert tag.startswith("v")
-                        this_version = Version.from_string(tag[1:])
-                        if latest_version is None or this_version > latest_version:
-                            latest_version = this_version
-                else:
-                    print("No releases found for this repository.")
-            if latest_version is None:
-                return
-            available = latest_version > Version.from_string(__version__)
-            return UpdateInfo(
-                available=available,
-                current_version=__version__,
-                new_version=str(latest_version),
-            )
-
-        update_info = get_info()
-        if update_info.available:
-            self._update_button(update_info.current_version, update_info.new_version)
 
 
 # some typing functions
@@ -1173,6 +1178,7 @@ def run():
     if _install_is_valid:
         _gui = _GUI()
         _gui.mainloop()
+        print("Shut down NAM trainer")
     else:
         _install_error()
 
