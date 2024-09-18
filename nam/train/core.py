@@ -34,16 +34,6 @@ from ..util import filter_warnings
 from ._version import PROTEUS_VERSION, Version
 from . import metadata
 
-__all__ = [
-    "Architecture",
-    "DataValidationOutput",
-    "STANDARD_SAMPLE_RATE",
-    "TrainOutput",
-    "train",
-    "validate_data",
-    "validate_input",
-]
-
 # Training using the simplified trainers in NAM is done at 48k.
 STANDARD_SAMPLE_RATE = 48_000.0
 # Default number of output samples per datum.
@@ -245,6 +235,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             f"Input file at {input_path} cannot be recognized as any known version!"
         )
     strong_match = False
+
     return version, strong_match
 
 
@@ -786,7 +777,15 @@ def _check_data(
     else:
         print(f"Checks not implemented for input version {input_version}; skip")
         return None
-    return f(input_path, output_path, delay, silent)
+    out = f(input_path, output_path, delay, silent)
+    # Issue 442: Deprecate inputs
+    if input_version.major != 3:
+        print(
+            f"Input version {input_version} is deprecated and will be removed in "
+            "version 0.11 of the trainer. To continue using it, you must ignore checks."
+        )
+        out.passed = False
+    return out
 
 
 def _get_wavenet_config(architecture):
@@ -981,9 +980,8 @@ def _get_configs(
     lr: float,
     lr_decay: float,
     batch_size: int,
-    fit_cab: bool,
+    fit_mrstft: bool,
 ):
-
     data_config = _get_data_config(
         input_version=input_version,
         input_path=input_path,
@@ -1022,7 +1020,7 @@ def _get_configs(
             "optimizer": {"lr": 0.01},
             "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
         }
-    if fit_cab:
+    if fit_mrstft:
         model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
         model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
 
@@ -1305,7 +1303,7 @@ def train(
     modelname: str = "model",
     ignore_checks: bool = False,
     local: bool = False,
-    fit_cab: bool = False,
+    fit_mrstft: bool = True,
     threshold_esr: Optional[bool] = None,
     user_metadata: Optional[UserMetadata] = None,
     fast_dev_run: Union[bool, int] = False,
@@ -1361,9 +1359,7 @@ def train(
                 return TrainOutput(
                     model=None,
                     metadata=metadata.TrainingMetadata(
-                        settings=metadata.Settings(
-                            fit_cab=fit_cab, ignore_checks=ignore_checks
-                        ),
+                        settings=metadata.Settings(ignore_checks=ignore_checks),
                         data=metadata.Data(
                             latency=latency_analysis, checks=data_check_output
                         ),
@@ -1383,7 +1379,7 @@ def train(
         lr,
         lr_decay,
         batch_size,
-        fit_cab,
+        fit_mrstft,
     )
     assert (
         "fast_dev_run" not in learning_config
@@ -1409,7 +1405,7 @@ def train(
     model.net.sample_rate = sample_rate
 
     # Put together the metadata that's needed in checkpoints:
-    settings_metadata = metadata.Settings(fit_cab=fit_cab, ignore_checks=ignore_checks)
+    settings_metadata = metadata.Settings(ignore_checks=ignore_checks)
     data_metadata = metadata.Data(latency=latency_analysis, checks=data_check_output)
 
     trainer = pl.Trainer(
@@ -1567,13 +1563,13 @@ def validate_data(
     for split in Split:
         try:
             init_dataset(data_config, split)
-            pytorch_data_split_validation_dict[split.value] = (
-                _PyTorchDataSplitValidation(passed=True, msg=None)
-            )
+            pytorch_data_split_validation_dict[
+                split.value
+            ] = _PyTorchDataSplitValidation(passed=True, msg=None)
         except DataError as e:
-            pytorch_data_split_validation_dict[split.value] = (
-                _PyTorchDataSplitValidation(passed=False, msg=str(e))
-            )
+            pytorch_data_split_validation_dict[
+                split.value
+            ] = _PyTorchDataSplitValidation(passed=False, msg=str(e))
     pytorch_data_validation = _PyTorchDataValidation(
         passed=all(v.passed for v in pytorch_data_split_validation_dict.values()),
         **pytorch_data_split_validation_dict,

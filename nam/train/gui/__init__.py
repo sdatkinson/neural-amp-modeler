@@ -10,21 +10,6 @@ Usage:
 >>> run()
 """
 
-
-# Hack to recover graceful shutdowns in Windows.
-# This has to happen ASAP
-# See:
-# https://github.com/sdatkinson/neural-amp-modeler/issues/105
-# https://stackoverflow.com/a/44822794
-def _ensure_graceful_shutdowns():
-    import os
-
-    if os.name == "nt":  # OS is Windows
-        os.environ["FOR_DISABLE_CONSOLE_CTRL_HANDLER"] = "1"
-
-
-_ensure_graceful_shutdowns()
-
 import re
 import requests
 import tkinter as tk
@@ -58,8 +43,6 @@ try:  # 3rd-party and 1st-party imports
 except ImportError:
     _install_is_valid = False
     _HAVE_ACCELERATOR = False
-
-__all__ = ["run"]
 
 if _HAVE_ACCELERATOR:
     _DEFAULT_NUM_EPOCHS = 100
@@ -232,6 +215,7 @@ class _InputPathButton(_PathButton):
     @classmethod
     def _download_input_file(cls):
         file_urls = {
+            "input.wav": "https://drive.google.com/file/d/1KbaS4oXXNEuh2aCPLwKrPdf5KFOjda8G/view?usp=drive_link",
             "v3_0_0.wav": "https://drive.google.com/file/d/1Pgf8PdE0rKB1TD4TRPKbpNo1ByR3IOm9/view?usp=drive_link",
             "v2_0_0.wav": "https://drive.google.com/file/d/1xnyJP_IZ7NuyDSTJfn-Jmc5lw0IE7nfu/view?usp=drive_link",
             "v1_1_1.wav": "",
@@ -278,7 +262,6 @@ class _CheckboxKeys(Enum):
     Keys for checkboxes
     """
 
-    FIT_CAB = "fit_cab"
     SILENT_TRAINING = "silent_training"
     SAVE_PLOT = "save_plot"
 
@@ -507,6 +490,18 @@ class _GUI(object):
 
         self._check_button_states()
 
+    def get_mrstft_fit(self) -> bool:
+        """
+        Use a pre-emphasized multi-resolution shot-time Fourier transform loss during
+        training.
+
+        This improves agreement in the high frequencies, usually with a minimial loss in
+        ESR.
+        """
+        # Leave this as a public method to anticipate an extension to make it
+        # changeable.
+        return True
+
     def _check_button_states(self):
         """
         Determine if any buttons should be disabled
@@ -548,7 +543,6 @@ class _GUI(object):
             self._widgets[key] = check_button  # For tracking in set-all-widgets ops
 
         self._checkboxes: Dict[_CheckboxKeys, Checkbox] = dict()
-        make_checkbox(_CheckboxKeys.FIT_CAB, "Cab modeling", False)
         make_checkbox(
             _CheckboxKeys.SILENT_TRAINING,
             "Silent run (suggested for batch training)",
@@ -639,7 +633,7 @@ class _GUI(object):
                 modelname=basename,
                 ignore_checks=ignore_checks,
                 local=True,
-                fit_cab=self._checkboxes[_CheckboxKeys.FIT_CAB].variable.get(),
+                fit_mrstft=self.get_mrstft_fit(),
                 threshold_esr=threshold_esr,
                 user_metadata=user_metadata,
             )

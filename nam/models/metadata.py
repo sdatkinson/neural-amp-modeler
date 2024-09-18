@@ -7,11 +7,9 @@ Metadata about models
 """
 
 from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel
-
-__all__ = ["GearType", "ToneType", "Date", "UserMetadata"]
 
 
 # Note: if you change this enum, you need to update the options in easy_colab.ipynb!

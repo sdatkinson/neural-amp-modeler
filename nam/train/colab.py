@@ -15,9 +15,6 @@ from ._version import PROTEUS_VERSION, Version
 from .core import TrainOutput, train
 from .metadata import TRAINING_KEY
 
-__all__ = ["run"]
-
-
 _BUGGY_INPUT_BASENAMES = {
     # 1.1.0 has the spikes at the wrong spots.
     "v1_1_0.wav"
@@ -34,7 +31,7 @@ def _check_for_files() -> Tuple[Version, str]:
             raise RuntimeError(
                 f"Detected input signal {name} that has known bugs. Please download the latest input signal, {LATEST_VERSION[1]}"
             )
-    for input_version, input_basename in INPUT_BASENAMES:
+    for input_version, input_basename, other_names in INPUT_BASENAMES:
         if Path(input_basename).exists():
             if input_version == PROTEUS_VERSION:
                 print(f"Using Proteus input file...")
@@ -45,10 +42,17 @@ def _check_for_files() -> Tuple[Version, str]:
                     f"{LATEST_VERSION.name}."
                 )
             break
+        if other_names is not None:
+            for other_name in other_names:
+                if Path(other_name).exists():
+                    raise RuntimeError(
+                        f"Found out-of-date input file {other_name}. Rename it to {input_basename} and re-run."
+                    )
     else:
         raise FileNotFoundError(
             f"Didn't find NAM's input audio file. Please upload {LATEST_VERSION.name}"
         )
+    # We found it
     if not Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
@@ -80,7 +84,7 @@ def run(
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
     ignore_checks: bool = False,
-    fit_cab: bool = False,
+    fit_mrstft: bool = True,
 ):
     """
     :param epochs: How many epochs we'll train for.
@@ -111,7 +115,7 @@ def run(
         seed=seed,
         local=False,
         ignore_checks=ignore_checks,
-        fit_cab=fit_cab,
+        fit_mrstft=fit_mrstft,
     )
     model = train_output.model
     training_metadata = train_output.metadata
