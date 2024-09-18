@@ -6,6 +6,8 @@
 Version utility
 """
 
+from .._version import __version__
+
 
 class Version:
     def __init__(self, major: int, minor: int, patch: int):
@@ -40,3 +42,7 @@ class Version:
 
 
 PROTEUS_VERSION = Version(4, 0, 0)
+
+
+def get_current_version() -> Version:
+    return Version.from_string(__version__)

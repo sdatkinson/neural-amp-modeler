@@ -35,7 +35,7 @@ try:  # 3rd-party and 1st-party imports
     # Ok private access here--this is technically allowed access
     from nam.train import metadata
     from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
-    from nam.train._version import Version
+    from nam.train._version import Version, get_current_version
     from nam.train.metadata import TRAINING_KEY
 
     _install_is_valid = True
@@ -606,7 +606,7 @@ class _GUI(object):
 
         self._widgets[_GUIWidgets.UPDATE] = tk.Button(
             self._frame_update,
-            text=f"Update available! {version_from} -> {version_to}",
+            text=f"Update trainer ({version_from} -> {version_to})",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=update_nam,
@@ -642,15 +642,16 @@ class _GUI(object):
                     print("No releases found for this repository.")
             if latest_version is None:
                 return
-            available = latest_version > Version.from_string(__version__)
+            current_version = get_current_version()
+            update_available = latest_version > current_version
             return UpdateInfo(
-                available=available,
-                current_version=__version__,
+                available=update_available,
+                current_version=str(current_version),
                 new_version=str(latest_version),
             )
 
         update_info = get_info()
-        if update_info.available:
+        if True:  # update_info.available:
             self._pack_update_button(
                 update_info.current_version, update_info.new_version
             )
