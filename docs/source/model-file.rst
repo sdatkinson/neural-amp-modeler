@@ -21,10 +21,10 @@ There are a few keys you should expect to find with the following values:
 * ``"weights"``: a list of float-type numbers that are the weights (parameters) 
   of the model. How they map into the model is architecture-specific. Looking at
   ``._export_weights()`` will usually tell you what you need to know (e.g. for 
-  ``WaveNet`` 
-  `here <https://github.com/sdatkinson/neural-amp-modeler/blob/cb100787af4b16764ac94a2edf9bcf7dc5ae59a7/nam/models/wavenet.py#L428>`_ 
-  and ``LSTM`` 
-  `here <https://github.com/sdatkinson/neural-amp-modeler/blob/cb100787af4b16764ac94a2edf9bcf7dc5ae59a7/nam/models/recurrent.py#L317>`_.)
+  ``WaveNet`` at
+  `wavenet.py <https://github.com/sdatkinson/neural-amp-modeler/blob/cb100787af4b16764ac94a2edf9bcf7dc5ae59a7/nam/models/wavenet.py#L428>`_ 
+  and ``LSTM`` at
+  `recurrent.py <https://github.com/sdatkinson/neural-amp-modeler/blob/cb100787af4b16764ac94a2edf9bcf7dc5ae59a7/nam/models/recurrent.py#L317>`_.)
 
 There are also some optional keys that ``nam`` may use:
 

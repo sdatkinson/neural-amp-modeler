@@ -43,11 +43,10 @@ have made high-quality tutorials.
 However, if you want to skip reamping for your first model, you can download 
 these pre-made files:
 
-* `v1_1_1.wav <https://drive.google.com/file/d/1CMj2uv_x8GIs-3X1reo7squHOVfkOa6s/view?usp=drive_link>`_, 
+* `input.wav <https://drive.google.com/file/d/1KbaS4oXXNEuh2aCPLwKrPdf5KFOjda8G/view?usp=sharing>`_, 
   a standardized input file.
-* `output.wav <https://drive.google.com/file/d/1e0pDzsWgtqBU87NGqa-4FbriDCkccg3q/view?usp=drive_link>`_, 
-  a reamp of the same overdrive used to make 
-  `ParametricOD <https://www.neuralampmodeler.com/post/the-first-publicly-available-parametric-neural-amp-model>`_.
+* `output.wav <https://drive.google.com/file/d/1NrpQLBbCDHyu0RPsne4YcjIpi5-rEP6w/view?usp=sharing>`_, 
+  a reamp of a high-gain tube head.
 
 To upload your data to Colab, click the Folder icon here:
 
@@ -88,3 +87,7 @@ If you don't see it, you might have to refresh the file browser:
 
 .. image:: media/colab/refresh.png
     :scale: 20 %
+
+To use it, point 
+`the plugin <https://github.com/sdatkinson/NeuralAmpModelerPlugin>`_ at the file
+and you're good to go!
