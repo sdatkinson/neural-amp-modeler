@@ -36,7 +36,6 @@ try:  # 3rd-party and 1st-party imports
     from nam.train import metadata
     from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
     from nam.train._version import Version, get_current_version
-    from nam.train.metadata import TRAINING_KEY
 
     _install_is_valid = True
     _HAVE_ACCELERATOR = torch.cuda.is_available() or torch.backends.mps.is_available()
@@ -577,7 +576,7 @@ class _GUI(object):
 
         self._wait_while_func(lambda resume: _UserMetadataGUI(resume, self))
 
-    def _pack_update_button(self, version_from: str, version_to: str):
+    def _pack_update_button(self, version_from: Version, version_to: Version):
         """
         Pack a button that a user can click to update
         """
@@ -606,7 +605,7 @@ class _GUI(object):
 
         self._widgets[_GUIWidgets.UPDATE] = tk.Button(
             self._frame_update,
-            text=f"Update trainer ({version_from} -> {version_to})",
+            text=f"Update ({str(version_from)} -> {str(version_to)})",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=update_nam,
@@ -616,16 +615,25 @@ class _GUI(object):
     def _pack_update_button_if_update_is_available(self):
         class UpdateInfo(NamedTuple):
             available: bool
-            current_version: str
-            new_version: str
+            current_version: Version
+            new_version: Optional[Version]
 
         def get_info() -> UpdateInfo:
             # TODO error handling
             url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
-            response = requests.get(url)
-
+            current_version = get_current_version()
+            try:
+                response = requests.get(url)
+            except requests.exceptions.ConnectionError:
+                print("WARNING: Failed to reach the server to check for updates")
+                return UpdateInfo(
+                    available=False, current_version=current_version, new_version=None
+                )
             if response.status_code != 200:
                 print(f"Failed to fetch releases. Status code: {response.status_code}")
+                return UpdateInfo(
+                    available=False, current_version=current_version, new_version=None
+                )
             else:
                 releases = response.json()
                 latest_version = None
@@ -640,18 +648,17 @@ class _GUI(object):
                                 latest_version = this_version
                 else:
                     print("No releases found for this repository.")
-            if latest_version is None:
-                return
-            current_version = get_current_version()
-            update_available = latest_version > current_version
+            update_available = (
+                latest_version is not None and latest_version > current_version
+            )
             return UpdateInfo(
                 available=update_available,
-                current_version=str(current_version),
-                new_version=str(latest_version),
+                current_version=current_version,
+                new_version=latest_version,
             )
 
         update_info = get_info()
-        if True:  # update_info.available:
+        if update_info.available:
             self._pack_update_button(
                 update_info.current_version, update_info.new_version
             )
