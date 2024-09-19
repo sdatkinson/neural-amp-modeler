@@ -2,10 +2,7 @@
 # Created Date: Friday May 24th 2024
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import importlib
-import os
 import tkinter as tk
-from pathlib import Path
 
 import pytest
 
