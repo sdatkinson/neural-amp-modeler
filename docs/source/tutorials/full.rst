@@ -28,10 +28,8 @@ signal from it (either by reamping a pre-recorded test signal or by
 simultaneously recording your DI and the effected tone). For your first time, 
 you can download the following pre-made files:
 
-* `v1_1_1.wav <https://drive.google.com/file/d/1CMj2uv_x8GIs-3X1reo7squHOVfkOa6s/view?usp=drive_link>`_ 
-  (input)
-* `output.wav <https://drive.google.com/file/d/1e0pDzsWgtqBU87NGqa-4FbriDCkccg3q/view?usp=drive_link>`_ 
-  (output)
+* `input.wav <https://drive.google.com/file/d/1KbaS4oXXNEuh2aCPLwKrPdf5KFOjda8G/view?usp=sharing>`_ 
+* `output.wav <https://drive.google.com/file/d/1NrpQLBbCDHyu0RPsne4YcjIpi5-rEP6w/view?usp=sharing>`_ 
 
 Next, make a file called e.g. ``data.json`` by copying
 `nam_full_configs/data/single_pair.json <https://github.com/sdatkinson/neural-amp-modeler/blob/main/nam_full_configs/data/single_pair.json>`_
@@ -40,7 +38,7 @@ and editing it to point to your audio files like this:
 .. code-block:: json
 
     "common": {
-        "x_path": "C:\\path\\to\\v1_1_1.wav",
+        "x_path": "C:\\path\\to\\input.wav",
         "y_path": "C:\\path\\to\\output.wav",
         "delay": 0
     }
