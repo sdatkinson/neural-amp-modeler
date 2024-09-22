@@ -551,7 +551,7 @@ def _analyze_latency(
     return metadata.Latency(manual=user_latency, calibration=calibration_output)
 
 
-def _get_lstm_config(architecture):
+def get_lstm_config(architecture):
     return {
         Architecture.STANDARD: {
             "num_layers": 1,
@@ -788,7 +788,7 @@ def _check_data(
     return out
 
 
-def _get_wavenet_config(architecture):
+def get_wavenet_config(architecture):
     return {
         Architecture.STANDARD: {
             "layers_configs": [
@@ -996,7 +996,7 @@ def _get_configs(
                 "name": "WaveNet",
                 # This should do decently. If you really want a nice model, try turning up
                 # "channels" in the first block and "input_size" in the second from 12 to 16.
-                "config": _get_wavenet_config(architecture),
+                "config": get_wavenet_config(architecture),
             },
             "loss": {"val_loss": "esr"},
             "optimizer": {"lr": lr},
@@ -1009,7 +1009,7 @@ def _get_configs(
         model_config = {
             "net": {
                 "name": "LSTM",
-                "config": _get_lstm_config(architecture),
+                "config": get_lstm_config(architecture),
             },
             "loss": {
                 "val_loss": "mse",
@@ -1563,13 +1563,13 @@ def validate_data(
     for split in Split:
         try:
             init_dataset(data_config, split)
-            pytorch_data_split_validation_dict[
-                split.value
-            ] = _PyTorchDataSplitValidation(passed=True, msg=None)
+            pytorch_data_split_validation_dict[split.value] = (
+                _PyTorchDataSplitValidation(passed=True, msg=None)
+            )
         except DataError as e:
-            pytorch_data_split_validation_dict[
-                split.value
-            ] = _PyTorchDataSplitValidation(passed=False, msg=str(e))
+            pytorch_data_split_validation_dict[split.value] = (
+                _PyTorchDataSplitValidation(passed=False, msg=str(e))
+            )
     pytorch_data_validation = _PyTorchDataValidation(
         passed=all(v.passed for v in pytorch_data_split_validation_dict.values()),
         **pytorch_data_split_validation_dict,

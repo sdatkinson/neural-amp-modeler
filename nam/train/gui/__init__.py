@@ -21,7 +21,7 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from tkinter import filedialog
-from typing import Callable, Dict, NamedTuple, Optional, Sequence
+from typing import Any, Callable, Dict, NamedTuple, Optional, Sequence
 
 try:  # 3rd-party and 1st-party imports
     import torch
@@ -496,6 +496,17 @@ class GUI(object):
 
         self._check_button_states()
 
+    def core_train_kwargs(self) -> Dict[str, Any]:
+        """
+        Get any additional kwargs to provide to `core.train`
+        """
+        return {
+            "lr": 0.004,
+            "lr_decay": _DEFAULT_LR_DECAY,
+            "batch_size": _DEFAULT_BATCH_SIZE,
+            "seed": 0,
+        }
+
     def get_mrstft_fit(self) -> bool:
         """
         Use a pre-emphasized multi-resolution shot-time Fourier transform loss during
@@ -690,13 +701,6 @@ class GUI(object):
         file_list = self._widgets[_GUIWidgets.OUTPUT_PATH].val
         threshold_esr = self.advanced_options.threshold_esr
 
-        # Advanced-er options
-        # If you're poking around looking for these, then maybe it's time to learn to
-        # use the command-line scripts ;)
-        lr = 0.004
-        lr_decay = _DEFAULT_LR_DECAY
-        batch_size = _DEFAULT_BATCH_SIZE
-        seed = 0
         # Run it
         for file in file_list:
             print(f"Now training {file}")
@@ -712,10 +716,6 @@ class GUI(object):
                 epochs=num_epochs,
                 latency=user_latency,
                 architecture=architecture,
-                batch_size=batch_size,
-                lr=lr,
-                lr_decay=lr_decay,
-                seed=seed,
                 silent=self._checkboxes[_CheckboxKeys.SILENT_TRAINING].variable.get(),
                 save_plot=self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.get(),
                 modelname=basename,
@@ -724,6 +724,7 @@ class GUI(object):
                 fit_mrstft=self.get_mrstft_fit(),
                 threshold_esr=threshold_esr,
                 user_metadata=user_metadata,
+                **self.core_train_kwargs(),
             )
 
             if train_output.model is None:
@@ -743,8 +744,8 @@ class GUI(object):
             )
             print("Done!")
 
-        # Metadata was only valid for 1 run, so make sure it's not used again unless
-        # the user re-visits the window and clicks "ok"
+        # Metadata was only valid for 1 run (possibly a batch), so make sure it's not
+        # used again unless the user re-visits the window and clicks "ok".
         self.user_metadata_flag = False
 
     def _validate_all_data(
@@ -884,7 +885,7 @@ def _rstripped_str(val):
     return str(val).rstrip()
 
 
-class _LabeledOptionMenu(object):
+class LabeledOptionMenu(object):
     """
     Label (left) and radio buttons (right)
     """
@@ -937,7 +938,7 @@ class _LabeledOptionMenu(object):
         self._selected_value = self._choices(val)
 
 
-class _LabeledText(object):
+class LabeledText(object):
     """
     Label (left) and text input (right)
     """
@@ -1040,7 +1041,7 @@ class AdvancedOptionsGUI(object):
         # Architecture: radio buttons
         self._frame_architecture = tk.Frame(self._root)
         self._frame_architecture.pack()
-        self._architecture = _LabeledOptionMenu(
+        self._architecture = LabeledOptionMenu(
             self._frame_architecture,
             "Architecture",
             core.Architecture,
@@ -1051,7 +1052,7 @@ class AdvancedOptionsGUI(object):
         self._frame_epochs = tk.Frame(self._root)
         self._frame_epochs.pack()
 
-        self._epochs = _LabeledText(
+        self._epochs = LabeledText(
             self._frame_epochs,
             "Epochs",
             default=str(self._parent.advanced_options.num_epochs),
@@ -1062,7 +1063,7 @@ class AdvancedOptionsGUI(object):
         self._frame_latency = tk.Frame(self._root)
         self._frame_latency.pack()
 
-        self._latency = _LabeledText(
+        self._latency = LabeledText(
             self._frame_latency,
             "Reamp latency",
             default=_type_or_null_inv(self._parent.advanced_options.latency),
@@ -1072,7 +1073,7 @@ class AdvancedOptionsGUI(object):
         # Threshold ESR
         self._frame_threshold_esr = tk.Frame(self._root)
         self._frame_threshold_esr.pack()
-        self._threshold_esr = _LabeledText(
+        self._threshold_esr = LabeledText(
             self._frame_threshold_esr,
             "Threshold ESR",
             default=_type_or_null_inv(self._parent.advanced_options.threshold_esr),
@@ -1089,12 +1090,12 @@ class _UserMetadataGUI(object):
         self._root = _TopLevelWithOk(self._apply, resume_main)
         self._root.title("Metadata")
 
-        LabeledText = partial(_LabeledText, right_width=_METADATA_RIGHT_WIDTH)
+        LabeledText_ = partial(LabeledText, right_width=_METADATA_RIGHT_WIDTH)
 
         # Name
         self._frame_name = tk.Frame(self._root)
         self._frame_name.pack()
-        self._name = LabeledText(
+        self._name = LabeledText_(
             self._frame_name,
             "NAM name",
             default=parent.user_metadata.name,
@@ -1103,7 +1104,7 @@ class _UserMetadataGUI(object):
         # Modeled by
         self._frame_modeled_by = tk.Frame(self._root)
         self._frame_modeled_by.pack()
-        self._modeled_by = LabeledText(
+        self._modeled_by = LabeledText_(
             self._frame_modeled_by,
             "Modeled by",
             default=parent.user_metadata.modeled_by,
@@ -1112,7 +1113,7 @@ class _UserMetadataGUI(object):
         # Gear make
         self._frame_gear_make = tk.Frame(self._root)
         self._frame_gear_make.pack()
-        self._gear_make = LabeledText(
+        self._gear_make = LabeledText_(
             self._frame_gear_make,
             "Gear make",
             default=parent.user_metadata.gear_make,
@@ -1121,7 +1122,7 @@ class _UserMetadataGUI(object):
         # Gear model
         self._frame_gear_model = tk.Frame(self._root)
         self._frame_gear_model.pack()
-        self._gear_model = LabeledText(
+        self._gear_model = LabeledText_(
             self._frame_gear_model,
             "Gear model",
             default=parent.user_metadata.gear_model,
@@ -1130,7 +1131,7 @@ class _UserMetadataGUI(object):
         # Gear type
         self._frame_gear_type = tk.Frame(self._root)
         self._frame_gear_type.pack()
-        self._gear_type = _LabeledOptionMenu(
+        self._gear_type = LabeledOptionMenu(
             self._frame_gear_type,
             "Gear type",
             GearType,
@@ -1139,7 +1140,7 @@ class _UserMetadataGUI(object):
         # Tone type
         self._frame_tone_type = tk.Frame(self._root)
         self._frame_tone_type.pack()
-        self._tone_type = _LabeledOptionMenu(
+        self._tone_type = LabeledOptionMenu(
             self._frame_tone_type,
             "Tone type",
             ToneType,
