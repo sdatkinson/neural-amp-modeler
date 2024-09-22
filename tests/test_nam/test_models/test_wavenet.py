@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from nam.models.wavenet import WaveNet
-from nam.train.core import Architecture, _get_wavenet_config
+from nam.train.core import Architecture, get_wavenet_config
 
 
 # from .base import Base
@@ -14,7 +14,7 @@ from nam.train.core import Architecture, _get_wavenet_config
 
 class TestWaveNet(object):
     def test_import_weights(self):
-        config = _get_wavenet_config(Architecture.FEATHER)
+        config = get_wavenet_config(Architecture.FEATHER)
         model_1 = WaveNet.init_from_config(config)
         model_2 = WaveNet.init_from_config(config)
 
