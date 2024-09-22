@@ -586,7 +586,7 @@ class GUI(object):
         Open window for metadata
         """
 
-        self._wait_while_func(lambda resume: _UserMetadataGUI(resume, self))
+        self._wait_while_func(lambda resume: UserMetadataGUI(resume, self))
 
     def _pack_update_button(self, version_from: Version, version_to: Version):
         """
@@ -1081,16 +1081,47 @@ class AdvancedOptionsGUI(object):
         )
 
 
-class _UserMetadataGUI(object):
+class UserMetadataGUI(object):
     # Things that are auto-filled:
     # Model date
     # gain
     def __init__(self, resume_main, parent: GUI):
         self._parent = parent
-        self._root = _TopLevelWithOk(self._apply, resume_main)
+        self._root = _TopLevelWithOk(self.apply, resume_main)
         self._root.title("Metadata")
 
+        # Pack all the widgets
+        self.pack()
+
+        # "Ok": apply and destroy
+        self._frame_ok = tk.Frame(self._root)
+        self._frame_ok.pack()
+        self._button_ok = tk.Button(
+            self._frame_ok,
+            text="Ok",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=lambda: self._root.destroy(pressed_ok=True),
+        )
+        self._button_ok.pack()
+
+    def apply(self):
+        """
+        Set values to parent and destroy this object
+        """
+        self._parent.user_metadata.name = self._name.get()
+        self._parent.user_metadata.modeled_by = self._modeled_by.get()
+        self._parent.user_metadata.gear_make = self._gear_make.get()
+        self._parent.user_metadata.gear_model = self._gear_model.get()
+        self._parent.user_metadata.gear_type = self._gear_type.get()
+        self._parent.user_metadata.tone_type = self._tone_type.get()
+        self._parent.user_metadata.input_level_dbu = self._input_dbu.get()
+        self._parent.user_metadata.output_level_dbu = self._output_dbu.get()
+        self._parent.user_metadata_flag = True
+
+    def pack(self):
         LabeledText_ = partial(LabeledText, right_width=_METADATA_RIGHT_WIDTH)
+        parent = self._parent
 
         # Name
         self._frame_name = tk.Frame(self._root)
@@ -1146,30 +1177,23 @@ class _UserMetadataGUI(object):
             ToneType,
             default=parent.user_metadata.tone_type,
         )
-
-        # "Ok": apply and destroy
-        self._frame_ok = tk.Frame(self._root)
-        self._frame_ok.pack()
-        self._button_ok = tk.Button(
-            self._frame_ok,
-            text="Ok",
-            width=_BUTTON_WIDTH,
-            height=_BUTTON_HEIGHT,
-            command=lambda: self._root.destroy(pressed_ok=True),
+        # Calibration: input & output dBu
+        self._frame_input_dbu = tk.Frame(self._root)
+        self._frame_input_dbu.pack()
+        self._input_dbu = LabeledText_(
+            self._frame_input_dbu,
+            "Input calibration (dBu)",
+            default=parent.user_metadata.input_level_dbu,
+            type=float,
         )
-        self._button_ok.pack()
-
-    def _apply(self):
-        """
-        Set values to parent and destroy this object
-        """
-        self._parent.user_metadata.name = self._name.get()
-        self._parent.user_metadata.modeled_by = self._modeled_by.get()
-        self._parent.user_metadata.gear_make = self._gear_make.get()
-        self._parent.user_metadata.gear_model = self._gear_model.get()
-        self._parent.user_metadata.gear_type = self._gear_type.get()
-        self._parent.user_metadata.tone_type = self._tone_type.get()
-        self._parent.user_metadata_flag = True
+        self._frame_output_dbu = tk.Frame(self._root)
+        self._frame_output_dbu.pack()
+        self._output_dbu = LabeledText_(
+            self._frame_output_dbu,
+            "Output calibration (dBu)",
+            default=parent.user_metadata.output_level_dbu,
+            type=float,
+        )
 
 
 def _install_error():

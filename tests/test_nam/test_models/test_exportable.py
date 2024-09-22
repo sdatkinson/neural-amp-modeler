@@ -10,7 +10,7 @@ import json
 from enum import Enum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import numpy as np
 import pytest
@@ -57,6 +57,8 @@ class TestExportable(object):
                     gear_make="SteveCo",
                     gear_model="SteveAmp",
                     tone_type=metadata.ToneType.HI_GAIN,
+                    input_level_dbu=-6.5,
+                    output_level_dbu=-12.5,
                 ),
                 None,
             ),
