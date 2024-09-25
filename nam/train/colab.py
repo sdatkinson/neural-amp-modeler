@@ -71,16 +71,16 @@ def _get_valid_export_directory():
 
 
 def run(
-    epochs: int = 100,
+    epochs: int = 500,
     delay: Optional[int] = None,
     model_type: str = "WaveNet",
     architecture: str = "standard",
-    lr: float = 0.004,
+    lr: float = 0.002, #!#
     lr_decay: float = 0.007,
     seed: Optional[int] = 0,
     user_metadata: Optional[UserMetadata] = None,
     ignore_checks: bool = False,
-    fit_cab: bool = False,
+    fit_cab: bool = True, #!#
 ):
     """
     :param epochs: How many epochs we'll train for.
