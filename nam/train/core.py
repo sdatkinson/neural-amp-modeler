@@ -767,32 +767,6 @@ def _check_v4(
         passed = False
     return metadata.DataChecks(version=4, passed=passed)
 
-def _check_x_train_48khz_20240622(
-    input_path, output_path, silent: bool, *args, **kwargs
-) -> metadata.DataChecks:
-    with torch.no_grad():
-        print("x_train_48khz_20240622 checks...")
-        rate = _x_train_48khz_20240622_DATA_INFO.rate
-        y = wav_to_tensor(output_path, rate=rate)
-        y_val_1 = y[: _x_train_48khz_20240622_DATA_INFO.t_validate]
-        y_val_2 = y[-_x_train_48khz_20240622_DATA_INFO.t_validate :]
-        esr_replicate = esr(y_val_1, y_val_2).item()
-        print(f"Replicate ESR is {esr_replicate:.8f}.")
-        esr_replicate_threshold = 0.01
-        if esr_replicate > esr_replicate_threshold:
-            print(_esr_validation_replicate_msg(esr_replicate_threshold))
-            if not silent:
-                plt.figure()
-                t = np.arange(len(y_val_1)) / rate
-                plt.plot(t, y_val_1, label="Validation 1")
-                plt.plot(t, y_val_2, label="Validation 2")
-                plt.xlabel("Time (sec)")
-                plt.legend()
-                plt.title("x_train_48khz_20240622 check: Validation replicate FAILURE")
-                plt.show()
-            return metadata.DataChecks(version=3, passed=False)
-    return metadata.DataChecks(version=3, passed=True)
-
 
 def _check_data(
     input_path: str, output_path: str, input_version: Version, delay: int, silent: bool
@@ -810,8 +784,6 @@ def _check_data(
         f = _check_v3
     elif input_version.major == 4:
         f = _check_v4
-    elif input_version.major == 5:
-        f = _check_x_train_48khz_20240622
     else:
         print(f"Checks not implemented for input version {input_version}; skip")
         return None
@@ -985,8 +957,6 @@ def _get_data_config(
         2: _V2_DATA_INFO,
         3: _V3_DATA_INFO,
         4: _V4_DATA_INFO,
-        5: _x_train_48khz_20240622_DATA_INFO,
-        x_train_48khz_20240622
     }[input_version.major]
     train_kwargs, validation_kwargs = get_kwargs(data_info)
     data_config = {
@@ -1036,7 +1006,7 @@ def _get_configs(
             "optimizer": {"lr": lr},
             "lr_scheduler": {
                 "class": "ExponentialLR",
-                "kwargs": {"gamma": 1.0 - lr_decay},
+                "kwargs": {"gamma": 0.9985 - lr_decay}, #!#
             },
         }
     else:
@@ -1329,7 +1299,7 @@ def train(
     architecture: Union[Architecture, str] = Architecture.STANDARD,
     batch_size: int = 16,
     ny: int = _NY_DEFAULT,
-    lr=0.004,
+    lr=0.002, #!#
     lr_decay=0.007,
     seed: Optional[int] = 0,
     save_plot: bool = False,
