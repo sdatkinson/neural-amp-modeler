@@ -91,7 +91,6 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             "ede3b9d82135ce10c7ace3bb27469422": Version(2, 0, 0),
             "36cd1af62985c2fac3e654333e36431e": Version(3, 0, 0),
             "80e224bd5622fd6153ff1fd9f34cb3bd": PROTEUS_VERSION,
-            "54f786135d8a214ab9ca0e11561adbb2": Version(x, train, 48khz), #!# md5
         }.get(file_hash)
         if version is None:
             print(
@@ -155,21 +154,6 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
                 start_hash = _hash(x[:end_of_start_interval])
                 end_hash = _hash(x[start_of_end_interval:])
                 return start_hash, end_hash
-#!#
-            def assign_hashes_x_train_48khz_20240622(path) -> Hashes:
-                # Use this to create recognized hashes for new files
-                x, info = wav_to_np(path, info=True)
-                rate = info.rate
-                if rate != _x_train_48khz_20240622_DATA_INFO.rate:
-                    return None, None
-                # Times of intervals, in seconds
-                # See below.
-                end_of_start_interval = 17 * rate  # Start at 0
-                start_of_end_interval = -9 * rate
-                start_hash = _hash(x[:end_of_start_interval])
-                end_hash = _hash(x[start_of_end_interval:])
-                return start_hash, end_hash
-#!#
 
             def assign_hash_v4(path) -> Hash:
                 # Use this to create recognized hashes for new files
@@ -184,8 +168,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             start_hash_v1, end_hash_v1 = assign_hashes_v1(path)
             start_hash_v2, end_hash_v2 = assign_hashes_v2(path)
             start_hash_v3, end_hash_v3 = assign_hashes_v3(path)
-            start_hash_x_train_48khz_20240622, end_hash_x_train_48khz_20240622 = assign_hashes_x_train_48khz_20240622(path)
-            
+                        
             hash_v4 = assign_hash_v4(path)
             return (
                 start_hash_v1,
@@ -194,8 +177,6 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
                 end_hash_v2,
                 start_hash_v3,
                 end_hash_v3,
-                start_hash_x_train_48khz_20240622, #!#
-                end_hash_x_train_48khz_20240622, #!#
                 hash_v4,
             )
 
@@ -205,9 +186,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             start_hash_v2,
             end_hash_v2,
             start_hash_v3,
-            end_hash_v3,
-            start_hash_x_train_48khz_20240622, #!#
-            end_hash_x_train_48khz_20240622, #!#            
+            end_hash_v3,           
             hash_v4,
         ) = assign_hash(input_path)
         print(
@@ -218,21 +197,11 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             f" End (v2)   : {end_hash_v2}\n"
             f" Start (v3) : {start_hash_v3}\n"
             f" End (v3)   : {end_hash_v3}\n"
-            f" Start (x_train_48khz_20240622) : {start_hash_x_train_48khz_20240622}\n" #!#
-            f" End (x_train_48khz_20240622)   : {end_hash_x_train_48khz_20240622}\n" #!#
             f" Proteus    : {hash_v4}\n"
         )
 
         # Check for matches, starting with most recent. Proteus last since its match is
         # the most permissive.
-         version = {
-            (
-                "dadb5d62f6c3973a59bf01439799809b", #!# NEED TO CORRECT
-                "8458126969a3f9d8e19a53554eb1fd52", #!# NEED TO CORRECT
-            ): Version(x, train, 48khz) #!# ?
-        }.get((start_hash_x_train_48khz_20240622, end_hash_x_train_48khz_20240622))
-        if version is not None:
-            return version
         version = {
             (
                 "dadb5d62f6c3973a59bf01439799809b",
@@ -347,26 +316,6 @@ _V3_DATA_INFO = _DataInfo(
     noise_interval=(492_000, 498_000),
     blip_locations=((504_000, 552_000),),
 )
-# x_train_48khz_20240622: #!#
-# (0:00-0:09) Validation 1
-# (0:09-0:10) Silence
-# (0:10-0:12) Blips at 0:10.5 and 0:11.5
-# (0:12-0:15) Chirps
-# (0:15-0:17) Noise
-# (0:17-3:00.5) General training data
-# (3:00.5-3:01) Silence
-# (3:01-3:10) Validation 2
-_x_train_48khz_20240622_DATA_INFO = _DataInfo(
-    major_version=3,
-    rate=STANDARD_SAMPLE_RATE,
-    t_blips=96_000,
-    first_blips_start=480_000,
-    t_validate=432_000,
-    train_start=480_000,
-    validation_start=8688000, #!# -432_000
-    noise_interval=(492_000, 498_000),
-    blip_locations=((504_000, 552_000),),
-) #!#
 # V4 (aka GuitarML Proteus)
 # https://github.com/GuitarML/Releases/releases/download/v1.0.0/Proteus_Capture_Utility.zip
 # * 44.1k
@@ -522,7 +471,6 @@ def _calibrate_latency_v_all(
 _calibrate_latency_v1 = partial(_calibrate_latency_v_all, _V1_DATA_INFO)
 _calibrate_latency_v2 = partial(_calibrate_latency_v_all, _V2_DATA_INFO)
 _calibrate_latency_v3 = partial(_calibrate_latency_v_all, _V3_DATA_INFO)
-_calibrate_latency_x_train_48khz_20240622 = partial(_calibrate_latency_v_all, _x_train_48khz_20240622_DATA_INFO) #!#
 _calibrate_latency_v4 = partial(_calibrate_latency_v_all, _V4_DATA_INFO)
 
 
@@ -576,7 +524,6 @@ def _plot_latency_v_all(
 _plot_latency_v1 = partial(_plot_latency_v_all, _V1_DATA_INFO)
 _plot_latency_v2 = partial(_plot_latency_v_all, _V2_DATA_INFO)
 _plot_latency_v3 = partial(_plot_latency_v_all, _V3_DATA_INFO)
-_plot_latency_x_train_48khz_20240622 = partial(_plot_latency_v_all, _x_train_48khz_20240622_DATA_INFO) #!#
 _plot_latency_v4 = partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
@@ -598,8 +545,6 @@ def _analyze_latency(
         calibrate, plot = _calibrate_latency_v3, _plot_latency_v3
     elif input_version.major == 4:
         calibrate, plot = _calibrate_latency_v4, _plot_latency_v4
-    elif input_version.major == 5: #!#
-        calibrate, plot = _calibrate_latency_x_train_48khz_20240622, _plot_latency_x_train_48khz_20240622 #!#
     else:
         raise NotImplementedError(
             f"Input calibration not implemented for input version {input_version}"
@@ -881,22 +826,22 @@ def _get_wavenet_config(architecture):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "channels": 14,
-                    "head_size": 10,
-                    "kernel_size": 5,
-                    "dilations": [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768, 2304],
-                    "activation": "Hardtanh",
+                    "channels": 16,
+                    "head_size": 8,
+                    "kernel_size": 3,
+                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 14,
-                    "channels": 9,
-                    "head_size": 10,
-                    "kernel_size": 5,
-                    "dilations": [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768, 2304],
-                    "activation": "Hardtanh",
+                    "input_size": 16,
+                    "channels": 8,
+                    "head_size": 1, 
+                    "kernel_size": 3,
+                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
                 },
@@ -908,22 +853,22 @@ def _get_wavenet_config(architecture):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "channels": 11,
-                    "head_size": 9,
-                    "kernel_size": 5,
-                    "dilations": [1, 2, 3, 4, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768],
-                    "activation": "Hardtanh",
+                    "channels": 12,
+                    "head_size": 6,
+                    "kernel_size": 3,
+                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 11,
-                    "channels": 9,
+                    "input_size": 12,
+                    "channels": 6,
                     "head_size": 1,
-                    "kernel_size": 5,
-                    "dilations": [1, 2, 3, 4, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768],
-                    "activation": "Hardtanh",
+                    "kernel_size": 3,
+                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
                 },
@@ -936,21 +881,21 @@ def _get_wavenet_config(architecture):
                     "input_size": 1,
                     "condition_size": 1,
                     "channels": 8,
-                    "head_size": 5,
+                    "head_size": 4,
                     "kernel_size": 3,
-                    "dilations": [1, 2, 3, 4, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768],
-                    "activation": "Hardtanh",
+                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
                 },
                 {
                     "condition_size": 1,
                     "input_size": 8,
-                    "channels": 5,
+                    "channels": 4,
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [1, 2, 3, 4, 6, 8, 10, 12, 16, 32, 96, 192, 384, 768],
-                    "activation": "Hardtanh",
+                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
                 },
@@ -962,22 +907,22 @@ def _get_wavenet_config(architecture):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "channels": 4,
-                    "head_size": 2,
+                    "channels": 5, #!#
+                    "head_size": 3, #!#
                     "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Hardtanh",
+                    "dilations": [384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 4,
-                    "channels": 2,
+                    "input_size": 5, #!#
+                    "channels": 3, #!#
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Hardtanh",
+                    "dilations": [384,192,96,32,16,8,4,2,1,24], #!#
+                    "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
                 },
@@ -987,8 +932,8 @@ def _get_wavenet_config(architecture):
     }[architecture]
 
 
-_CAB_MRSTFT_PRE_EMPH_WEIGHT = 2.0e-4
-_CAB_MRSTFT_PRE_EMPH_COEF = 0.90
+_CAB_MRSTFT_PRE_EMPH_WEIGHT = 6.0e-6 #!#
+_CAB_MRSTFT_PRE_EMPH_COEF = 0.95 #!#
 
 
 def _get_data_config(
