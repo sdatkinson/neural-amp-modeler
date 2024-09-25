@@ -879,7 +879,7 @@ def _get_wavenet_config(architecture):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "channels": 5, #!#
+                    "channels": 4, #!#
                     "head_size": 3, #!#
                     "kernel_size": 3,
                     "dilations": [384,192,96,32,16,8,4,2,1,24], #!#
@@ -889,7 +889,7 @@ def _get_wavenet_config(architecture):
                 },
                 {
                     "condition_size": 1,
-                    "input_size": 5, #!#
+                    "input_size": 4, #!#
                     "channels": 3, #!#
                     "head_size": 1,
                     "kernel_size": 3,
