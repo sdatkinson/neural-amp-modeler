@@ -882,7 +882,7 @@ def _get_wavenet_config(architecture):
                     "channels": 4, #!#
                     "head_size": 3, #!#
                     "kernel_size": 3,
-                    "dilations": [384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [192,96,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
@@ -893,7 +893,7 @@ def _get_wavenet_config(architecture):
                     "channels": 3, #!#
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
