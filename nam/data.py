@@ -227,6 +227,21 @@ class StopError(StartStopError):
 _DEFAULT_REQUIRE_INPUT_PRE_SILENCE = 0.4
 
 
+def _sample_to_time(s, rate):
+    seconds = s // rate
+    remainder = s % rate
+    hours, minutes = 0, 0
+    seconds_per_hour = 3600
+    while seconds >= seconds_per_hour:
+        hours += 1
+        seconds -= seconds_per_hour
+    seconds_per_minute = 60
+    while seconds >= seconds_per_minute:
+        minutes += 1
+        seconds -= seconds_per_minute
+    return f"{hours}:{minutes:02d}:{seconds:02d} and {remainder} samples"
+
+
 class Dataset(AbstractDataset, InitializableFromConfig):
     """
     Take a pair of matched audio files and serve input + output pairs.
@@ -382,56 +397,65 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def parse_config(cls, config):
+        """
+        :param config:
+            Must contain:
+                x_path (path-like)
+                y_path (path-like)
+            May contain:
+                sample_rate (int)
+                y_preroll (int)
+                allow_unequal_lengths (bool)
+            Must NOT contain:
+                x (torch.Tensor) - loaded from x_path
+                y (torch.Tensor) - loaded from y_path
+            Everything else is passed on to __init__
+        """
         config = deepcopy(config)
-        if "rate" in config:
-            raise ValueError(
-                "use of `rate` was deprecated in version 0.8. Use `sample_rate` "
-                "instead."
-            )
         sample_rate = config.pop("sample_rate", None)
         x, x_wavinfo = wav_to_tensor(config.pop("x_path"), info=True, rate=sample_rate)
         sample_rate = x_wavinfo.rate
-        try:
+        if config.pop("allow_unequal_lengths", False):
             y = wav_to_tensor(
                 config.pop("y_path"),
                 rate=sample_rate,
                 preroll=config.pop("y_preroll", None),
-                required_shape=(len(x), 1),
                 required_wavinfo=x_wavinfo,
             )
-        except AudioShapeMismatchError as e:
-            # Really verbose message since users see this.
-            x_samples, x_channels = e.shape_expected
-            y_samples, y_channels = e.shape_actual
-            msg = "Your audio files aren't the same shape as each other!"
-            if x_channels != y_channels:
-                channels_to_stereo_mono = {1: "mono", 2: "stereo"}
-                msg += f"\n * The input is {channels_to_stereo_mono[x_channels]}, but the output is {channels_to_stereo_mono[y_channels]}!"
-            if x_samples != y_samples:
-
-                def sample_to_time(s, rate):
-                    seconds = s // rate
-                    remainder = s % rate
-                    hours, minutes = 0, 0
-                    seconds_per_hour = 3600
-                    while seconds >= seconds_per_hour:
-                        hours += 1
-                        seconds -= seconds_per_hour
-                    seconds_per_minute = 60
-                    while seconds >= seconds_per_minute:
-                        minutes += 1
-                        seconds -= seconds_per_minute
-                    return (
-                        f"{hours}:{minutes:02d}:{seconds:02d} and {remainder} samples"
-                    )
-
-                msg += (
-                    f"\n * The input is {sample_to_time(x_samples, sample_rate)} long"
+            # Truncate to the shorter of the two
+            if len(x) == 0:
+                raise DataError("Input is zero-length!")
+            if len(y) == 0:
+                raise DataError("Output is zero-length!")
+            n = min(len(x), len(y))
+            if n < len(x):
+                print(f"Truncating input to {_sample_to_time(n, sample_rate)}")
+            if n < len(y):
+                print(f"Truncating output to {_sample_to_time(n, sample_rate)}")
+            x, y = [z[:n] for z in (x, y)]
+        else:
+            try:
+                y = wav_to_tensor(
+                    config.pop("y_path"),
+                    rate=sample_rate,
+                    preroll=config.pop("y_preroll", None),
+                    required_shape=(len(x), 1),
+                    required_wavinfo=x_wavinfo,
                 )
-                msg += (
-                    f"\n * The output is {sample_to_time(y_samples, sample_rate)} long"
-                )
-            raise ValueError(msg)
+            except AudioShapeMismatchError as e:
+                # Really verbose message since users see this.
+                x_samples, x_channels = e.shape_expected
+                y_samples, y_channels = e.shape_actual
+                msg = "Your audio files aren't the same shape as each other!"
+                if x_channels != y_channels:
+                    channels_to_stereo_mono = {1: "mono", 2: "stereo"}
+                    msg += f"\n * The input is {channels_to_stereo_mono[x_channels]}, but the output is {channels_to_stereo_mono[y_channels]}!"
+                if x_samples != y_samples:
+
+                    msg += f"\n * The input is {_sample_to_time(x_samples, sample_rate)} long"
+                    msg += f"\n * The output is {_sample_to_time(y_samples, sample_rate)} long"
+                    msg += f"\n\nOriginal exception:\n{e}"
+                raise DataError(msg)
         return {"x": x, "y": y, "sample_rate": sample_rate, **config}
 
     @classmethod
