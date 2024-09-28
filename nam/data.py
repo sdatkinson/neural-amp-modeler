@@ -431,7 +431,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
                 msg += (
                     f"\n * The output is {sample_to_time(y_samples, sample_rate)} long"
                 )
-            raise ValueError(msg)
+                msg += f"\n\nOriginal exception:\n{e}"
+            raise DataError(msg)
         return {"x": x, "y": y, "sample_rate": sample_rate, **config}
 
     @classmethod

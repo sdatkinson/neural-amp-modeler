@@ -1327,6 +1327,25 @@ def train(
     if seed is not None:
         torch.manual_seed(seed)
 
+    # HACK: We need to check the sample rates and lengths of the audio here or else
+    # It will look like a bad self-ESR (Issue 473)
+    # Can move this into the "v3 checks" once the others are deprecated.
+    # And honestly remake this whole thing as a data processing pipeline.
+    sample_rate_validation = _check_audio_sample_rates(input_path, output_path)
+    if not sample_rate_validation.passed:
+        raise ValueError(
+            "Different sample rates detected for input "
+            f"({sample_rate_validation.input}) and output "
+            f"({sample_rate_validation.output}) audio!"
+        )
+    length_validation = _check_audio_lengths(input_path, output_path)
+    if not length_validation.passed:
+        raise ValueError(
+            "Your recording differs in length from the input file by "
+            f"{length_validation.delta_seconds:.2f} seconds. Check your reamp "
+            "in your DAW and ensure that they are the same length."
+        )
+
     if input_version is None:
         input_version, strong_match = _detect_input_version(input_path)
 
@@ -1501,12 +1520,77 @@ class _PyTorchDataValidation(BaseModel):
     validation: _PyTorchDataSplitValidation  # Split.VALIDATION
 
 
+class _SampleRateValidation(BaseModel):
+    passed: bool
+    input: int
+    output: int
+
+
+class _LengthValidation(BaseModel):
+    passed: bool
+    delta_seconds: float
+
+
 class DataValidationOutput(BaseModel):
     passed: bool
+    passed_critical: bool
+    sample_rate: _SampleRateValidation
+    length: _LengthValidation
     input_version: str
     latency: metadata.Latency
     checks: metadata.DataChecks
     pytorch: _PyTorchDataValidation
+
+
+def _check_audio_sample_rates(
+    input_path: Path,
+    output_path: Path,
+) -> _SampleRateValidation:
+    _, x_info = wav_to_np(input_path, info=True)
+    _, y_info = wav_to_np(output_path, info=True)
+
+    return _SampleRateValidation(
+        passed=x_info.rate == y_info.rate,
+        input=x_info.rate,
+        output=y_info.rate,
+    )
+
+
+def _check_audio_lengths(
+    input_path: Path,
+    output_path: Path,
+    max_under_seconds: Optional[float] = 0.0,
+    max_over_seconds: Optional[float] = 0.0,
+) -> _LengthValidation:
+    """
+    Check that the input and output have the right lengths compared to each
+    other.
+
+    :param input_path: Path to input audio
+    :param output_path: Path to output audio
+    :param max_under_seconds: If not None, the maximum amount by which the
+        output can be shorter than the input. Should be non-negative i.e. a
+        value of 1.0 means that the output can't be more than a second shorter
+        than the input.
+    :param max_over_seconds: If not None, the maximum amount by which the
+        output can be longer than the input. Should be non-negative i.e. a
+        value of 1.0 means that the output can't be more than a second longer
+        than the input.
+    """
+    x, x_info = wav_to_np(input_path, info=True)
+    y, y_info = wav_to_np(output_path, info=True)
+
+    length_input = len(x) / x_info.rate
+    length_output = len(y) / y_info.rate
+    delta_seconds = length_output - length_input
+
+    passed = True
+    if max_under_seconds is not None and delta_seconds < -max_under_seconds:
+        passed = False
+    if max_over_seconds is not None and delta_seconds > max_under_seconds:
+        passed = False
+
+    return _LengthValidation(passed=passed, delta_seconds=delta_seconds)
 
 
 def validate_data(
@@ -1522,7 +1606,17 @@ def validate_data(
     * Latency calibration
     * Other checks
     """
+    print("Validating data...")
     passed = True  # Until proven otherwise
+    passed_critical = True  # These can't be ignored
+
+    sample_rate_validation = _check_audio_sample_rates(input_path, output_path)
+    passed = passed and sample_rate_validation.passed
+    passed_critical = passed_critical and sample_rate_validation.passed
+
+    length_validation = _check_audio_lengths(input_path, output_path)
+    passed = passed and length_validation.passed
+    passed_critical = passed_critical and length_validation.passed
 
     # Data version ID
     input_version, strong_match = _detect_input_version(input_path)
@@ -1575,9 +1669,13 @@ def validate_data(
         **pytorch_data_split_validation_dict,
     )
     passed = passed and pytorch_data_validation.passed
+    passed_critical = passed_critical and pytorch_data_validation.passed
 
     return DataValidationOutput(
         passed=passed,
+        passed_critical=passed_critical,
+        sample_rate=sample_rate_validation,
+        length=length_validation,
         input_version=str(input_version),
         latency=latency_analysis,
         checks=data_checks,
