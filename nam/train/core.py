@@ -1546,16 +1546,6 @@ def _check_audio_lengths(
     Check that the input and output have the right lengths compared to each
     other.
 
-    New in v0.10.0: If the output is up to a second longer (e.g. REAPER users
-    who don't know about the tail option that they have checked), then we'll try
-    to crop it on the end side.
-
-    If it's too short, then that's not ok because you're missing part of the
-    validation signal (and maybe some training signal) and that's not ok.
-
-    If it's _more than 1 second longer, then something is probably wrong and the
-    user will be forced to address it.
-
     :param input_path: Path to input audio
     :param output_path: Path to output audio
     :param max_under_seconds: If not None, the maximum amount by which the
