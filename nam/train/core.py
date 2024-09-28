@@ -1327,6 +1327,25 @@ def train(
     if seed is not None:
         torch.manual_seed(seed)
 
+    # HACK: We need to check the sample rates and lengths of the audio here or else
+    # It will look like a bad self-ESR (Issue 473)
+    # Can move this into the "v3 checks" once the others are deprecated.
+    # And honestly remake this whole thing as a data processing pipeline.
+    sample_rate_validation = _check_audio_sample_rates(input_path, output_path)
+    if not sample_rate_validation.passed:
+        raise ValueError(
+            "Different sample rates detected for input "
+            f"({sample_rate_validation.input}) and output "
+            f"({sample_rate_validation.output}) audio!"
+        )
+    length_validation = _check_audio_lengths(input_path, output_path)
+    if not length_validation.passed:
+        raise ValueError(
+            "Your recording differs in length from the input file by "
+            f"{length_validation.delta_seconds:.2f} seconds. Check your reamp "
+            "in your DAW and ensure that they are the same length."
+        )
+
     if input_version is None:
         input_version, strong_match = _detect_input_version(input_path)
 
@@ -1514,6 +1533,7 @@ class _LengthValidation(BaseModel):
 
 class DataValidationOutput(BaseModel):
     passed: bool
+    passed_critical: bool
     sample_rate: _SampleRateValidation
     length: _LengthValidation
     input_version: str
@@ -1588,12 +1608,15 @@ def validate_data(
     """
     print("Validating data...")
     passed = True  # Until proven otherwise
+    passed_critical = True  # These can't be ignored
 
     sample_rate_validation = _check_audio_sample_rates(input_path, output_path)
     passed = passed and sample_rate_validation.passed
+    passed_critical = passed_critical and sample_rate_validation.passed
 
     length_validation = _check_audio_lengths(input_path, output_path)
     passed = passed and length_validation.passed
+    passed_critical = passed_critical and length_validation.passed
 
     # Data version ID
     input_version, strong_match = _detect_input_version(input_path)
@@ -1646,9 +1669,11 @@ def validate_data(
         **pytorch_data_split_validation_dict,
     )
     passed = passed and pytorch_data_validation.passed
+    passed_critical = passed_critical and pytorch_data_validation.passed
 
     return DataValidationOutput(
         passed=passed,
+        passed_critical=passed_critical,
         sample_rate=sample_rate_validation,
         length=length_validation,
         input_version=str(input_version),
