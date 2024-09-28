@@ -19,6 +19,7 @@ import webbrowser
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
+from idlelib.tooltip import Hovertip
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Callable, Dict, NamedTuple, Optional, Sequence
@@ -946,6 +947,27 @@ class LabeledOptionMenu(object):
         self._selected_value = self._choices(val)
 
 
+class _Hovertip(Hovertip):
+    """
+    Adjustments:
+
+    * Always black text (macOS)
+    """
+
+    def showcontents(self):
+        # Override
+        label = tk.Label(
+            self.tipwindow,
+            text=self.text,
+            justify=tk.LEFT,
+            background="#ffffe0",
+            relief=tk.SOLID,
+            borderwidth=1,
+            fg="black",
+        )
+        label.pack()
+
+
 class LabeledText(object):
     """
     Label (left) and text input (right)
@@ -992,6 +1014,13 @@ class LabeledText(object):
 
         if default is not None:
             self._text.insert("1.0", str(default))
+
+        # You can assign a tooltip for the label if you'd like.
+        self.label_tooltip: Optional[_Hovertip] = None
+
+    @property
+    def label(self) -> tk.Label:
+        return self._label
 
     def get(self):
         try:
@@ -1178,17 +1207,39 @@ class UserMetadataGUI(object):
         self._frame_input_dbu.pack()
         self._input_dbu = LabeledText_(
             self._frame_input_dbu,
-            "Input calibration (dBu)",
+            "Reamp send level (dBu)",
             default=parent.user_metadata.input_level_dbu,
             type=float,
+        )
+        self._input_dbu.label_tooltip = _Hovertip(
+            anchor_widget=self._input_dbu.label,
+            text=(
+                "(Ok to leave blank)\n\n"
+                "Play a sine wave with frequency 1kHz and peak amplitude 0dBFS. Use\n"
+                "a multimeter to measure the RMS voltage of the signal at the jack\n"
+                "that connects to your gear, and convert to dBu.\n"
+                "Record the value here."
+            ),
         )
         self._frame_output_dbu = tk.Frame(self._root)
         self._frame_output_dbu.pack()
         self._output_dbu = LabeledText_(
             self._frame_output_dbu,
-            "Output calibration (dBu)",
+            "Reamp return level (dBu)",
             default=parent.user_metadata.output_level_dbu,
             type=float,
+        )
+        self._output_dbu.label_tooltip = _Hovertip(
+            anchor_widget=self._output_dbu.label,
+            text=(
+                "(Ok to leave blank)\n\n"
+                "Play a sine wave with frequency 1kHz into your interface where\n"
+                "you're recording your gear. Keeping the interface's input gain\n"
+                "trimmed as you will use it when recording, adjust the sine wave\n"
+                "until the input peaks at exactly 0dBFS in your DAW. Measure the RMS\n"
+                "voltage and convert to dBu.\n"
+                "Record the value here."
+            ),
         )
         # Gear type
         self._frame_gear_type = tk.Frame(self._root)
