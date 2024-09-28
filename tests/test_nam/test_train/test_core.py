@@ -266,9 +266,10 @@ def test_v3_check_doesnt_make_figure_if_silent(mocker):
     x = np.random.rand(core._V3_DATA_INFO.t_validate + 1) - 0.5
 
     with TemporaryDirectory() as tmpdir:
+        input_path = Path(tmpdir, "input.wav")
         output_path = Path(tmpdir, "output.wav")
+        np_to_wav(x, input_path)  # Doesn't need to be the actual thing for now
         np_to_wav(x, output_path)
-        input_path = None  # Isn't used right now.
         # If this makes a figure, then it wasn't silent!
         core._check_v3(input_path, output_path, silent=True)
 

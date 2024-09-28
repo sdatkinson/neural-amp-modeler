@@ -713,8 +713,9 @@ def _check_v3(
         print("V3 checks...")
         rate = _V3_DATA_INFO.rate
         y = wav_to_tensor(output_path, rate=rate)
+        n = len(wav_to_tensor(input_path))  # to End-crop output
         y_val_1 = y[: _V3_DATA_INFO.t_validate]
-        y_val_2 = y[-_V3_DATA_INFO.t_validate :]
+        y_val_2 = y[n - _V3_DATA_INFO.t_validate : n]
         esr_replicate = esr(y_val_1, y_val_2).item()
         print(f"Replicate ESR is {esr_replicate:.8f}.")
         esr_replicate_threshold = 0.01
@@ -908,7 +909,7 @@ _CAB_MRSTFT_PRE_EMPH_COEF = 0.85
 def _get_data_config(
     input_version: Version, input_path: Path, output_path: Path, ny: int, latency: int
 ) -> dict:
-    def get_kwargs(data_info: _DataInfo):
+    def get_split_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
             train_val_split = data_info.validation_start
             train_kwargs = {"stop_samples": train_val_split}
@@ -955,7 +956,7 @@ def _get_data_config(
         3: _V3_DATA_INFO,
         4: _V4_DATA_INFO,
     }[input_version.major]
-    train_kwargs, validation_kwargs = get_kwargs(data_info)
+    train_kwargs, validation_kwargs = get_split_kwargs(data_info)
     data_config = {
         "train": {"ny": ny, **train_kwargs},
         "validation": {"ny": None, **validation_kwargs},
@@ -963,6 +964,7 @@ def _get_data_config(
             "x_path": input_path,
             "y_path": output_path,
             "delay": latency,
+            "allow_unequal_lengths": True,
         },
     }
     return data_config
@@ -1560,7 +1562,7 @@ def _check_audio_lengths(
     input_path: Path,
     output_path: Path,
     max_under_seconds: Optional[float] = 0.0,
-    max_over_seconds: Optional[float] = 0.0,
+    max_over_seconds: Optional[float] = 1.0,
 ) -> _LengthValidation:
     """
     Check that the input and output have the right lengths compared to each
@@ -1587,7 +1589,7 @@ def _check_audio_lengths(
     passed = True
     if max_under_seconds is not None and delta_seconds < -max_under_seconds:
         passed = False
-    if max_over_seconds is not None and delta_seconds > max_under_seconds:
+    if max_over_seconds is not None and delta_seconds > max_over_seconds:
         passed = False
 
     return _LengthValidation(passed=passed, delta_seconds=delta_seconds)
