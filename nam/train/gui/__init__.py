@@ -327,9 +327,11 @@ class _OkModal(object):
     Message and OK button
     """
 
-    def __init__(self, resume_main, msg: str):
+    def __init__(self, resume_main, msg: str, label_kwargs: Optional[dict] = None):
+        label_kwargs = {} if label_kwargs is None else label_kwargs
+
         self._root = _TopLevelWithOk((lambda: None), resume_main)
-        self._text = tk.Label(self._root, text=msg)
+        self._text = tk.Label(self._root, text=msg, **label_kwargs)
         self._text.pack()
         self._ok = tk.Button(
             self._root,
@@ -828,44 +830,51 @@ class GUI(object):
             for output_path in output_paths
         }
         if any(not fv.passed for fv in file_validation_outputs.values()):
-            msg = (
-                "The following output files failed checks:\n"
-                + "".join(
-                    [
-                        make_message_for_file(output_path, fv)
-                        for output_path, fv in file_validation_outputs.items()
-                        if not fv.passed
-                    ]
+            msg = "The following output files failed checks:\n" + "".join(
+                [
+                    make_message_for_file(output_path, fv)
+                    for output_path, fv in file_validation_outputs.items()
+                    if not fv.passed
+                ]
+            )
+            if all(fv.passed_critical for fv in file_validation_outputs.values()):
+                msg += "\nIgnore and proceed?"
+
+                # Hacky to listen to the modal:
+                modal_listener = {"proceed": False, "still_open": True}
+
+                def on_yes():
+                    modal_listener["proceed"] = True
+
+                def on_no():
+                    modal_listener["proceed"] = False
+
+                def on_close():
+                    if modal_listener["proceed"]:
+                        self._train2(ignore_checks=True)
+
+                self._wait_while_func(
+                    (
+                        lambda resume, on_yes, on_no, *args, **kwargs: _YesNoModal(
+                            on_yes, on_no, resume, *args, **kwargs
+                        )
+                    ),
+                    on_yes=on_yes,
+                    on_no=on_no,
+                    msg=msg,
+                    on_close=on_close,
+                    label_kwargs={"justify": "left"},
                 )
-                + "\nIgnore and proceed?"
-            )
+                return False  # we still failed checks so say so.
+            else:
+                msg += "\nCritical errors found, cannot ignore."
+                self._wait_while_func(
+                    lambda resume, msg, **kwargs: _OkModal(resume, msg, **kwargs),
+                    msg=msg,
+                    label_kwargs={"justify": "left"},
+                )
+                return False
 
-            # Hacky to listen to the modal:
-            modal_listener = {"proceed": False, "still_open": True}
-
-            def on_yes():
-                modal_listener["proceed"] = True
-
-            def on_no():
-                modal_listener["proceed"] = False
-
-            def on_close():
-                if modal_listener["proceed"]:
-                    self._train2(ignore_checks=True)
-
-            self._wait_while_func(
-                (
-                    lambda resume, on_yes, on_no, *args, **kwargs: _YesNoModal(
-                        on_yes, on_no, resume, *args, **kwargs
-                    )
-                ),
-                on_yes=on_yes,
-                on_no=on_no,
-                msg=msg,
-                on_close=on_close,
-                label_kwargs={"justify": "left"},
-            )
-            return False
         return True
 
     def _wait_while_func(self, func, *args, **kwargs):
