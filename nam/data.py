@@ -451,7 +451,6 @@ class Dataset(AbstractDataset, InitializableFromConfig):
                     channels_to_stereo_mono = {1: "mono", 2: "stereo"}
                     msg += f"\n * The input is {channels_to_stereo_mono[x_channels]}, but the output is {channels_to_stereo_mono[y_channels]}!"
                 if x_samples != y_samples:
-
                     msg += f"\n * The input is {_sample_to_time(x_samples, sample_rate)} long"
                     msg += f"\n * The output is {_sample_to_time(y_samples, sample_rate)} long"
                     msg += f"\n\nOriginal exception:\n{e}"

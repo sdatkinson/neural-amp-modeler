@@ -48,6 +48,11 @@ There are also some optional keys that ``nam`` may use:
     ``"overdrive"``, ``"crunch"``, ``"hi_gain"``, and ``"fuzz"``.
   * ``"training"``: A dictionary containing information about training (*Only 
     when the simplified trainers are used.*)
+  * ``"input_level_dbu"``: The level being input to the gear, in dBu, corresponding to a
+    1kHz sine wave with 0dBFS peak.
+  * ``"output_level_dbu"``: The level, in dBu, of a 1kHz sine wave that achieves 0dBFS
+    peak when input to the interface that's recording the output of the gear being
+    modeled.
 
 
 Change log
@@ -55,6 +60,13 @@ Change log
 
 v0.5
 ^^^^
+
+v0.5.4
+""""""
+
+Introduced in ``neural-amp-modeler`` `version 0.10.0 <https://github.com/sdatkinson/neural-amp-modeler/releases/tag/v0.10.0>`_.
+
+* Add ``"input_level_dbu"`` and ``"output_level_dbu"`` fields under ``"metadata"``.
 
 v0.5.3
 """"""

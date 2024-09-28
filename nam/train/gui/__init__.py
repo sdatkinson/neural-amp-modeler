@@ -19,6 +19,7 @@ import webbrowser
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
+from idlelib.tooltip import Hovertip
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Callable, Dict, NamedTuple, Optional, Sequence
@@ -61,6 +62,7 @@ _DEFAULT_THRESHOLD_ESR = None
 
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
+_METADATA_LEFT_WIDTH = 19
 _METADATA_RIGHT_WIDTH = 60
 
 
@@ -232,28 +234,6 @@ class _InputPathButton(_PathButton):
                     )
                 webbrowser.open(url)
                 return
-
-
-class _ClearablePathButton(_PathButton):
-    """
-    Can clear a path
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, color_when_not_set="black", **kwargs)
-        # Download the training file!
-        self._widgets["button_clear"] = tk.Button(
-            self._frame,
-            text="Clear",
-            width=_BUTTON_WIDTH,
-            height=_BUTTON_HEIGHT,
-            command=self._clear_path,
-        )
-        self._widgets["button_clear"].pack(side=tk.RIGHT)
-
-    def _clear_path(self):
-        self._path = None
-        self._set_text()
 
 
 class _CheckboxKeys(Enum):
@@ -588,7 +568,7 @@ class GUI(object):
         Open window for metadata
         """
 
-        self._wait_while_func(lambda resume: _UserMetadataGUI(resume, self))
+        self._wait_while_func(lambda resume: UserMetadataGUI(resume, self))
 
     def _pack_update_button(self, version_from: Version, version_to: Version):
         """
@@ -967,6 +947,27 @@ class LabeledOptionMenu(object):
         self._selected_value = self._choices(val)
 
 
+class _Hovertip(Hovertip):
+    """
+    Adjustments:
+
+    * Always black text (macOS)
+    """
+
+    def showcontents(self):
+        # Override
+        label = tk.Label(
+            self.tipwindow,
+            text=self.text,
+            justify=tk.LEFT,
+            background="#ffffe0",
+            relief=tk.SOLID,
+            borderwidth=1,
+            fg="black",
+        )
+        label.pack()
+
+
 class LabeledText(object):
     """
     Label (left) and text input (right)
@@ -985,6 +986,8 @@ class LabeledText(object):
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
         :param type: If provided, casts value to given type
+        :param left_width: How much space to use on the left side (text)
+        :param right_width: How much space for the Text field
         """
         self._frame = frame
         label_height = 2
@@ -994,7 +997,7 @@ class LabeledText(object):
             width=left_width,
             height=label_height,
             bg=None,
-            anchor="w",
+            anchor="e",
             text=label,
         )
         self._label.pack(side=tk.LEFT)
@@ -1011,6 +1014,13 @@ class LabeledText(object):
 
         if default is not None:
             self._text.insert("1.0", str(default))
+
+        # You can assign a tooltip for the label if you'd like.
+        self.label_tooltip: Optional[_Hovertip] = None
+
+    @property
+    def label(self) -> tk.Label:
+        return self._label
 
     def get(self):
         try:
@@ -1110,16 +1120,51 @@ class AdvancedOptionsGUI(object):
         )
 
 
-class _UserMetadataGUI(object):
+class UserMetadataGUI(object):
     # Things that are auto-filled:
     # Model date
     # gain
     def __init__(self, resume_main, parent: GUI):
         self._parent = parent
-        self._root = _TopLevelWithOk(self._apply, resume_main)
+        self._root = _TopLevelWithOk(self.apply, resume_main)
         self._root.title("Metadata")
 
-        LabeledText_ = partial(LabeledText, right_width=_METADATA_RIGHT_WIDTH)
+        # Pack all the widgets
+        self.pack()
+
+        # "Ok": apply and destroy
+        self._frame_ok = tk.Frame(self._root)
+        self._frame_ok.pack()
+        self._button_ok = tk.Button(
+            self._frame_ok,
+            text="Ok",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=lambda: self._root.destroy(pressed_ok=True),
+        )
+        self._button_ok.pack()
+
+    def apply(self):
+        """
+        Set values to parent and destroy this object
+        """
+        self._parent.user_metadata.name = self._name.get()
+        self._parent.user_metadata.modeled_by = self._modeled_by.get()
+        self._parent.user_metadata.gear_make = self._gear_make.get()
+        self._parent.user_metadata.gear_model = self._gear_model.get()
+        self._parent.user_metadata.gear_type = self._gear_type.get()
+        self._parent.user_metadata.tone_type = self._tone_type.get()
+        self._parent.user_metadata.input_level_dbu = self._input_dbu.get()
+        self._parent.user_metadata.output_level_dbu = self._output_dbu.get()
+        self._parent.user_metadata_flag = True
+
+    def pack(self):
+        LabeledText_ = partial(
+            LabeledText,
+            left_width=_METADATA_LEFT_WIDTH,
+            right_width=_METADATA_RIGHT_WIDTH,
+        )
+        parent = self._parent
 
         # Name
         self._frame_name = tk.Frame(self._root)
@@ -1157,6 +1202,45 @@ class _UserMetadataGUI(object):
             default=parent.user_metadata.gear_model,
             type=_rstripped_str,
         )
+        # Calibration: input & output dBu
+        self._frame_input_dbu = tk.Frame(self._root)
+        self._frame_input_dbu.pack()
+        self._input_dbu = LabeledText_(
+            self._frame_input_dbu,
+            "Reamp send level (dBu)",
+            default=parent.user_metadata.input_level_dbu,
+            type=float,
+        )
+        self._input_dbu.label_tooltip = _Hovertip(
+            anchor_widget=self._input_dbu.label,
+            text=(
+                "(Ok to leave blank)\n\n"
+                "Play a sine wave with frequency 1kHz and peak amplitude 0dBFS. Use\n"
+                "a multimeter to measure the RMS voltage of the signal at the jack\n"
+                "that connects to your gear, and convert to dBu.\n"
+                "Record the value here."
+            ),
+        )
+        self._frame_output_dbu = tk.Frame(self._root)
+        self._frame_output_dbu.pack()
+        self._output_dbu = LabeledText_(
+            self._frame_output_dbu,
+            "Reamp return level (dBu)",
+            default=parent.user_metadata.output_level_dbu,
+            type=float,
+        )
+        self._output_dbu.label_tooltip = _Hovertip(
+            anchor_widget=self._output_dbu.label,
+            text=(
+                "(Ok to leave blank)\n\n"
+                "Play a sine wave with frequency 1kHz into your interface where\n"
+                "you're recording your gear. Keeping the interface's input gain\n"
+                "trimmed as you will use it when recording, adjust the sine wave\n"
+                "until the input peaks at exactly 0dBFS in your DAW. Measure the RMS\n"
+                "voltage and convert to dBu.\n"
+                "Record the value here."
+            ),
+        )
         # Gear type
         self._frame_gear_type = tk.Frame(self._root)
         self._frame_gear_type.pack()
@@ -1175,30 +1259,6 @@ class _UserMetadataGUI(object):
             ToneType,
             default=parent.user_metadata.tone_type,
         )
-
-        # "Ok": apply and destroy
-        self._frame_ok = tk.Frame(self._root)
-        self._frame_ok.pack()
-        self._button_ok = tk.Button(
-            self._frame_ok,
-            text="Ok",
-            width=_BUTTON_WIDTH,
-            height=_BUTTON_HEIGHT,
-            command=lambda: self._root.destroy(pressed_ok=True),
-        )
-        self._button_ok.pack()
-
-    def _apply(self):
-        """
-        Set values to parent and destroy this object
-        """
-        self._parent.user_metadata.name = self._name.get()
-        self._parent.user_metadata.modeled_by = self._modeled_by.get()
-        self._parent.user_metadata.gear_make = self._gear_make.get()
-        self._parent.user_metadata.gear_model = self._gear_model.get()
-        self._parent.user_metadata.gear_type = self._gear_type.get()
-        self._parent.user_metadata.tone_type = self._tone_type.get()
-        self._parent.user_metadata_flag = True
 
 
 def _install_error():

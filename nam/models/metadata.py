@@ -44,6 +44,17 @@ class Date(BaseModel):
 class UserMetadata(BaseModel):
     """
     Metadata that users provide for a NAM model
+
+    :param name: A "human-readable" name for the model.
+    :param modeled_by: Who made the model
+    :param gear_type: Type of gear.
+    :param gear_make: Make of the gear.
+    :param gear_model: Model of the gear.
+    :param tone_type: What sort of tone the gear has.
+    :input_level_dbu: What analog loudness, in dBu, corresponds to 0 dbFS input to the
+        model.
+    :output_level_dbu: What analog loudness, in dBu, corresponds to 0 dbFS outputted by
+        the model.
     """
 
     name: Optional[str] = None
@@ -52,3 +63,5 @@ class UserMetadata(BaseModel):
     gear_make: Optional[str] = None
     gear_model: Optional[str] = None
     tone_type: Optional[ToneType] = None
+    input_level_dbu: Optional[float] = None
+    output_level_dbu: Optional[float] = None
