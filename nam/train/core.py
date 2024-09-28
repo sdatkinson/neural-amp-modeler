@@ -1501,12 +1501,86 @@ class _PyTorchDataValidation(BaseModel):
     validation: _PyTorchDataSplitValidation  # Split.VALIDATION
 
 
+class _SampleRateValidation(BaseModel):
+    passed: bool
+    input: int
+    output: int
+
+
+class _LengthValidation(BaseModel):
+    passed: bool
+    delta_seconds: float
+
+
 class DataValidationOutput(BaseModel):
     passed: bool
+    sample_rate: _SampleRateValidation
+    length: _LengthValidation
     input_version: str
     latency: metadata.Latency
     checks: metadata.DataChecks
     pytorch: _PyTorchDataValidation
+
+
+def _check_audio_sample_rates(
+    input_path: Path,
+    output_path: Path,
+) -> _SampleRateValidation:
+    _, x_info = wav_to_np(input_path, info=True)
+    _, y_info = wav_to_np(output_path, info=True)
+
+    return _SampleRateValidation(
+        passed=x_info.rate == y_info.rate,
+        input=x_info.rate,
+        output=y_info.rate,
+    )
+
+
+def _check_audio_lengths(
+    input_path: Path,
+    output_path: Path,
+    max_under_seconds: Optional[float] = 0.0,
+    max_over_seconds: Optional[float] = 0.0,
+) -> _LengthValidation:
+    """
+    Check that the input and output have the right lengths compared to each
+    other.
+
+    New in v0.10.0: If the output is up to a second longer (e.g. REAPER users
+    who don't know about the tail option that they have checked), then we'll try
+    to crop it on the end side.
+
+    If it's too short, then that's not ok because you're missing part of the
+    validation signal (and maybe some training signal) and that's not ok.
+
+    If it's _more than 1 second longer, then something is probably wrong and the
+    user will be forced to address it.
+
+    :param input_path: Path to input audio
+    :param output_path: Path to output audio
+    :param max_under_seconds: If not None, the maximum amount by which the
+        output can be shorter than the input. Should be non-negative i.e. a
+        value of 1.0 means that the output can't be more than a second shorter
+        than the input.
+    :param max_over_seconds: If not None, the maximum amount by which the
+        output can be longer than the input. Should be non-negative i.e. a
+        value of 1.0 means that the output can't be more than a second longer
+        than the input.
+    """
+    x, x_info = wav_to_np(input_path, info=True)
+    y, y_info = wav_to_np(output_path, info=True)
+
+    length_input = len(x) / x_info.rate
+    length_output = len(y) / y_info.rate
+    delta_seconds = length_output - length_input
+
+    passed = True
+    if max_under_seconds is not None and delta_seconds < -max_under_seconds:
+        passed = False
+    if max_over_seconds is not None and delta_seconds > max_under_seconds:
+        passed = False
+
+    return _LengthValidation(passed=passed, delta_seconds=delta_seconds)
 
 
 def validate_data(
@@ -1522,7 +1596,14 @@ def validate_data(
     * Latency calibration
     * Other checks
     """
+    print("Validating data...")
     passed = True  # Until proven otherwise
+
+    sample_rate_validation = _check_audio_sample_rates(input_path, output_path)
+    passed = passed and sample_rate_validation.passed
+
+    length_validation = _check_audio_lengths(input_path, output_path)
+    passed = passed and length_validation.passed
 
     # Data version ID
     input_version, strong_match = _detect_input_version(input_path)
@@ -1578,6 +1659,8 @@ def validate_data(
 
     return DataValidationOutput(
         passed=passed,
+        sample_rate=sample_rate_validation,
+        length=length_validation,
         input_version=str(input_version),
         latency=latency_analysis,
         checks=data_checks,

@@ -764,12 +764,32 @@ class GUI(object):
             output_path: str, validation_output: core.DataValidationOutput
         ) -> str:
             """
-            File and explain what's wrong with it.
+            State the file and explain what's wrong with it.
             """
             # TODO put this closer to what it looks at, i.e. core.DataValidationOutput
             msg = (
                 f"\t{Path(output_path).name}:\n"  # They all have the same directory so
             )
+            if not validation_output.sample_rate.passed:
+                msg += (
+                    "\t\t There are different sample rates for the input ("
+                    f"{validation_output.sample_rate.input}) and output ("
+                    f"{validation_output.sample_rate.output}).\n"
+                )
+            if not validation_output.length.passed:
+                msg += (
+                    "\t\t* The input and output audio files are too different in length"
+                )
+                if validation_output.length.delta_seconds > 0:
+                    msg += (
+                        f" (the output is {validation_output.length.delta_seconds:.2f} "
+                        "seconds longer than the input)\n"
+                    )
+                else:
+                    msg += (
+                        f" (the output is {-validation_output.length.delta_seconds:.2f}"
+                        " seconds shorter than the input)\n"
+                    )
             if validation_output.latency.manual is None:
                 if validation_output.latency.calibration.warnings.matches_lookahead:
                     msg += (
