@@ -61,6 +61,7 @@ _DEFAULT_THRESHOLD_ESR = None
 
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
+_METADATA_LEFT_WIDTH = 19
 _METADATA_RIGHT_WIDTH = 60
 
 
@@ -232,28 +233,6 @@ class _InputPathButton(_PathButton):
                     )
                 webbrowser.open(url)
                 return
-
-
-class _ClearablePathButton(_PathButton):
-    """
-    Can clear a path
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, color_when_not_set="black", **kwargs)
-        # Download the training file!
-        self._widgets["button_clear"] = tk.Button(
-            self._frame,
-            text="Clear",
-            width=_BUTTON_WIDTH,
-            height=_BUTTON_HEIGHT,
-            command=self._clear_path,
-        )
-        self._widgets["button_clear"].pack(side=tk.RIGHT)
-
-    def _clear_path(self):
-        self._path = None
-        self._set_text()
 
 
 class _CheckboxKeys(Enum):
@@ -956,6 +935,8 @@ class LabeledText(object):
         :param command: Called to propagate option selection. Is provided with the
             value corresponding to the radio button selected.
         :param type: If provided, casts value to given type
+        :param left_width: How much space to use on the left side (text)
+        :param right_width: How much space for the Text field
         """
         self._frame = frame
         label_height = 2
@@ -965,7 +946,7 @@ class LabeledText(object):
             width=left_width,
             height=label_height,
             bg=None,
-            anchor="w",
+            anchor="e",
             text=label,
         )
         self._label.pack(side=tk.LEFT)
@@ -1120,7 +1101,11 @@ class UserMetadataGUI(object):
         self._parent.user_metadata_flag = True
 
     def pack(self):
-        LabeledText_ = partial(LabeledText, right_width=_METADATA_RIGHT_WIDTH)
+        LabeledText_ = partial(
+            LabeledText,
+            left_width=_METADATA_LEFT_WIDTH,
+            right_width=_METADATA_RIGHT_WIDTH,
+        )
         parent = self._parent
 
         # Name
@@ -1159,6 +1144,23 @@ class UserMetadataGUI(object):
             default=parent.user_metadata.gear_model,
             type=_rstripped_str,
         )
+        # Calibration: input & output dBu
+        self._frame_input_dbu = tk.Frame(self._root)
+        self._frame_input_dbu.pack()
+        self._input_dbu = LabeledText_(
+            self._frame_input_dbu,
+            "Input calibration (dBu)",
+            default=parent.user_metadata.input_level_dbu,
+            type=float,
+        )
+        self._frame_output_dbu = tk.Frame(self._root)
+        self._frame_output_dbu.pack()
+        self._output_dbu = LabeledText_(
+            self._frame_output_dbu,
+            "Output calibration (dBu)",
+            default=parent.user_metadata.output_level_dbu,
+            type=float,
+        )
         # Gear type
         self._frame_gear_type = tk.Frame(self._root)
         self._frame_gear_type.pack()
@@ -1176,23 +1178,6 @@ class UserMetadataGUI(object):
             "Tone type",
             ToneType,
             default=parent.user_metadata.tone_type,
-        )
-        # Calibration: input & output dBu
-        self._frame_input_dbu = tk.Frame(self._root)
-        self._frame_input_dbu.pack()
-        self._input_dbu = LabeledText_(
-            self._frame_input_dbu,
-            "Input calibration (dBu)",
-            default=parent.user_metadata.input_level_dbu,
-            type=float,
-        )
-        self._frame_output_dbu = tk.Frame(self._root)
-        self._frame_output_dbu.pack()
-        self._output_dbu = LabeledText_(
-            self._frame_output_dbu,
-            "Output calibration (dBu)",
-            default=parent.user_metadata.output_level_dbu,
-            type=float,
         )
 
 
