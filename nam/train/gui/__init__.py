@@ -10,6 +10,7 @@ Usage:
 >>> run()
 """
 
+import abc
 import re
 import requests
 import tkinter as tk
@@ -875,26 +876,48 @@ def _non_negative_int(val):
     return val
 
 
-def _type_or_null(T, val):
-    val = val.rstrip()
-    if val == "null":
-        return val
-    return T(val)
+class _TypeOrNull(object):
+    def __init__(self, T, null_str=""):
+        """
+        :param T: tpe to cast to on .forward()
+        """
+        self._T = T
+        self._null_str = null_str
+
+    @property
+    def null_str(self) -> str:
+        """
+        What str is displayed when for "None"
+        """
+        return self._null_str
+
+    def forward(self, val: str):
+        val = val.rstrip()
+        return None if val == self._null_str else self._T(val)
+
+    def inverse(self, val) -> str:
+        return self._null_str if val is None else str(val)
 
 
-_int_or_null = partial(_type_or_null, int)
-_float_or_null = partial(_type_or_null, float)
-
-
-def _type_or_null_inv(val):
-    return "null" if val is None else str(val)
+_int_or_null = _TypeOrNull(int)
+_float_or_null = _TypeOrNull(float)
 
 
 def _rstripped_str(val):
     return str(val).rstrip()
 
 
-class LabeledOptionMenu(object):
+class _SettingWidget(abc.ABC):
+    """
+    A widget for the user to interact with to set something
+    """
+
+    @abc.abstractmethod
+    def get(self):
+        pass
+
+
+class LabeledOptionMenu(_SettingWidget):
     """
     Label (left) and radio buttons (right)
     """
@@ -968,7 +991,7 @@ class _Hovertip(Hovertip):
         label.pack()
 
 
-class LabeledText(object):
+class LabeledText(_SettingWidget):
     """
     Label (left) and text input (right)
     """
@@ -1010,7 +1033,7 @@ class LabeledText(object):
         )
         self._text.pack(side=tk.RIGHT)
 
-        self._type = type
+        self._type = (lambda x: x) if type is None else type
 
         if default is not None:
             self._text.insert("1.0", str(default))
@@ -1023,13 +1046,12 @@ class LabeledText(object):
         return self._label
 
     def get(self):
-        try:
-            val = self._text.get("1.0", tk.END)  # Line 1, character zero (wat)
-            if self._type is not None:
-                val = self._type(val)
-            return val
-        except tk.TclError:
-            return None
+        """
+        Attempt to get and return the value.
+        May throw a tk.TclError indicating something went wrong getting the value.
+        """
+        # "1.0" means Line 1, character zero (wat)
+        return self._type(self._text.get("1.0", tk.END))
 
 
 class AdvancedOptionsGUI(object):
@@ -1042,7 +1064,7 @@ class AdvancedOptionsGUI(object):
         self._root = _TopLevelWithOk(self.apply, resume_main)
         self._root.title("Advanced Options")
 
-        self.pack_options()
+        self.pack()
 
         # "Ok": apply and destroy
         self._frame_ok = tk.Frame(self._root)
@@ -1060,23 +1082,23 @@ class AdvancedOptionsGUI(object):
         """
         Set values to parent and destroy this object
         """
-        self._parent.advanced_options.architecture = self._architecture.get()
-        epochs = self._epochs.get()
-        if epochs is not None:
-            self._parent.advanced_options.num_epochs = epochs
-        latency = self._latency.get()
-        # Value None is returned as "null" to disambiguate from non-set.
-        if latency is not None:
-            self._parent.advanced_options.latency = (
-                None if latency == "null" else latency
-            )
-        threshold_esr = self._threshold_esr.get()
-        if threshold_esr is not None:
-            self._parent.advanced_options.threshold_esr = (
-                None if threshold_esr == "null" else threshold_esr
-            )
 
-    def pack_options(self):
+        def safe_apply(name):
+            try:
+                setattr(
+                    self._parent.advanced_options, name, getattr(self, "_" + name).get()
+                )
+            except ValueError:
+                pass
+
+        # TODO could clean up more / see `.pack_options()`
+        for name in ("architecture", "num_epochs", "latency", "threshold_esr"):
+            safe_apply(name)
+
+    def pack(self):
+        # TODO things that are `_SettingWidget`s are named carefully, need to make this
+        # easier to work with.
+
         # Architecture: radio buttons
         self._frame_architecture = tk.Frame(self._root)
         self._frame_architecture.pack()
@@ -1091,7 +1113,7 @@ class AdvancedOptionsGUI(object):
         self._frame_epochs = tk.Frame(self._root)
         self._frame_epochs.pack()
 
-        self._epochs = LabeledText(
+        self._num_epochs = LabeledText(
             self._frame_epochs,
             "Epochs",
             default=str(self._parent.advanced_options.num_epochs),
@@ -1105,8 +1127,8 @@ class AdvancedOptionsGUI(object):
         self._latency = LabeledText(
             self._frame_latency,
             "Reamp latency",
-            default=_type_or_null_inv(self._parent.advanced_options.latency),
-            type=_int_or_null,
+            default=_int_or_null.inverse(self._parent.advanced_options.latency),
+            type=_int_or_null.forward,
         )
 
         # Threshold ESR
@@ -1115,8 +1137,8 @@ class AdvancedOptionsGUI(object):
         self._threshold_esr = LabeledText(
             self._frame_threshold_esr,
             "Threshold ESR",
-            default=_type_or_null_inv(self._parent.advanced_options.threshold_esr),
-            type=_float_or_null,
+            default=_float_or_null.inverse(self._parent.advanced_options.threshold_esr),
+            type=_float_or_null.forward,
         )
 
 
@@ -1148,17 +1170,33 @@ class UserMetadataGUI(object):
         """
         Set values to parent and destroy this object
         """
-        self._parent.user_metadata.name = self._name.get()
-        self._parent.user_metadata.modeled_by = self._modeled_by.get()
-        self._parent.user_metadata.gear_make = self._gear_make.get()
-        self._parent.user_metadata.gear_model = self._gear_model.get()
-        self._parent.user_metadata.gear_type = self._gear_type.get()
-        self._parent.user_metadata.tone_type = self._tone_type.get()
-        self._parent.user_metadata.input_level_dbu = self._input_dbu.get()
-        self._parent.user_metadata.output_level_dbu = self._output_dbu.get()
+
+        def safe_apply(name):
+            try:
+                setattr(
+                    self._parent.user_metadata, name, getattr(self, "_" + name).get()
+                )
+            except ValueError:
+                pass
+
+        # TODO could clean up more / see `.pack()`
+        for name in (
+            "name",
+            "modeled_by",
+            "gear_make",
+            "gear_model",
+            "gear_type",
+            "tone_type",
+            "input_level_dbu",
+            "output_level_dbu",
+        ):
+            safe_apply(name)
         self._parent.user_metadata_flag = True
 
     def pack(self):
+        # TODO things that are `_SettingWidget`s are named carefully, need to make this
+        # easier to work with.
+
         LabeledText_ = partial(
             LabeledText,
             left_width=_METADATA_LEFT_WIDTH,
@@ -1205,14 +1243,14 @@ class UserMetadataGUI(object):
         # Calibration: input & output dBu
         self._frame_input_dbu = tk.Frame(self._root)
         self._frame_input_dbu.pack()
-        self._input_dbu = LabeledText_(
+        self._input_level_dbu = LabeledText_(
             self._frame_input_dbu,
             "Reamp send level (dBu)",
-            default=parent.user_metadata.input_level_dbu,
-            type=float,
+            default=_float_or_null.inverse(parent.user_metadata.input_level_dbu),
+            type=_float_or_null.forward,
         )
-        self._input_dbu.label_tooltip = _Hovertip(
-            anchor_widget=self._input_dbu.label,
+        self._input_level_dbu.label_tooltip = _Hovertip(
+            anchor_widget=self._input_level_dbu.label,
             text=(
                 "(Ok to leave blank)\n\n"
                 "Play a sine wave with frequency 1kHz and peak amplitude 0dBFS. Use\n"
@@ -1223,14 +1261,14 @@ class UserMetadataGUI(object):
         )
         self._frame_output_dbu = tk.Frame(self._root)
         self._frame_output_dbu.pack()
-        self._output_dbu = LabeledText_(
+        self._output_level_dbu = LabeledText_(
             self._frame_output_dbu,
             "Reamp return level (dBu)",
-            default=parent.user_metadata.output_level_dbu,
-            type=float,
+            default=_float_or_null.inverse(parent.user_metadata.output_level_dbu),
+            type=_float_or_null.forward,
         )
-        self._output_dbu.label_tooltip = _Hovertip(
-            anchor_widget=self._output_dbu.label,
+        self._output_level_dbu.label_tooltip = _Hovertip(
+            anchor_widget=self._output_level_dbu.label,
             text=(
                 "(Ok to leave blank)\n\n"
                 "Play a sine wave with frequency 1kHz into your interface where\n"
