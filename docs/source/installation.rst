@@ -11,7 +11,7 @@ of PyTorch first:
 
 .. code-block:: console
 
-   $ conda install -y pytorch pytorch-cuda=11.8 -c pytorch -c nvidia
+   $ conda install -y pytorch pytorch-cuda=12.1 -c pytorch -c nvidia
 
 Next, install NAM using pip:
 
