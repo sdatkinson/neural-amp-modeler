@@ -1,3 +1,5 @@
+.. _nam-file-spec:
+
 ``.nam`` file specification and change log
 ==========================================
 

@@ -9,7 +9,7 @@ an interest in ensuring that the gain staging of the signal entering and leaving
 models is accurate to what one would experience when plugging into the source
 analog gear.
 
-As of version 0.10.0, the NAM defines a pair of metadata fields, 
+As of version 0.10.0, :ref:`the NAM file spec<nam-file-spec>` defines a pair of metadata fields, 
 ``"input_level_dbu"`` and ``"output_level_dbu"``, that document the relationship
 between the *digital* and *analog* signal strengths. Specifically, these fields
 record the *analog* signal strength (in dBu) that corresponds to the loudest
@@ -19,10 +19,10 @@ behavior of the source in its native analog realm.
 
 This tutorial explains how to take the measurements to fill in these metadata.
 
-.. note:: As with all metadata, recording the calibration levels of the
-    recording is optional. If you don't want to do this, you can leave them
-    blank. The mdoels will still work in any plug-in that supports playing NAMs,
-    but the gain-staging may not be accurate to the source gear.
+.. note:: As with all metadata, noting calibration levels is optional. If you 
+    don't want to do this, you can leave them blank. The mdoels will still work 
+    in any plug-in that supports playing NAMs, but the gain-staging may not be 
+    accurate to the source gear.
 
 Tools needed
 ------------
@@ -46,7 +46,13 @@ First, set up your gear as you would normally for reamping:
 * Begin reamping and set the gain on the return input to your interface so that
   no clipping occurs.
 
-[TODO picture of reamp setup.]
+.. image:: media/calibration/reamp-setup.jpg
+    :scale: 15 %
+    :align: center
+
+*Figure: My reapming setup. The output from the Focusrite Solo passes through my
+reamp box into the input of my amp. The Send from my amp is returned to the 
+recording input of my interface.*
 
 .. note:: My advice is to set the reamping send level as high as your gear will
   allow. If it's too low, then the model won't see any examples of the gear
@@ -56,6 +62,9 @@ First, set up your gear as you would normally for reamping:
   examples that are at least as loud as (preferably even louder than!) how the 
   model will be used in practice.
 
+Go ahead and reamp your gear to get the data for your model. **So long as you're 
+happy with your send level and the return doesn't clip, you're good.**
+
 Next, measure the send level. To do this, play a sine wave with 1kHz frequency
 and 0dBFS peak amplitude. Some plug-ins can do tone generation, or else you can
 just loop this 1-second file: 
@@ -63,7 +72,12 @@ just loop this 1-second file:
 Unplug your cable from the gear you are reamping and measure the RMS voltage
 across its tip and sleeve.
 
-[TODO picture of multimeter]
+.. image:: media/calibration/voltage.jpg
+    :scale: 15 %
+    :align: center
+
+*Figure: Measuring the level of the jack that was plugged into the input of the 
+amp. I measure 6.40 Volts RMS.*
 
 Convert the RMS voltage to dBu using the formula:
 
@@ -72,39 +86,95 @@ Convert the RMS voltage to dBu using the formula:
    \text{dBu} = 20 \times \log_{10}\left(\frac{V_{\text{RMS}}}{0.7746}\right)
 
 Alternatively, the bottom of this page has a table of pre-computed values you
-can reference. This is the value you will provide to the send level field in the
-trainer:
+can reference. 
 
-[TODO picture of GUI trainer]
+*Example: In the picture above, I measured 6.40 V. This corresponds to 18.3 dBu.*
 
-[TODO picture of Colab trainer]
+Next, measure the return level. To do this, start by connecting the send from 
+your interfacedirectly to the return you used for recording:
 
-Next, measure the return level. TODO
+.. image:: media/calibration/reamp-setup-no-amp.jpg
+    :scale: 15 %
+    :align: center
 
-The return level calibration isn't the same as the manufacturer specification
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+*Figure: My reamping setup, with the send plugged directly back into the 
+return.*
 
-As of this writing (September 2024), users have started to become familiar with
-manufacturers' specifications for the input calibration to their interfaces 
-(e.g. many tutorials on
-`YouTube <https://www.youtube.com/results?search_query=plug-in+input+level>`_)
+Play the sine tone, and note the return level (in dBFS) in your DAW:
 
-.. image:: media/calibration/youtube-input-level.png
+.. image:: media/calibration/sine-tone.png
+    :scale: 30 %
+    :align: center
+
+*Figure: Monitoring the return level. The "send" track is outputting a 1 kHz 
+sine tone at 0 dBFS. The return track is clipping.*
+
+You may find that your send signal is so loud that it clips the return, like 
+above. *This is not a problem.* If this happens, reduce the level of the sine 
+tone in the DAW until the return doesn't clip *(You should do not change the
+``input.wav`` file as well. In fact, hopefully you already reamped so that 
+you're not tempted!)*
+
+.. image:: media/calibration/sine-tone-level-reduced.png
+    :scale: 30 %
+    :align: center
+
+*Figure: Monitoring the return level. The "send" track is outputting a 1 kHz 
+sine tone at -6.50 dBFS. The return track is measuring -0.5 dBFS.*
+
+Note the return level (-0.5 dBFS above) and the amount by which you reduced the 
+sine tone's level (-6.50 dB).
+
+To compute the return level, what we are trying to do is figure out how loud a 
+signal (in dBu) clips the return on our interface (i.e. achieves 0 dBFS). We 
+know the analog level of the sine tone (at full volume, i.e. 0 dBFS) from above,
+so the formula to compute your return level calibration, in dBu, is:
+
+.. math::
+
+   \text{dBu}_{return} = \text{dBu}_{send} - \Delta + L,
+
+where Δ is the amount by which you reduced the sine tone's level, and *L* is the
+return level.
+
+For example, using the numbers above, I get *18.3 - 6.50 + 0.5 = 12.3 dBu*.
+
+Careful: The return level calibration may not be what you think it is
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+As of this writing (October 2024), some users are likely familiar with a 
+calibration level for their interface's inputs. For example, the maximum input
+level for the instrument inputs on the 4th-generation Focusrite Scarlett 18i20
+is listed in its manual as 12 dBu:
+
+.. image:: media/calibration/scarlett-instrument-input-doc.png
+    :align: center
     :scale: 50 %
 
-The return level will not necessarily match the manufacturer's specification for
-your interface's input level (e.g. for the 
-`Focusrite Scarlett 2i2 4th Gen <https://downloads.focusrite.com/focusrite/scarlett-4th-gen/scarlett-2i2-4th-gen>`_,
-the maximum input level at minimum gain for the instrument inputs is 12 dBu). 
-The reason is that you may not be recording at minimum gain. As of writing this
-(September 2024), common practice is to *normalize* the output level to a common
-digital level so that different gear is all the same (digital) loudness. This
-can be helpful for amp models where the output level of the model will
-correspond to the level that will be mixed. However, for gear like pedals that 
-will be fed as input to another piece of gear like an amp, this would result in 
-the incorrect level being outputted from the pedal to the input of the amp.
+*Figure: Instrument input specifications, from the manual for the* 
+`Focusrite Scarlett 18i20 4th Generation <https://downloads.focusrite.com/focusrite/scarlett-4th-gen/scarlett-18i20-4th-gen>`_
+*.*
 
+This is specifically for when the interface is set to **minimum gain**; if you 
+adjust (increase) the gain when recording to get a bigger waveform when 
+recording, then this will *reduce* the dBu at which clipping happens. **If you 
+record with your gain all the way down**, then you can use the manufacturer's
+specification; but if not, then you should calculate it as above. (You may also 
+find that if you compute measure it yourself, the calibration for your own 
+interface's inputs may be slightly different from the manufacturer's spec.)
 
+Providing the calibration in the metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Once you've figure out the calibration levels for your recording, you can 
+provide them as metadata when making your model. Using the nubmers from above, I 
+would write this:
+
+.. image:: media/calibration/metadata-gui.png
+    :align: center
+    :scale: 50 %
+
+*Figure: Metadata for the local GUI-based trainer.*
 
 A note on updating old model files
 ----------------------------------
@@ -115,10 +185,10 @@ format and can be edited as plain text. If you want to do this, you can make a
 new model and use it as a reference for how to add the new metadata fields to 
 your old files. Look for the fields ``"input_level_dbu"`` and 
 ``"output_level_dbu"`` in the new file and copy them to your old file in the 
-corresponding location, changing the nubmers as necessary. As always, it's 
-recommended to save a backup of your file before you being editing it in case 
-you make a mistake.
-
+corresponding location, changing the numbers as necessary. (If you only know 
+one, then you can leave the other as `null`.) As always, it's recommended to 
+save a backup of your file before you being editing it in case you make a 
+mistake.
 
 Appendix: Conversion table between RMS voltage and dBu
 ------------------------------------------------------

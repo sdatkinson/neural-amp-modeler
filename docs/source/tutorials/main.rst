@@ -7,3 +7,4 @@ Tutorials
    colab
    gui
    full
+   calibration
