@@ -333,7 +333,7 @@ _V4_DATA_INFO = _DataInfo(
 
 _DELAY_CALIBRATION_ABS_THRESHOLD = 0.0003
 _DELAY_CALIBRATION_REL_THRESHOLD = 0.001
-_DELAY_CALIBRATION_SAFETY_FACTOR = 4
+_DELAY_CALIBRATION_SAFETY_FACTOR = 1  # Might be able to make this zero...
 
 
 def _warn_lookaheads(indices: Sequence[int]) -> str:
