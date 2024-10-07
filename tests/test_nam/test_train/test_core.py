@@ -161,9 +161,9 @@ class _TCalibrateDelay(object):
         with Capturing() as output:
             self._calibrate_delay(y)
         # `[0]` -- Only look in the first set of blip locations
-        expected_warning = core._warn_lookaheads(
-            list(range(1, len(self._data_info.blip_locations[0]) + 1))
-        )
+        # With #485, we average them all together so there's only one index.
+        # TODO clean this up.
+        expected_warning = core._warn_lookaheads([1])  # "Blip 1"
         assert any(o == expected_warning for o in output), output
 
 
