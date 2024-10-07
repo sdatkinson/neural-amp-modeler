@@ -20,7 +20,16 @@ import webbrowser
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
-from idlelib.tooltip import Hovertip
+try:  # Not supported in Colab
+    from idlelib.tooltip import Hovertip
+except ModuleNotFoundError:
+    # Hovertips won't work
+    class Hovertip(object):
+        """
+        Shell class
+        """
+        def __init__(self, *args, **kwargs):
+            pass
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Callable, Dict, NamedTuple, Optional, Sequence
