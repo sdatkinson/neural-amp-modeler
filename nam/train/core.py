@@ -801,7 +801,7 @@ def _get_wavenet_config(architecture):
                     "channels": 16,
                     "head_size": 8,
                     "kernel_size": 3,
-                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,256,128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
@@ -812,7 +812,7 @@ def _get_wavenet_config(architecture):
                     "channels": 8,
                     "head_size": 1, 
                     "kernel_size": 3,
-                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,256,128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
@@ -828,7 +828,7 @@ def _get_wavenet_config(architecture):
                     "channels": 12,
                     "head_size": 6,
                     "kernel_size": 3,
-                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,256,128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
@@ -839,7 +839,7 @@ def _get_wavenet_config(architecture):
                     "channels": 6,
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,256,128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
@@ -855,7 +855,7 @@ def _get_wavenet_config(architecture):
                     "channels": 8,
                     "head_size": 4,
                     "kernel_size": 3,
-                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,256,128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
@@ -866,7 +866,7 @@ def _get_wavenet_config(architecture):
                     "channels": 4,
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,256,128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
@@ -882,7 +882,7 @@ def _get_wavenet_config(architecture):
                     "channels": 4, #!#
                     "head_size": 3, #!#
                     "kernel_size": 3,
-                    "dilations": [192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": False,
@@ -893,7 +893,7 @@ def _get_wavenet_config(architecture):
                     "channels": 3, #!#
                     "head_size": 1,
                     "kernel_size": 3,
-                    "dilations": [512,384,192,96,32,16,8,4,2,1,24], #!#
+                    "dilations": [512,256,128,64,32,16,8,4,2,1,24], #!#
                     "activation": "Hardtanh", #!#
                     "gated": False,
                     "head_bias": True,
