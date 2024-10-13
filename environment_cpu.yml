@@ -13,7 +13,7 @@ dependencies:
   - h5py
   - jupyter
   - matplotlib
-  - numpy
+  - numpy<2  # Until PyTorch 2.3
   - onnx
   - onnxruntime!=1.16.0
   - pip
