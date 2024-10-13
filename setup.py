@@ -7,6 +7,7 @@ from setuptools import setup, find_packages
 
 
 def get_additional_requirements():
+    additional_requirements = []
     # Issue 294
     try:
         import transformers
@@ -14,9 +15,29 @@ def get_additional_requirements():
         # This may not be unnecessarily straict a requirement, but I'd rather
         # fix this promptly than leave a chance that it wouldn't be fixed
         # properly.
-        return ["transformers>=4"]
+        additional_requirements.append("transformers>=4")
     except ModuleNotFoundError:
-        return []
+        pass
+    
+    # Issue 494
+    def get_numpy_requirement() -> str:
+        need_numpy_1 = True  # Until proven otherwise
+        try:
+            import torch
+
+            version_split = torch.__version__.split(".")
+            major = int(version_split[0])
+            if major >= 2:
+                minor = int(version_split[1])
+                if minor >= 3:  # Hooray, PyTorch 2.3+!
+                    need_numpy_1 = False
+        except ModuleNotFoundError:
+            # Until I see PyTorch 2.3 come out:
+            pass
+        return "numpy<2"if need_numpy_1 else "numpy"
+    additional_requirements.append(get_numpy_requirement())
+    
+    return additional_requirements
 
 
 main_ns = {}
@@ -27,7 +48,6 @@ with open(ver_path) as ver_file:
 requirements = [
     "auraloss==0.3.0",
     "matplotlib",
-    "numpy",
     "pydantic>=2.0.0",
     "pytorch_lightning",
     "scipy",

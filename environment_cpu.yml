@@ -13,7 +13,7 @@ dependencies:
   - h5py
   - jupyter
   - matplotlib
-  - numpy
+  - numpy<2
   - pip
   - pre-commit
   - pydantic
