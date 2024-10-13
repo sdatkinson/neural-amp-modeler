@@ -4,18 +4,16 @@
 
 name: nam
 channels:
-  - conda-forge # pytest-mock, onnxruntime
+  - conda-forge # pytest-mock
   - pytorch
 dependencies:
-  - python<3.11 # onnxruntime
+  - python>=3.9
   - black
   - flake8
   - h5py
   - jupyter
   - matplotlib
-  - numpy<2  # Until PyTorch 2.3
-  - onnx
-  - onnxruntime!=1.16.0
+  - numpy<2
   - pip
   - pre-commit
   - pydantic

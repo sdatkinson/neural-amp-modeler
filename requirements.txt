@@ -6,9 +6,7 @@ auraloss==0.3.0  # 0.4.0 changes API for MRSTFT loss
 black
 flake8
 matplotlib
-numpy<2  # Until PyTorch 2.3
-onnx
-onnxruntime!=1.16.0  # 1.16.0 has a bug to avoid!
+numpy<2
 pip
 pre-commit
 pydantic>=2.0.0

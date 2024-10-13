@@ -48,8 +48,6 @@ with open(ver_path) as ver_file:
 requirements = [
     "auraloss==0.3.0",
     "matplotlib",
-    "onnx",
-    "onnxruntime!=1.16.0",  # Has a bug to avoid
     "pydantic>=2.0.0",
     "pytorch_lightning",
     "scipy",
