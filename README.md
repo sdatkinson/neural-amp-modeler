@@ -1,1 +1,1 @@
-My modifications to official NAM. Always enable FIT_CAB when training models.
+My modifications to official NAM. [b]Always enable FIT_CAB when training models.[/b]
