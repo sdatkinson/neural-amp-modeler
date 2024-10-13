@@ -7,8 +7,6 @@ black
 flake8
 matplotlib
 numpy
-onnx
-onnxruntime!=1.16.0  # 1.16.0 has a bug to avoid!
 pip
 pre-commit
 pydantic>=2.0.0

@@ -228,42 +228,6 @@ class LSTM(BaseNet):
                     )
                 )
 
-    def export_onnx(self, filename: Path):
-        if self._input_size != 1:
-            raise NotImplementedError("Multi-dimensional inputs not supported yet")
-        o = _ONNXWrapped(self)
-        x = torch.randn((64,))  # (S,)
-        h, c = [z[:, 0, :] for z in self._initial_state(1)]  # (L,DH), (L,DH)
-        torch.onnx.export(
-            o,
-            (x, h, c),
-            filename,
-            input_names=["x", "hin", "cin"],
-            output_names=["y", "hout", "cout"],
-            dynamic_axes={"x": {0: "num_frames"}, "y": {0: "num_frames"}},
-        )
-
-    def forward_onnx(
-        self, x: torch.Tensor, h: _LSTMHiddenType, c: _LSTMCellType
-    ) -> Tuple[torch.Tensor, _LSTMHiddenType, _LSTMCellType]:
-        """
-        Forward pass used by ONNX export
-        Only supports scalar inputs right now.
-
-        N: Sequeence length
-        L: Number of layers
-        DH: Hidden state dimension
-
-        :param x: (N,)
-        :param state: (L, DH)
-        :param cell: (L, DH)
-
-        :return: (N,), (L, DH), (L, DH)
-        """
-        features, (h, c) = self._core(x[None, :, None], (h[:, None, :], c[:, None, :]))
-        y = self._apply_head(features)  # (1,S)
-        return y[0, :], h[:, 0, :], c[:, 0, :]
-
     def _apply_head(self, features: torch.Tensor) -> torch.Tensor:
         """
         :param features: (B,S,DH)
@@ -407,28 +371,6 @@ class LSTM(BaseNet):
                 torch.tile(self._initial_cell[:, None], (1, n, 1)),
             )
         )
-
-
-class _ONNXWrapped(nn.Module):
-    def __init__(self, net: LSTM):
-        super().__init__()
-        self._net = net
-
-    def forward(
-        self, x: torch.Tensor, hidden: _LSTMHiddenType, cell: _LSTMCellType
-    ) -> Tuple[torch.Tensor, _LSTMHiddenType, _LSTMCellType]:
-        """
-        N: Sequeence length
-        L: Number of layers
-        DH: Hidden state dimension
-
-        :param x: (N,)
-        :param state: (L, DH)
-        :param cell: (L, DH)
-
-        :return: (N,), (L, DH), (L, DH)
-        """
-        return self._net.forward_onnx(x, hidden, cell)
 
 
 # TODO refactor together
