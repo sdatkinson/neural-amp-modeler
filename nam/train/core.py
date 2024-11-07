@@ -1235,7 +1235,7 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
             nam_path.unlink()
 
 
-def _get_callbacks(
+def get_callbacks(
     threshold_esr: Optional[float],
     user_metadata: Optional[UserMetadata] = None,
     settings_metadata: Optional[metadata.Settings] = None,
@@ -1432,7 +1432,7 @@ def train(
     data_metadata = metadata.Data(latency=latency_analysis, checks=data_check_output)
 
     trainer = pl.Trainer(
-        callbacks=_get_callbacks(
+        callbacks=get_callbacks(
             threshold_esr,
             user_metadata=user_metadata,
             settings_metadata=settings_metadata,
