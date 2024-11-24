@@ -4,7 +4,7 @@
 
 import pytest as _pytest
 
-from nam.models import _conv_net
+from nam.models import conv_net
 
 from ._convolutional import Convolutional as _Convolutional
 
@@ -15,7 +15,7 @@ class TestConvNet(_Convolutional):
         channels = 3
         dilations = [1, 2, 4]
         return super().setup_class(
-            _conv_net.ConvNet,
+            conv_net.ConvNet,
             (channels, dilations),
             {"batchnorm": False, "activation": "Tanh"},
         )
