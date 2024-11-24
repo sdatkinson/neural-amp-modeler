@@ -221,8 +221,6 @@ class BaseNet(_Base):
             for i in range(0, x.shape[1], stride):
                 j = min(i+65_536, x.shape[1])
                 xi = x[:, i:j]
-                if xi.shape[1] < self.receptive_field:
-                    raise RuntimeError("?")
                 out_list.append(self._forward(xi, **kwargs))
                 # Bit hacky, but correct.
                 if j == x.shape[1]:
