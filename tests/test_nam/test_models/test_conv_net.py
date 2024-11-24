@@ -2,17 +2,14 @@
 # Created Date: Friday May 6th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-import pytest
+import pytest as _pytest
 
 from nam.models import conv_net
 
-from .base import Base
+from ._convolutional import Convolutional as _Convolutional
 
 
-class TestConvNet(Base):
+class TestConvNet(_Convolutional):
     @classmethod
     def setup_class(cls):
         channels = 3
@@ -23,13 +20,13 @@ class TestConvNet(Base):
             {"batchnorm": False, "activation": "Tanh"},
         )
 
-    @pytest.mark.parametrize(
+    @_pytest.mark.parametrize(
         ("batchnorm,activation"), ((False, "ReLU"), (True, "Tanh"))
     )
     def test_init(self, batchnorm, activation):
         super().test_init(kwargs={"batchnorm": batchnorm, "activation": activation})
 
-    @pytest.mark.parametrize(
+    @_pytest.mark.parametrize(
         ("batchnorm,activation"), ((False, "ReLU"), (True, "Tanh"))
     )
     def test_export(self, batchnorm, activation):
@@ -37,4 +34,4 @@ class TestConvNet(Base):
 
 
 if __name__ == "__main__":
-    pytest.main()
+    _pytest.main()

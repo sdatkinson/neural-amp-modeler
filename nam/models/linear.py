@@ -6,9 +6,6 @@
 Linear model
 """
 
-import json
-from pathlib import Path
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -30,38 +27,6 @@ class Linear(BaseNet):
     def receptive_field(self) -> int:
         return self._net.weight.shape[2]
 
-    def export(self, outdir: Path):
-        training = self.training
-        self.eval()
-        with open(Path(outdir, "config.json"), "w") as fp:
-            json.dump(
-                {
-                    "version": __version__,
-                    "architecture": self.__class__.__name__,
-                    "config": {
-                        "receptive_field": self.receptive_field,
-                        "bias": self._bias,
-                    },
-                },
-                fp,
-                indent=4,
-            )
-
-        params = [self._net.weight.flatten()]
-        if self._bias:
-            params.append(self._net.bias.flatten())
-        params = torch.cat(params).detach().cpu().numpy()
-        # Hope I don't regret using np.save...
-        np.save(Path(outdir, "weights.npy"), params)
-
-        # And an input/output to verify correct computation:
-        x, y = self._export_input_output()
-        np.save(Path(outdir, "input.npy"), x.detach().cpu().numpy())
-        np.save(Path(outdir, "output.npy"), y.detach().cpu().numpy())
-
-        # And resume training state
-        self.train(training)
-
     def export_cpp_header(self):
         raise NotImplementedError()
 
@@ -73,7 +38,14 @@ class Linear(BaseNet):
         return self._net(x[:, None])[:, 0]
 
     def _export_config(self):
-        raise NotImplementedError()
+        return {
+            "receptive_field": self.receptive_field,
+            "bias": self._bias,
+        }
 
     def _export_weights(self) -> np.ndarray:
-        raise NotImplementedError()
+        params_list = [self._net.weight.flatten()]
+        if self._bias:
+            params_list.append(self._net.bias.flatten())
+        params = torch.cat(params_list).detach().cpu().numpy()
+        return params

@@ -170,6 +170,10 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
 
 
 class BaseNet(_Base):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._mps_65536_fallback = False
+
     def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None, **kwargs):
         pad_start = self.pad_start_default if pad_start is None else pad_start
         scalar = x.ndim == 1
@@ -179,16 +183,53 @@ class BaseNet(_Base):
             x = torch.cat(
                 (torch.zeros((len(x), self.receptive_field - 1)).to(x.device), x), dim=1
             )
-        y = self._forward(x, **kwargs)
+        if x.shape[1] < self.receptive_field:
+            raise ValueError(
+                f"Input has {x.shape[1]} samples, which is too few for this model with "
+                f"receptive field {self.receptive_field}!"
+            )
+        y = self._forward_mps_safe(x, **kwargs)
         if scalar:
             y = y[0]
         return y
 
     def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
         return self(x)
+    
+    def _forward_mps_safe(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        """
+        Wrap `._forward()` to protect against MPS-unsupported inptu lengths 
+        beyond 65,536 samples.
+
+        Check this again when PyTorch 2.5.2 is released--hopefully it's fixed
+        then.
+        """
+        if not self._mps_65536_fallback:
+            try:
+                return self._forward(x, **kwargs)
+            except NotImplementedError as e:
+                if "Output channels > 65536 not supported at the MPS device." in str(e):
+                    self._mps_65536_fallback = True
+                    return self._forward_mps_safe(x, **kwargs)
+                else:
+                    raise e
+        else:
+            # Stitch together the output one piece at a time to avoid the MPS error
+            stride = 65_536 - (self.receptive_field - 1)
+            # We need to make sure that the last segment is big enough that we have the required history for the receptive field.
+            out_list = []
+            for i in range(0, x.shape[1], stride):
+                j = min(i+65_536, x.shape[1])
+                xi = x[:, i:j]
+                out_list.append(self._forward(xi, **kwargs))
+                # Bit hacky, but correct.
+                if j == x.shape[1]:
+                    break
+            return torch.cat(out_list, dim=1)
+
 
     @abc.abstractmethod
-    def _forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         The true forward method.
 
