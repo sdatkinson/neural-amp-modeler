@@ -2,6 +2,8 @@
 # Created Date: Saturday February 13th 2021
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+# Environment for CPU and macOS (Intel and Apple Silicon)
+
 name: nam
 channels:
   - conda-forge # pytest-mock
@@ -19,6 +21,8 @@ dependencies:
   - pydantic
   - pytest
   - pytest-mock
+  # Performance note:
+  # https://github.com/sdatkinson/neural-amp-modeler/issues/505
   - pytorch
   - scipy
   - semver

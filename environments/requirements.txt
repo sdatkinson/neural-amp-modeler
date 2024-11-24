@@ -15,9 +15,10 @@ pytest-mock
 pytorch_lightning
 scipy
 sounddevice
+# Performance note: https://github.com/sdatkinson/neural-amp-modeler/issues/505
 torch
-# Not required, but if you have it, it needs to be recent enough so I'm adding
-# it.
+# `transformers` is not required, but if you have it, it needs to be recent
+# enough so I'm adding it.
 transformers>=4
 tqdm
 wavio
