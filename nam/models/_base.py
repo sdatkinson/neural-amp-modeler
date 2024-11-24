@@ -183,6 +183,11 @@ class BaseNet(_Base):
             x = torch.cat(
                 (torch.zeros((len(x), self.receptive_field - 1)).to(x.device), x), dim=1
             )
+        if x.shape[1] < self.receptive_field:
+            raise ValueError(
+                f"Input has {x.shape[1]} samples, which is too few for this model with "
+                f"receptive field {self.receptive_field}!"
+            )
         y = self._forward_mps_safe(x, **kwargs)
         if scalar:
             y = y[0]
@@ -211,13 +216,18 @@ class BaseNet(_Base):
         else:
             # Stitch together the output one piece at a time to avoid the MPS error
             stride = 65_536 - (self.receptive_field - 1)
-            return torch.cat(
-                [
-                    self._forward(x[:, i:i + 65_536])
-                    for i in range(0, x.shape[1], stride)
-                ],
-                dim=1
-            )
+            # We need to make sure that the last segment is big enough that we have the required history for the receptive field.
+            out_list = []
+            for i in range(0, x.shape[1], stride):
+                j = min(i+65_536, x.shape[1])
+                xi = x[:, i:j]
+                if xi.shape[1] < self.receptive_field:
+                    raise RuntimeError("?")
+                out_list.append(self._forward(xi, **kwargs))
+                # Bit hacky, but correct.
+                if j == x.shape[1]:
+                    break
+            return torch.cat(out_list, dim=1)
 
 
     @abc.abstractmethod
