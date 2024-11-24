@@ -3,7 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-Implements the base PyTorch Lightning model.
+Implements the base PyTorch Lightning module.
 This is meant to combine an actual model (subclassed from `._base.BaseNet`)
 along with loss function boilerplate.
 
