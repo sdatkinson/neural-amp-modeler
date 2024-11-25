@@ -1,8 +1,8 @@
-# File: environment.yml
+# File: environment_gpu.yml
 # Created Date: Saturday February 13th 2021
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-name: nam
+name: nam-test2
 channels:
   - conda-forge # pytest-mock
   - pytorch
@@ -36,4 +36,4 @@ dependencies:
       - sounddevice
       - transformers>=4  # See requirements.txt
       - wavio >=0.0.5
-      - -e .
+      - -e ..
