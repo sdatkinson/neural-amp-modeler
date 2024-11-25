@@ -198,7 +198,7 @@ class BaseNet(_Base):
 
     def _forward_mps_safe(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         """
-        Wrap `._forward()` to protect against MPS-unsupported inptu lengths
+        Wrap `._forward()` to protect against MPS-unsupported input lengths
         beyond 65,536 samples.
 
         Check this again when PyTorch 2.5.2 is released--hopefully it's fixed
