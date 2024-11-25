@@ -13,7 +13,9 @@ from .base import Base as _Base
 
 
 class Convolutional(_Base):
-    @_pytest.mark.skipif(not _torch.backends.mps.is_available(), reason="MPS-specific test")
+    @_pytest.mark.skipif(
+        not _torch.backends.mps.is_available(), reason="MPS-specific test"
+    )
     def test_process_input_longer_than_65536(self):
         """
         Processing inputs longer than 65,536 samples using the MPS backend can

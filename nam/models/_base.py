@@ -195,10 +195,10 @@ class BaseNet(_Base):
 
     def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
         return self(x)
-    
+
     def _forward_mps_safe(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         """
-        Wrap `._forward()` to protect against MPS-unsupported inptu lengths 
+        Wrap `._forward()` to protect against MPS-unsupported inptu lengths
         beyond 65,536 samples.
 
         Check this again when PyTorch 2.5.2 is released--hopefully it's fixed
@@ -230,14 +230,13 @@ class BaseNet(_Base):
             # We need to make sure that the last segment is big enough that we have the required history for the receptive field.
             out_list = []
             for i in range(0, x.shape[1], stride):
-                j = min(i+65_536, x.shape[1])
+                j = min(i + 65_536, x.shape[1])
                 xi = x[:, i:j]
                 out_list.append(self._forward(xi, **kwargs))
                 # Bit hacky, but correct.
                 if j == x.shape[1]:
                     break
             return torch.cat(out_list, dim=1)
-
 
     @abc.abstractmethod
     def _forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:

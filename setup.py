@@ -18,7 +18,7 @@ def get_additional_requirements():
         additional_requirements.append("transformers>=4")
     except ModuleNotFoundError:
         pass
-    
+
     # Issue 494
     def get_numpy_requirement() -> str:
         need_numpy_1 = True  # Until proven otherwise
@@ -34,9 +34,10 @@ def get_additional_requirements():
         except ModuleNotFoundError:
             # Until I see PyTorch 2.3 come out:
             pass
-        return "numpy<2"if need_numpy_1 else "numpy"
+        return "numpy<2" if need_numpy_1 else "numpy"
+
     additional_requirements.append(get_numpy_requirement())
-    
+
     return additional_requirements
 
 

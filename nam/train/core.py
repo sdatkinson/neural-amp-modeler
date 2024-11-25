@@ -424,13 +424,16 @@ def _calibrate_latency_v_all(
         print(msg)
         print("SHARE THIS PLOT IF YOU ASK FOR HELP")
         plt.figure()
-        plt.plot(np.arange(-lookahead, lookback), y_scan_average, color="C0", label="Signal average")
+        plt.plot(
+            np.arange(-lookahead, lookback),
+            y_scan_average,
+            color="C0",
+            label="Signal average",
+        )
         for y_scan in y_scans:
             plt.plot(np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2)
         plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
-        plt.axhline(
-            y=-trigger_threshold, color="k", linestyle="--", label="Threshold"
-        )
+        plt.axhline(y=-trigger_threshold, color="k", linestyle="--", label="Threshold")
         plt.axhline(y=trigger_threshold, color="k", linestyle="--")
         plt.xlim((-lookahead, lookback))
         plt.xlabel("Samples")

@@ -23,7 +23,12 @@ import torch.nn as nn
 from .._core import InitializableFromConfig
 from ..models.conv_net import ConvNet
 from ..models.linear import Linear
-from ..models.losses import apply_pre_emphasis_filter, esr, multi_resolution_stft_loss, mse_fft
+from ..models.losses import (
+    apply_pre_emphasis_filter,
+    esr,
+    multi_resolution_stft_loss,
+    mse_fft,
+)
 from ..models.recurrent import LSTM
 from ..models.wavenet import WaveNet
 
@@ -130,6 +135,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
     The PyTorch Lightning Module that unites the model with its loss and
     optimization recipe.
     """
+
     def __init__(
         self,
         net,
