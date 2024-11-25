@@ -16,7 +16,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from nam.data import ConcatDataset, Split, init_dataset
-from nam.models import Model
+from nam.train.lightning_module import LightningModule
 from nam.util import filter_warnings
 
 torch.manual_seed(0)
@@ -143,7 +143,7 @@ def main(
         with open(Path(outdir, f"config_{basename}.json"), "w") as fp:
             json.dump(config, fp, indent=4)
 
-    model = Model.init_from_config(model_config)
+    model = LightningModule.init_from_config(model_config)
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
@@ -178,9 +178,9 @@ def main(
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
     if best_checkpoint != "":
-        model = Model.load_from_checkpoint(
+        model = LightningModule.load_from_checkpoint(
             trainer.checkpoint_callback.best_model_path,
-            **Model.parse_config(model_config),
+            **LightningModule.parse_config(model_config),
         )
     model.cpu()
     model.eval()

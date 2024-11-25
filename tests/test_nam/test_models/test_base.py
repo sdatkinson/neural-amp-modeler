@@ -16,7 +16,8 @@ import pytest
 import torch
 from auraloss.freq import MultiResolutionSTFTLoss
 
-from nam.models import _base, base
+from nam.models import _base
+from nam.train import lightning_module
 
 
 class _MockBaseNet(_base.BaseNet):
@@ -66,8 +67,8 @@ def test_metadata_loudness():
     "batch_size,sequence_length", ((16, 8192), (3, 2048), (1, 4000))
 )
 def test_mrstft_loss(batch_size: int, sequence_length: int):
-    obj = base.Model(
-        _MockBaseNet(1.0), loss_config=base.LossConfig(mrstft_weight=0.0002)
+    obj = lightning_module.LightningModule(
+        _MockBaseNet(1.0), loss_config=lightning_module.LossConfig(mrstft_weight=0.0002)
     )
     preds = torch.randn((batch_size, sequence_length))
     targets = torch.randn(preds.shape)
@@ -96,12 +97,12 @@ def test_mrstft_loss_cpu_fallback(mocker):
             raise RuntimeError("Trigger fallback")
         return torch.tensor(1.0)
 
-    mocker.patch("nam.models.base.multi_resolution_stft_loss", mocked_loss)
+    mocker.patch("nam.train.lightning_module.multi_resolution_stft_loss", mocked_loss)
 
     batch_size = 3
     sequence_length = 4096
-    obj = base.Model(
-        _MockBaseNet(1.0), loss_config=base.LossConfig(mrstft_weight=0.0002)
+    obj = lightning_module.LightningModule(
+        _MockBaseNet(1.0), loss_config=lightning_module.LossConfig(mrstft_weight=0.0002)
     )
     preds = torch.randn((batch_size, sequence_length))
     targets = torch.randn(preds.shape)

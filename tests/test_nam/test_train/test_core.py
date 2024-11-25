@@ -17,7 +17,7 @@ from nam.data import (
     wav_to_tensor,
     _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
 )
-from nam.models import Model
+from nam.train.lightning_module import LightningModule
 from nam.train import core
 from nam.train._version import Version
 
@@ -292,7 +292,7 @@ def test_end_to_end():
             fast_dev_run=True,
         )
         # Assertions...
-        assert isinstance(train_output.model, Model)
+        assert isinstance(train_output.model, LightningModule)
 
 
 def test_get_callbacks():

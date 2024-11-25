@@ -4,10 +4,10 @@
 
 """
 Implements the base PyTorch Lightning module.
-This is meant to combine an actual model (subclassed from `._base.BaseNet`)
+This is meant to combine an actual model (subclassed from `..models.base.BaseNet`)
 along with loss function boilerplate.
 
-For the base *PyTorch* model containing the actual architecture, see `._base`.
+For the base *PyTorch* model containing the actual architecture, see `..models.base`.
 """
 
 from dataclasses import dataclass
@@ -21,11 +21,11 @@ import torch
 import torch.nn as nn
 
 from .._core import InitializableFromConfig
-from .conv_net import ConvNet
-from .linear import Linear
-from .losses import apply_pre_emphasis_filter, esr, multi_resolution_stft_loss, mse_fft
-from .recurrent import LSTM
-from .wavenet import WaveNet
+from ..models.conv_net import ConvNet
+from ..models.linear import Linear
+from ..models.losses import apply_pre_emphasis_filter, esr, multi_resolution_stft_loss, mse_fft
+from ..models.recurrent import LSTM
+from ..models.wavenet import WaveNet
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,11 @@ _model_net_init_registry = {
 }
 
 
-class Model(pl.LightningModule, InitializableFromConfig):
+class LightningModule(pl.LightningModule, InitializableFromConfig):
+    """
+    The PyTorch Lightning Module that unites the model with its loss and
+    optimization recipe.
+    """
     def __init__(
         self,
         net,
