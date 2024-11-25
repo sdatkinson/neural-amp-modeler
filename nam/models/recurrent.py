@@ -18,7 +18,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ._base import BaseNet
+from .base import BaseNet
 
 
 class _L(nn.LSTM):

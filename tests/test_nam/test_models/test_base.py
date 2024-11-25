@@ -15,10 +15,10 @@ import numpy as np
 import pytest
 import torch
 
-from nam.models import _base
+from nam.models import base
 
 
-class MockBaseNet(_base.BaseNet):
+class MockBaseNet(base.BaseNet):
     def __init__(self, gain: float, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.gain = gain
