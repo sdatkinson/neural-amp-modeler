@@ -18,10 +18,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ._base import BaseNet
-
-
-# TODO merge LSTMCore into LSTM
+from .base import BaseNet
 
 
 class _L(nn.LSTM):
@@ -53,72 +50,6 @@ class _L(nn.LSTM):
 _LSTMHiddenType = torch.Tensor
 _LSTMCellType = torch.Tensor
 _LSTMHiddenCellType = Tuple[_LSTMHiddenType, _LSTMCellType]
-
-
-class LSTMCore(_L):
-    def __init__(
-        self,
-        *args,
-        train_burn_in: Optional[int] = None,
-        train_truncate: Optional[int] = None,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        if not self.batch_first:
-            raise NotImplementedError("Need batch first")
-        self._train_burn_in = train_burn_in
-        self._train_truncate = train_truncate
-        assert len(args) < 3, "Provide as kwargs"
-        self._initial_cell = nn.Parameter(
-            torch.zeros((self.num_layers, self.hidden_size))
-        )
-        self._initial_hidden = nn.Parameter(
-            torch.zeros((self.num_layers, self.hidden_size))
-        )
-
-    def forward(self, x, hidden_state=None):
-        """
-        Same as nn.LSTM.forward except:
-        * Learned inital state
-        * truncated BPTT when .training
-        """
-        if x.ndim != 3:
-            raise NotImplementedError("Need (B,L,D)")
-        last_hidden_state = (
-            self._initial_state(None if x.ndim == 2 else len(x))
-            if hidden_state is None
-            else hidden_state
-        )
-        if not self.training or self._train_truncate is None:
-            output_features = super().forward(x, last_hidden_state)[0]
-        else:
-            output_features_list = []
-            if self._train_burn_in is not None:
-                last_output_features, last_hidden_state = super().forward(
-                    x[:, : self._train_burn_in, :], last_hidden_state
-                )
-                output_features_list.append(last_output_features.detach())
-            burn_in_offset = 0 if self._train_burn_in is None else self._train_burn_in
-            for i in range(burn_in_offset, x.shape[1], self._train_truncate):
-                if i > burn_in_offset:
-                    # Don't detach the burn-in state so that we can learn it.
-                    last_hidden_state = tuple(z.detach() for z in last_hidden_state)
-                last_output_features, last_hidden_state = super().forward(
-                    x[:, i : i + self._train_truncate, :], last_hidden_state
-                )
-                output_features_list.append(last_output_features)
-            output_features = torch.cat(output_features_list, dim=1)
-        return output_features
-
-    def _initial_state(self, n: Optional[int]) -> _LSTMHiddenCellType:
-        return (
-            (self._initial_hidden, self._initial_cell)
-            if n is None
-            else (
-                torch.tile(self._initial_hidden[:, None], (1, n, 1)),
-                torch.tile(self._initial_cell[:, None], (1, n, 1)),
-            )
-        )
 
 
 # TODO get this somewhere more core-ish
@@ -371,91 +302,3 @@ class LSTM(BaseNet):
                 torch.tile(self._initial_cell[:, None], (1, n, 1)),
             )
         )
-
-
-# TODO refactor together
-
-
-class _SkippyLSTM(nn.Module):
-    def __init__(
-        self, input_size, hidden_size, skip_in: bool = False, num_layers=1, **kwargs
-    ):
-        super().__init__()
-        layers_per_lstm = 1
-        self._skip_in = skip_in
-        self._lstms = nn.ModuleList(
-            [
-                _L(
-                    self._layer_input_size(input_size, hidden_size, i),
-                    hidden_size,
-                    layers_per_lstm,
-                    batch_first=True,
-                )
-                for i in range(num_layers)
-            ]
-        )
-        self._initial_hidden = nn.Parameter(
-            torch.zeros((self.num_layers, layers_per_lstm, self.hidden_size))
-        )
-        self._initial_cell = nn.Parameter(
-            torch.zeros((self.num_layers, layers_per_lstm, self.hidden_size))
-        )
-
-    @property
-    def hidden_size(self):
-        return self._lstms[0].hidden_size
-
-    @property
-    def input_size(self):
-        return self._lstms[0].input_size
-
-    @property
-    def num_layers(self):
-        return len(self._lstms)
-
-    @property
-    def output_size(self):
-        return self.num_layers * self.hidden_size
-
-    def forward(self, input, state=None):
-        """
-        :param input: (N,L,DX)
-        :param state: ((L,Li,N,DH), (L,Li,N,DH))
-
-        :return: (N,L,L*DH), ((L,Li,N,DH), (L,Li,N,DH))
-        """
-        h0, c0 = self.initial_state(input) if state is None else state
-        hiddens, h_arr, c_arr, hidden = [], [], [], None
-        for layer, h0i, c0i in zip(self._lstms, h0, c0):
-            if self._skip_in:
-                # TODO dense-block
-                layer_input = (
-                    input if hidden is None else torch.cat([input, hidden], dim=2)
-                )
-            else:
-                layer_input = input if hidden is None else hidden
-            hidden, (hi, ci) = layer(layer_input, (h0i, c0i))
-            hiddens.append(hidden)
-            h_arr.append(hi)
-            c_arr.append(ci)
-        return (torch.cat(hiddens, dim=2), (torch.stack(h_arr), torch.stack(c_arr)))
-
-    def initial_state(self, input: torch.Tensor):
-        """
-        Initial states for all the layers
-
-        :return: (L,B,Li,DH)
-        """
-        assert input.ndim == 3, "Batch only for now"
-        batch_size = len(input)  # Assume batch_first
-        return (
-            torch.tile(self._initial_hidden[:, :, None], (1, 1, batch_size, 1)),
-            torch.tile(self._initial_cell[:, :, None], (1, 1, batch_size, 1)),
-        )
-
-    def _layer_input_size(self, input_size, hidden_size, i) -> int:
-        # TODO dense-block
-        if self._skip_in:
-            return input_size + (0 if i == 0 else hidden_size)
-        else:
-            return input_size if i == 0 else hidden_size

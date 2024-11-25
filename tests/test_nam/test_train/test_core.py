@@ -17,7 +17,7 @@ from nam.data import (
     wav_to_tensor,
     _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
 )
-from nam.models import Model
+from nam.train.lightning_module import LightningModule
 from nam.train import core
 from nam.train._version import Version
 
@@ -292,7 +292,7 @@ def test_end_to_end():
             fast_dev_run=True,
         )
         # Assertions...
-        assert isinstance(train_output.model, Model)
+        assert isinstance(train_output.model, LightningModule)
 
 
 def test_get_callbacks():
@@ -305,19 +305,23 @@ def test_get_callbacks():
     # dumb example of a user-extended custom callback
     class CustomCallback:
         pass
+
     extended_callbacks = callbacks + [CustomCallback()]
 
     # sanity default callbacks
-    assert any(isinstance(cb, core._ModelCheckpoint) for cb in extended_callbacks), \
-        "Expected _ModelCheckpoint to be part of the default callbacks."
+    assert any(
+        isinstance(cb, core._ModelCheckpoint) for cb in extended_callbacks
+    ), "Expected _ModelCheckpoint to be part of the default callbacks."
 
     # custom callback
-    assert any(isinstance(cb, CustomCallback) for cb in extended_callbacks), \
-        "Expected CustomCallback to be added to the extended callbacks."
+    assert any(
+        isinstance(cb, CustomCallback) for cb in extended_callbacks
+    ), "Expected CustomCallback to be added to the extended callbacks."
 
     # _ValidationStopping cb when threshold_esr is prvided
-    assert any(isinstance(cb, core._ValidationStopping) for cb in extended_callbacks), \
-        "_ValidationStopping should still be present after adding a custom callback."
+    assert any(
+        isinstance(cb, core._ValidationStopping) for cb in extended_callbacks
+    ), "_ValidationStopping should still be present after adding a custom callback."
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class TestWaveNet(_Convolutional):
                     "head_size": 1,
                     "channels": 1,
                     "kernel_size": 1,
-                    "dilations": [1]
+                    "dilations": [1],
                 }
             ]
         }
@@ -46,7 +46,7 @@ class TestWaveNet(_Convolutional):
 
         assert not torch.allclose(y2_before, y1)
         assert torch.allclose(y2_after, y1)
-    
+
 
 if __name__ == "__main__":
     pytest.main()

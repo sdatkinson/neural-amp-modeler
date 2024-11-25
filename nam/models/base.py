@@ -1,395 +1,255 @@
-# File: base.py
-# Created Date: Saturday February 5th 2022
+# File: _base.py
+# Created Date: Tuesday February 8th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 """
-Implements the base PyTorch Lightning module.
-This is meant to combine an actual model (subclassed from `._base.BaseNet`)
-along with loss function boilerplate.
-
-For the base *PyTorch* model containing the actual architecture, see `._base`.
+The foundation of the model without the PyTorch Lightning attributes (losses, training
+steps)
 """
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Dict, NamedTuple, Optional, Tuple
+import abc
+import math
+import pkg_resources
+from typing import Any, Dict, Optional, Tuple, Union
 
-import auraloss
-import logging
-import pytorch_lightning as pl
+import numpy as np
 import torch
 import torch.nn as nn
 
 from .._core import InitializableFromConfig
-from .conv_net import ConvNet
-from .linear import Linear
-from .losses import apply_pre_emphasis_filter, esr, multi_resolution_stft_loss, mse_fft
-from .recurrent import LSTM
-from .wavenet import WaveNet
-
-logger = logging.getLogger(__name__)
+from ..data import wav_to_tensor
+from .exportable import Exportable
 
 
-class ValidationLoss(Enum):
-    """
-    mse: mean squared error
-    esr: error signal ratio (Eq. (10) from
-        https://www.mdpi.com/2076-3417/10/3/766/htm
-        NOTE: Be careful when computing ESR on minibatches! The average ESR over
-        a minibatch of data not the same as the ESR of all of the same data in
-        the minibatch calculated over at once (because of the denominator).
-        (Hint: think about what happens if one item in the minibatch is all
-        zeroes...)
-    """
-
-    MSE = "mse"
-    ESR = "esr"
-
-
-@dataclass
-class LossConfig(InitializableFromConfig):
-    """
-    :param mrstft_weight: Multi-resolution short-time Fourier transform loss
-        coefficient. None means to skip; 2e-4 works pretty well if one wants to use it.
-    :param mask_first: How many of the first samples to ignore when comptuing the loss.
-    :param dc_weight: Weight for the DC loss term. If 0, ignored.
-    :params val_loss: Which loss to track for the best model checkpoint.
-    :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from
-        https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
-    :param pre_
-    """
-
-    mrstft_weight: Optional[float] = None
-    fourier: bool = False
-    mask_first: int = 0
-    dc_weight: float = None
-    val_loss: ValidationLoss = ValidationLoss.MSE
-    pre_emph_weight: Optional[float] = None
-    pre_emph_coef: Optional[float] = None
-    pre_emph_mrstft_weight: Optional[float] = None
-    pre_emph_mrstft_coef: Optional[float] = None
-
-    @classmethod
-    def parse_config(cls, config):
-        config = super().parse_config(config)
-        return {
-            "fourier": config.get("fourier", False),
-            "mask_first": config.get("mask_first", 0),
-            "dc_weight": config.get("dc_weight"),
-            "val_loss": ValidationLoss(config.get("val_loss", "mse")),
-            "pre_emph_coef": config.get("pre_emph_coef"),
-            "pre_emph_weight": config.get("pre_emph_weight"),
-            "mrstft_weight": cls._get_mrstft_weight(config),
-            "pre_emph_mrstft_weight": config.get("pre_emph_mrstft_weight"),
-            "pre_emph_mrstft_coef": config.get("pre_emph_mrstft_coef"),
-        }
-
-    def apply_mask(self, *args):
-        """
-        :param args: (L,) or (B,)
-        :return: (L-M,) or (B, L-M)
-        """
-        return tuple(a[..., self.mask_first :] for a in args)
-
-    @classmethod
-    def _get_mrstft_weight(cls, config) -> Optional[float]:
-        key = "mrstft_weight"
-        wrong_key = "mstft_key"  # Backward compatibility
-        if key in config:
-            if "mstft_weight" in config:
-                raise ValueError(
-                    f"Received loss configuration with both '{key}' and "
-                    f"'{wrong_key}'. Provide only '{key}'."
-                )
-            return config[key]
-        elif wrong_key in config:
-            logger.warning(
-                f"Use of '{wrong_key}' is deprecated and will be removed in a future "
-                f"version. Use '{key}' instead."
-            )
-            return config[wrong_key]
-        else:
-            return None
-
-
-class _LossItem(NamedTuple):
-    weight: Optional[float]
-    value: Optional[torch.Tensor]
-
-
-_model_net_init_registry = {
-    "ConvNet": ConvNet.init_from_config,
-    "Linear": Linear.init_from_config,
-    "LSTM": LSTM.init_from_config,
-    "WaveNet": WaveNet.init_from_config,
-}
-
-
-class Model(pl.LightningModule, InitializableFromConfig):
-    def __init__(
-        self,
-        net,
-        optimizer_config: Optional[dict] = None,
-        scheduler_config: Optional[dict] = None,
-        loss_config: Optional[LossConfig] = None,
-    ):
-        """
-        :param scheduler_config: contains
-            Required:
-            * "class"
-            * "kwargs"
-            Optional (defaults to Lightning defaults):
-            * "interval" ("epoch" of "step")
-            * "frequency" (int)
-            * "monitor" (str)
-        """
+class _Base(nn.Module, InitializableFromConfig, Exportable):
+    def __init__(self, sample_rate: Optional[float] = None):
         super().__init__()
-        self._net = net
-        self._optimizer_config = {} if optimizer_config is None else optimizer_config
-        self._scheduler_config = scheduler_config
-        self._loss_config = LossConfig() if loss_config is None else loss_config
-        self._mrstft = None  # Multi-resolution short-time Fourier transform loss
-        # Where to compute the MRSTFT.
-        # Keeping it on-device is preferable, but if that fails, then remember to drop
-        # it to cpu from then on.
-        self._mrstft_device: Optional[torch.device] = None
-
-    @classmethod
-    def init_from_config(cls, config):
-        checkpoint_path = config.get("checkpoint_path")
-        config = cls.parse_config(config)
-        return (
-            cls(**config)
-            if checkpoint_path is None
-            else cls.load_from_checkpoint(checkpoint_path, **config)
+        self.register_buffer(
+            "_has_sample_rate", torch.tensor(sample_rate is not None, dtype=torch.bool)
         )
-
-    @classmethod
-    def parse_config(cls, config):
-        """
-        e.g.
-
-        {
-            "net": {
-                "name": "ConvNet",
-                "config": {...}
-            },
-            "loss": {
-                "dc_weight": 0.1
-            },
-            "optimizer": {
-                "lr": 0.0003
-            },
-            "lr_scheduler": {
-                "class": "ReduceLROnPlateau",
-                "kwargs": {
-                    "factor": 0.8,
-                    "patience": 10,
-                    "cooldown": 15,
-                    "min_lr": 1e-06,
-                    "verbose": true
-                },
-                "monitor": "val_loss"
-            }
-        }
-        """
-        config = super().parse_config(config)
-        net_config = config["net"]
-        net = _model_net_init_registry[net_config["name"]](net_config["config"])
-        loss_config = LossConfig.init_from_config(config.get("loss", {}))
-        return {
-            "net": net,
-            "optimizer_config": config["optimizer"],
-            "scheduler_config": config["lr_scheduler"],
-            "loss_config": loss_config,
-        }
-
-    @classmethod
-    def register_net_initializer(cls, name, constructor, overwrite: bool = False):
-        if name in _model_net_init_registry and not overwrite:
-            raise KeyError(
-                f"A constructor for net name '{name}' is already registered!"
-            )
-        _model_net_init_registry[name] = constructor
+        self.register_buffer(
+            "_sample_rate", torch.tensor(0.0 if sample_rate is None else sample_rate)
+        )
 
     @property
-    def net(self) -> nn.Module:
-        return self._net
+    @abc.abstractmethod
+    def pad_start_default(self) -> bool:
+        pass
 
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), **self._optimizer_config)
-        if self._scheduler_config is None:
-            return optimizer
-        else:
-            lr_scheduler = getattr(
-                torch.optim.lr_scheduler, self._scheduler_config["class"]
-            )(optimizer, **self._scheduler_config["kwargs"])
-            lr_scheduler_config = {"scheduler": lr_scheduler}
-            for key in ("interval", "frequency", "monitor"):
-                if key in self._scheduler_config:
-                    lr_scheduler_config[key] = self._scheduler_config[key]
-            return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
-
-    def forward(self, *args, **kwargs):
-        return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
-
-    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        # Resolves https://github.com/sdatkinson/neural-amp-modeler/issues/351
-        self.net.sample_rate = checkpoint["sample_rate"]
-
-    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        # Resolves https://github.com/sdatkinson/neural-amp-modeler/issues/351
-        checkpoint["sample_rate"] = self.net.sample_rate
-
-    def _shared_step(
-        self, batch
-    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, _LossItem]]:
+    @property
+    @abc.abstractmethod
+    def receptive_field(self) -> int:
         """
-        B: Batch size
-        L: Sequence length
-
-        :return: (B,L), (B,L)
+        Receptive field of the model
         """
-        args, targets = batch[:-1], batch[-1]
-        preds = self(*args, pad_start=False)
+        pass
 
-        # Compute all relevant losses.
-        loss_dict = {}  # Mind keys versus validation loss requested...
-        # Prediction aka MSE loss
-        if self._loss_config.fourier:
-            loss_dict["MSE_FFT"] = _LossItem(1.0, mse_fft(preds, targets))
-        else:
-            loss_dict["MSE"] = _LossItem(1.0, self._mse_loss(preds, targets))
-        # Pre-emphasized MSE
-        if self._loss_config.pre_emph_weight is not None:
-            if (self._loss_config.pre_emph_coef is None) != (
-                self._loss_config.pre_emph_weight is None
-            ):
-                raise ValueError("Invalid pre-emph")
-            loss_dict["Pre-emphasized MSE"] = _LossItem(
-                self._loss_config.pre_emph_weight,
-                self._mse_loss(
-                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_coef
-                ),
+    @abc.abstractmethod
+    def forward(self, *args, **kwargs) -> torch.Tensor:
+        pass
+
+    @classmethod
+    def _metadata_loudness_x(cls) -> torch.Tensor:
+        return wav_to_tensor(
+            pkg_resources.resource_filename(
+                "nam", "models/_resources/loudness_input.wav"
             )
-        # Multi-resolution short-time Fourier transform loss
-        if self._loss_config.mrstft_weight is not None:
-            loss_dict["MRSTFT"] = _LossItem(
-                self._loss_config.mrstft_weight, self._mrstft_loss(preds, targets)
-            )
-        # Pre-emphasized MRSTFT
-        if self._loss_config.pre_emph_mrstft_weight is not None:
-            loss_dict["Pre-emphasized MRSTFT"] = _LossItem(
-                self._loss_config.pre_emph_mrstft_weight,
-                self._mrstft_loss(
-                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_mrstft_coef
-                ),
-            )
-        # DC loss
-        dc_weight = self._loss_config.dc_weight
-        if dc_weight is not None and dc_weight > 0.0:
-            # Denominator could be a bad idea. I'm going to omit it esp since I'm
-            # using mini batches
-            mean_dims = torch.arange(1, preds.ndim).tolist()
-            dc_loss = nn.MSELoss()(
-                preds.mean(dim=mean_dims), targets.mean(dim=mean_dims)
-            )
-            loss_dict["DC MSE"] = _LossItem(dc_weight, dc_loss)
-
-        return preds, targets, loss_dict
-
-    def training_step(self, batch, batch_idx):
-        _, _, loss_dict = self._shared_step(batch)
-
-        loss = 0.0
-        for v in loss_dict.values():
-            if v.weight is not None and v.weight > 0.0:
-                loss = loss + v.weight * v.value
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        preds, targets, loss_dict = self._shared_step(batch)
-
-        def get_val_loss():
-            # "esr" -> "ESR"
-            # "mse" -> "MSE"
-            # Others unsupported...
-            # TODO better mapping from Enum to dict keys
-            val_loss_type = self._loss_config.val_loss
-            val_loss_key_for_loss_dict = val_loss_type.value.upper()
-            if val_loss_key_for_loss_dict in loss_dict:
-                return loss_dict[val_loss_key_for_loss_dict].value
-            else:
-                raise RuntimeError(
-                    f"Undefined validation loss routine for {val_loss_type}"
-                )
-
-        loss_dict["ESR"] = _LossItem(None, self._esr_loss(preds, targets))
-        val_loss = get_val_loss()
-        self.log_dict(
-            {
-                "val_loss": val_loss,
-                **{key: value.value for key, value in loss_dict.items()},
-            }
         )
-        return val_loss
 
-    def _esr_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    @property
+    def device(self) -> Optional[torch.device]:
         """
-        Error signal ratio aka ESR loss.
-
-        Eq. (10), from
-        https://www.mdpi.com/2076-3417/10/3/766/htm
-
-        B: Batch size
-        L: Sequence length
-
-        :param preds: (B,L)
-        :param targets: (B,L)
-        :return: ()
+        Helpful property, where the parameters of the model live.
         """
-        return esr(preds, targets)
-
-    def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float] = None):
-        if pre_emph_coef is not None:
-            preds, targets = [
-                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
-            ]
-        return nn.MSELoss()(preds, targets)
-
-    def _mrstft_loss(
-        self,
-        preds: torch.Tensor,
-        targets: torch.Tensor,
-        pre_emph_coef: Optional[float] = None,
-    ) -> torch.Tensor:
-        """
-        Experimental Multi Resolution Short Time Fourier Transform Loss using auraloss implementation.
-        B: Batch size
-        L: Sequence length
-
-        :param preds: (B,L)
-        :param targets: (B,L)
-        :return: ()
-        """
-        if self._mrstft is None:
-            self._mrstft = auraloss.freq.MultiResolutionSTFTLoss()
-        backup_device = "cpu"
-
-        if pre_emph_coef is not None:
-            preds, targets = [
-                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
-            ]
-
+        # We can do this because the models are tiny and I don't expect a NAM to be on
+        # multiple devices
         try:
-            return multi_resolution_stft_loss(
-                preds, targets, self._mrstft, device=self._mrstft_device
+            return next(self.parameters()).device
+        except StopIteration:
+            return None
+
+    @property
+    def sample_rate(self) -> Optional[float]:
+        return self._sample_rate.item() if self._has_sample_rate else None
+
+    @sample_rate.setter
+    def sample_rate(self, val: Optional[float]):
+        self._has_sample_rate = torch.tensor(val is not None, dtype=torch.bool)
+        self._sample_rate = torch.tensor(0.0 if val is None else val)
+
+    def _get_export_dict(self):
+        d = super()._get_export_dict()
+        sample_rate_key = "sample_rate"
+        if sample_rate_key in d:
+            raise RuntimeError(
+                "Model wants to put 'sample_rate' into model export dict, but the key "
+                "is already taken!"
             )
-        except Exception as e:
-            if self._mrstft_device == backup_device:
-                raise e
-            logger.warning("MRSTFT failed on device; falling back to CPU")
-            self._mrstft_device = backup_device
-            return multi_resolution_stft_loss(
-                preds, targets, self._mrstft, device=self._mrstft_device
+        d[sample_rate_key] = self.sample_rate
+        return d
+
+    def _metadata_loudness(self, gain: float = 1.0, db: bool = True) -> float:
+        """
+        How loud is this model when given a standardized input?
+        In dB
+
+        :param gain: Multiplies input signal
+        """
+        x = self._metadata_loudness_x().to(self.device)
+        y = self._at_nominal_settings(gain * x)
+        loudness = torch.sqrt(torch.mean(torch.square(y)))
+        if db:
+            loudness = 20.0 * torch.log10(loudness)
+        return loudness.item()
+
+    def _metadata_gain(self) -> float:
+        """
+        Between 0 and 1, how much gain / compression does the model seem to have?
+        """
+        x = np.linspace(0.0, 1.0, 11)
+        y = np.array([self._metadata_loudness(gain=gain, db=False) for gain in x])
+        #
+        # O ^ o o o o o o
+        # u | o       x   +-------------------------------------+
+        # t | o     x     | x: Minimum gain (no compression)    |
+        # p | o   x       | o: Max gain     (100% compression)  |
+        # u | o x         +-------------------------------------+
+        # t | o
+        #   +------------->
+        #       Input
+        #
+        max_gain = y[-1] * len(x)  # "Square"
+        min_gain = 0.5 * max_gain  # "Triangle"
+        gain_range = max_gain - min_gain
+        this_gain = y.sum()
+        normalized_gain = (this_gain - min_gain) / gain_range
+        return np.clip(normalized_gain, 0.0, 1.0)
+
+    def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
+        # parametric?...
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def _forward(self, *args) -> torch.Tensor:
+        """
+        The true forward method.
+
+        :param x: (N,L1)
+        :return: (N,L1-RF+1)
+        """
+        pass
+
+    def _export_input_output_args(self) -> Tuple[Any]:
+        """
+        Create any other args necessesary (e.g. params to eval at)
+        """
+        return ()
+
+    def _export_input_output(self) -> Tuple[np.ndarray, np.ndarray]:
+        args = self._export_input_output_args()
+        rate = self.sample_rate
+        if rate is None:
+            raise RuntimeError(
+                "Cannot export model's input and output without a sample rate."
             )
+        x = torch.cat(
+            [
+                torch.zeros((rate,)),
+                0.5
+                * torch.sin(
+                    2.0 * math.pi * 220.0 * torch.linspace(0.0, 1.0, rate + 1)[:-1]
+                ),
+                torch.zeros((rate,)),
+            ]
+        )
+        # Use pad start to ensure same length as requested by ._export_input_output()
+        return (
+            x.detach().cpu().numpy(),
+            self(*args, x, pad_start=True).detach().cpu().numpy(),
+        )
+
+
+class BaseNet(_Base):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._mps_65536_fallback = False
+
+    def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None, **kwargs):
+        pad_start = self.pad_start_default if pad_start is None else pad_start
+        scalar = x.ndim == 1
+        if scalar:
+            x = x[None]
+        if pad_start:
+            x = torch.cat(
+                (torch.zeros((len(x), self.receptive_field - 1)).to(x.device), x), dim=1
+            )
+        if x.shape[1] < self.receptive_field:
+            raise ValueError(
+                f"Input has {x.shape[1]} samples, which is too few for this model with "
+                f"receptive field {self.receptive_field}!"
+            )
+        y = self._forward_mps_safe(x, **kwargs)
+        if scalar:
+            y = y[0]
+        return y
+
+    def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
+        return self(x)
+
+    def _forward_mps_safe(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        """
+        Wrap `._forward()` to protect against MPS-unsupported input lengths
+        beyond 65,536 samples.
+
+        Check this again when PyTorch 2.5.2 is released--hopefully it's fixed
+        then.
+        """
+        if not self._mps_65536_fallback:
+            try:
+                return self._forward(x, **kwargs)
+            except NotImplementedError as e:
+                if "Output channels > 65536 not supported at the MPS device." in str(e):
+                    print(
+                        "===WARNING===\n"
+                        "NAM encountered a bug in PyTorch's MPS backend and will "
+                        "switch to a fallback.\n"
+                        f"Your version of PyTorch is {torch.__version__}.\n"
+                        "Please report this in an Issue at:\n"
+                        "https://github.com/sdatkinson/neural-amp-modeler/issues/new/choose"
+                        "\n"
+                        "so that NAM's dependencies can avoid buggy versions of "
+                        "PyTorch and the associated performance hit."
+                    )
+                    self._mps_65536_fallback = True
+                    return self._forward_mps_safe(x, **kwargs)
+                else:
+                    raise e
+        else:
+            # Stitch together the output one piece at a time to avoid the MPS error
+            stride = 65_536 - (self.receptive_field - 1)
+            # We need to make sure that the last segment is big enough that we have the required history for the receptive field.
+            out_list = []
+            for i in range(0, x.shape[1], stride):
+                j = min(i + 65_536, x.shape[1])
+                xi = x[:, i:j]
+                out_list.append(self._forward(xi, **kwargs))
+                # Bit hacky, but correct.
+                if j == x.shape[1]:
+                    break
+            return torch.cat(out_list, dim=1)
+
+    @abc.abstractmethod
+    def _forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        """
+        The true forward method.
+
+        :param x: (N,L1)
+        :return: (N,L1-RF+1)
+        """
+        pass
+
+    def _get_non_user_metadata(self) -> Dict[str, Union[str, int, float]]:
+        d = super()._get_non_user_metadata()
+        d["loudness"] = self._metadata_loudness()
+        d["gain"] = self._metadata_gain()
+        return d

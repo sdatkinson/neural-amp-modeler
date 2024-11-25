@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 
 from ._activations import get_activation
-from ._base import BaseNet
+from .base import BaseNet
 from ._names import ACTIVATION_NAME, CONV_NAME
 
 

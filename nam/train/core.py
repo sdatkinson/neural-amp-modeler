@@ -26,12 +26,12 @@ from pytorch_lightning.utilities.warnings import PossibleUserWarning
 from torch.utils.data import DataLoader
 
 from ..data import DataError, Split, init_dataset, wav_to_np, wav_to_tensor
-from ..models import Model
 from ..models.exportable import Exportable
 from ..models.losses import esr
 from ..models.metadata import UserMetadata
 from ..util import filter_warnings
 from ._version import PROTEUS_VERSION, Version
+from .lightning_module import LightningModule
 from . import metadata
 
 # Training using the simplified trainers in NAM is done at 48k.
@@ -424,13 +424,16 @@ def _calibrate_latency_v_all(
         print(msg)
         print("SHARE THIS PLOT IF YOU ASK FOR HELP")
         plt.figure()
-        plt.plot(np.arange(-lookahead, lookback), y_scan_average, color="C0", label="Signal average")
+        plt.plot(
+            np.arange(-lookahead, lookback),
+            y_scan_average,
+            color="C0",
+            label="Signal average",
+        )
         for y_scan in y_scans:
             plt.plot(np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2)
         plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
-        plt.axhline(
-            y=-trigger_threshold, color="k", linestyle="--", label="Threshold"
-        )
+        plt.axhline(y=-trigger_threshold, color="k", linestyle="--", label="Threshold")
         plt.axhline(y=trigger_threshold, color="k", linestyle="--")
         plt.xlim((-lookahead, lookback))
         plt.xlabel("Samples")
@@ -1050,7 +1053,7 @@ def _get_configs(
 
 
 def _get_dataloaders(
-    data_config: Dict, learning_config: Dict, model: Model
+    data_config: Dict, learning_config: Dict, model: LightningModule
 ) -> Tuple[DataLoader, DataLoader]:
     data_config, learning_config = [deepcopy(c) for c in (data_config, learning_config)]
     data_config["common"]["nx"] = model.net.receptive_field
@@ -1205,7 +1208,7 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
         super()._save_checkpoint(trainer, filepath)
         # Save the .nam:
         nam_filepath = self._get_nam_filepath(filepath)
-        pl_model: Model = trainer.model
+        pl_model: LightningModule = trainer.model
         nam_model = pl_model.net
         outdir = nam_filepath.parent
         # HACK: Assume the extension
@@ -1273,7 +1276,7 @@ class TrainOutput(NamedTuple):
         simplified trainer.
     """
 
-    model: Optional[Model]
+    model: Optional[LightningModule]
     metadata: metadata.TrainingMetadata
 
 
@@ -1414,7 +1417,7 @@ def train(
     # * Model is re-instantiated after training anyways.
     # (Hacky) solution: set sample rate in model from dataloader after second
     # instantiation from final checkpoint.
-    model = Model.init_from_config(model_config)
+    model = LightningModule.init_from_config(model_config)
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
     )
@@ -1449,9 +1452,9 @@ def train(
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
     if best_checkpoint != "":
-        model = Model.load_from_checkpoint(
+        model = LightningModule.load_from_checkpoint(
             trainer.checkpoint_callback.best_model_path,
-            **Model.parse_config(model_config),
+            **LightningModule.parse_config(model_config),
         )
     model.cpu()
     model.eval()

@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 
 from .._version import __version__
-from ._base import BaseNet
+from .base import BaseNet
 
 
 class Linear(BaseNet):

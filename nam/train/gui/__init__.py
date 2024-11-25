@@ -20,6 +20,7 @@ import webbrowser
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
+
 try:  # Not supported in Colab
     from idlelib.tooltip import Hovertip
 except ModuleNotFoundError:
@@ -28,8 +29,11 @@ except ModuleNotFoundError:
         """
         Shell class
         """
+
         def __init__(self, *args, **kwargs):
             pass
+
+
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Callable, Dict, NamedTuple, Optional, Sequence
