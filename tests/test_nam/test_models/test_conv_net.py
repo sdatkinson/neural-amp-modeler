@@ -6,10 +6,10 @@ import pytest as _pytest
 
 from nam.models import conv_net
 
-from ._convolutional import Convolutional as _Convolutional
+from .base import Base as _Base
 
 
-class TestConvNet(_Convolutional):
+class TestConvNet(_Base):
     @classmethod
     def setup_class(cls):
         channels = 3

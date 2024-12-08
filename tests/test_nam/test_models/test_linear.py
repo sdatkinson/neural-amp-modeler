@@ -6,10 +6,10 @@ import pytest as _pytest
 
 from nam.models import linear as _linear
 
-from ._convolutional import Convolutional as _Convolutional
+from .base import Base as _Base
 
 
-class TestLinear(_Convolutional):
+class TestLinear(_Base):
     @classmethod
     def setup_class(cls):
         C = _linear.Linear
