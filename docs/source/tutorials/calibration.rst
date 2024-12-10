@@ -144,7 +144,7 @@ you're not tempted!)*
 *Figure: Monitoring the return level. The "send" track is outputting a 1 kHz 
 sine tone at -6.50 dBFS. The return track is measuring -0.5 dBFS.*
 
-Note the return level (-0.5 dBFS above) and the amount by which you reduced the 
+Note the return level (-0.5 dBFS above) and the amount by which you changed the 
 sine tone's level (-6.50 dB).
 
 To compute the return level, remember: what we are trying to do is figure out 
@@ -155,12 +155,13 @@ level calibration, in dBu, is:
 
 .. math::
 
-   \text{dBu}_{return} = \text{dBu}_{send} - \Delta + L,
+   \text{dBu}_{return} = \text{dBu}_{send} + \Delta - L,
 
-where Δ is the amount by which you reduced the sine tone's level, and *L* is the
-return level.
+where Δ is the amount by which you changed the sine tone's level, and *L* is
+the observed return level in the DAW (in dBFS peak).
 
-For example, using the numbers above, I get *18.3 - 6.50 + 0.5 = 12.3 dBu*.
+For example, using the numbers above, I get 
+*18.3 + (-6.50) - (-0.5) = 12.3 dBu*.
 
 Careful: The return level calibration may not be what you think it is
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
