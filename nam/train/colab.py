@@ -6,8 +6,8 @@
 Hide the mess in Colab to make things look pretty for users.
 """
 
-from pathlib import Path
-from typing import Optional, Tuple
+from pathlib import Path as _Path
+from typing import Optional as _Optional, Tuple as _Tuple
 
 from ..models.metadata import UserMetadata
 from ._names import INPUT_BASENAMES, LATEST_VERSION, Version
@@ -23,16 +23,16 @@ _OUTPUT_BASENAME = "output.wav"
 _TRAIN_PATH = "."
 
 
-def _check_for_files() -> Tuple[Version, str]:
+def _check_for_files() -> _Tuple[Version, str]:
     # TODO use hash logic as in GUI trainer!
     print("Checking that we have all of the required audio files...")
     for name in _BUGGY_INPUT_BASENAMES:
-        if Path(name).exists():
+        if _Path(name).exists():
             raise RuntimeError(
                 f"Detected input signal {name} that has known bugs. Please download the latest input signal, {LATEST_VERSION[1]}"
             )
     for input_version, input_basename, other_names in INPUT_BASENAMES:
-        if Path(input_basename).exists():
+        if _Path(input_basename).exists():
             if input_version == PROTEUS_VERSION:
                 print(f"Using Proteus input file...")
             elif input_version != LATEST_VERSION.version:
@@ -44,7 +44,7 @@ def _check_for_files() -> Tuple[Version, str]:
             break
         if other_names is not None:
             for other_name in other_names:
-                if Path(other_name).exists():
+                if _Path(other_name).exists():
                     raise RuntimeError(
                         f"Found out-of-date input file {other_name}. Rename it to {input_basename} and re-run."
                     )
@@ -53,7 +53,7 @@ def _check_for_files() -> Tuple[Version, str]:
             f"Didn't find NAM's input audio file. Please upload {LATEST_VERSION.name}"
         )
     # We found it
-    if not Path(_OUTPUT_BASENAME).exists():
+    if not _Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
         )
@@ -66,7 +66,7 @@ def _check_for_files() -> Tuple[Version, str]:
 
 def _get_valid_export_directory():
     def get_path(version):
-        return Path("exported_models", f"version_{version}")
+        return _Path("exported_models", f"version_{version}")
 
     version = 0
     while get_path(version).exists():
@@ -76,13 +76,13 @@ def _get_valid_export_directory():
 
 def run(
     epochs: int = 100,
-    delay: Optional[int] = None,
+    delay: _Optional[int] = None,
     model_type: str = "WaveNet",
     architecture: str = "standard",
     lr: float = 0.004,
     lr_decay: float = 0.007,
-    seed: Optional[int] = 0,
-    user_metadata: Optional[UserMetadata] = None,
+    seed: _Optional[int] = 0,
+    user_metadata: _Optional[UserMetadata] = None,
     ignore_checks: bool = False,
     fit_mrstft: bool = True,
 ):

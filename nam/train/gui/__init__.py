@@ -10,16 +10,16 @@ Usage:
 >>> run()
 """
 
-import abc
-import re
-import requests
+import abc as _abc
+import re as _re
+import requests as _requests
 import tkinter as tk
-import subprocess
-import sys
-import webbrowser
-from dataclasses import dataclass
-from enum import Enum
-from functools import partial
+import subprocess as _subprocess
+import sys as _sys
+import webbrowser as _webbrowser
+from dataclasses import dataclass as _dataclass
+from enum import Enum as _Enum
+from functools import partial as _partial
 
 try:  # Not supported in Colab
     from idlelib.tooltip import Hovertip
@@ -81,13 +81,13 @@ _METADATA_RIGHT_WIDTH = 60
 
 
 def _is_mac() -> bool:
-    return sys.platform == "darwin"
+    return _sys.platform == "darwin"
 
 
 _SYSTEM_TEXT_COLOR = "systemTextColor" if _is_mac() else "black"
 
 
-@dataclass
+@_dataclass
 class AdvancedOptions(object):
     """
     :param architecture: Which architecture to use.
@@ -106,7 +106,7 @@ class AdvancedOptions(object):
     threshold_esr: Optional[float]
 
 
-class _PathType(Enum):
+class _PathType(_Enum):
     FILE = "file"
     DIRECTORY = "directory"
     MULTIFILE = "multifile"
@@ -246,11 +246,11 @@ class _InputPathButton(_PathButton):
                         f"WARNING: File {name} is out of date. "
                         "This needs to be updated!"
                     )
-                webbrowser.open(url)
+                _webbrowser.open(url)
                 return
 
 
-class _CheckboxKeys(Enum):
+class _CheckboxKeys(_Enum):
     """
     Keys for checkboxes
     """
@@ -375,7 +375,7 @@ class _YesNoModal(object):
         self._no.pack(side=tk.RIGHT)
 
 
-class _GUIWidgets(Enum):
+class _GUIWidgets(_Enum):
     INPUT_PATH = "input_path"
     OUTPUT_PATH = "output_path"
     TRAINING_DESTINATION = "training_destination"
@@ -385,7 +385,7 @@ class _GUIWidgets(Enum):
     UPDATE = "update"
 
 
-@dataclass
+@_dataclass
 class Checkbox(object):
     variable: tk.BooleanVar
     check_button: tk.Checkbutton
@@ -590,9 +590,9 @@ class GUI(object):
         """
 
         def update_nam():
-            result = subprocess.run(
+            result = _subprocess.run(
                 [
-                    f"{sys.executable}",
+                    f"{_sys.executable}",
                     "-m",
                     "pip",
                     "install",
@@ -631,8 +631,8 @@ class GUI(object):
             url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
             current_version = get_current_version()
             try:
-                response = requests.get(url)
-            except requests.exceptions.ConnectionError:
+                response = _requests.get(url)
+            except _requests.exceptions.ConnectionError:
                 print("WARNING: Failed to reach the server to check for updates")
                 return UpdateInfo(
                     available=False, current_version=current_version, new_version=None
@@ -700,7 +700,7 @@ class GUI(object):
         # Run it
         for file in file_list:
             print(f"Now training {file}")
-            basename = re.sub(r"\.wav$", "", file.split("/")[-1])
+            basename = _re.sub(r"\.wav$", "", file.split("/")[-1])
             user_metadata = (
                 self.user_metadata if self.user_metadata_flag else UserMetadata()
             )
@@ -920,12 +920,12 @@ def _rstripped_str(val):
     return str(val).rstrip()
 
 
-class _SettingWidget(abc.ABC):
+class _SettingWidget(_abc.ABC):
     """
     A widget for the user to interact with to set something
     """
 
-    @abc.abstractmethod
+    @_abc.abstractmethod
     def get(self):
         pass
 
@@ -936,7 +936,11 @@ class LabeledOptionMenu(_SettingWidget):
     """
 
     def __init__(
-        self, frame: tk.Frame, label: str, choices: Enum, default: Optional[Enum] = None
+        self,
+        frame: tk.Frame,
+        label: str,
+        choices: _Enum,
+        default: Optional[_Enum] = None,
     ):
         """
         :param command: Called to propagate option selection. Is provided with the
@@ -973,7 +977,7 @@ class LabeledOptionMenu(_SettingWidget):
         # Initialize
         self._set(default)
 
-    def get(self) -> Enum:
+    def get(self) -> _Enum:
         return self._selected_value
 
     def _set(self, val: str):
@@ -1210,7 +1214,7 @@ class UserMetadataGUI(object):
         # TODO things that are `_SettingWidget`s are named carefully, need to make this
         # easier to work with.
 
-        LabeledText_ = partial(
+        LabeledText_ = _partial(
             LabeledText,
             left_width=_METADATA_LEFT_WIDTH,
             right_width=_METADATA_RIGHT_WIDTH,

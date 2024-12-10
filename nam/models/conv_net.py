@@ -2,16 +2,21 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import json
-import math
-from enum import Enum
-from functools import partial
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Optional, Sequence, Tuple, Union
+import json as _json
+import math as _math
+from enum import Enum as _Enum
+from functools import partial as _partial
+from pathlib import Path as _Path
+from tempfile import TemporaryDirectory as _TemporaryDirectory
+from typing import (
+    Optional as _Optional,
+    Sequence as _Sequence,
+    Tuple as _Tuple,
+    Union as _Union,
+)
 
 import numpy as np
-import torch
+import torch as _torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -23,7 +28,7 @@ from .base import BaseNet
 from ._names import ACTIVATION_NAME, BATCHNORM_NAME, CONV_NAME
 
 
-class TrainStrategy(Enum):
+class TrainStrategy(_Enum):
     STRIDE = "stride"
     DILATE = "dilate"
 
@@ -45,7 +50,7 @@ class _Functional(nn.Module):
 
 
 class _IR(nn.Module):
-    def __init__(self, filename: Union[str, Path]):
+    def __init__(self, filename: _Union[str, _Path]):
         super().__init__()
         self.register_buffer("_weight", reversed(wav_to_tensor(filename))[None, None])
 
@@ -53,7 +58,7 @@ class _IR(nn.Module):
     def length(self) -> int:
         return self._weight.shape[-1]
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: _torch.Tensor) -> _torch.Tensor:
         """
         :param x: (N,D)
         :return: (N,D-length+1)
@@ -63,7 +68,7 @@ class _IR(nn.Module):
 
 def _conv_net(
     channels: int = 32,
-    dilations: Sequence[int] = None,
+    dilations: _Sequence[int] = None,
     batchnorm: bool = False,
     activation: str = "Tanh",
 ) -> nn.Sequential:
@@ -87,7 +92,7 @@ def _conv_net(
     dilations = [1, 2, 4, 8] if dilations is None else dilations
     receptive_field = sum(dilations) + 1
     net = nn.Sequential()
-    net.add_module("expand", _Functional(partial(check_and_expand, receptive_field)))
+    net.add_module("expand", _Functional(_partial(check_and_expand, receptive_field)))
     cin = 1
     cout = channels
     for i, dilation in enumerate(dilations):
@@ -109,8 +114,8 @@ class ConvNet(BaseNet):
         self,
         *args,
         train_strategy: TrainStrategy = default_train_strategy,
-        ir: Optional[_IR] = None,
-        sample_rate: Optional[float] = None,
+        ir: _Optional[_IR] = None,
+        sample_rate: _Optional[float] = None,
         **kwargs,
     ):
         super().__init__(sample_rate=sample_rate)
@@ -164,12 +169,12 @@ class ConvNet(BaseNet):
     def _batchnorm(self) -> bool:
         return BATCHNORM_NAME in self._net._modules["block_0"]._modules
 
-    def export_cpp_header(self, filename: Path):
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self.export(Path(tmpdir))
-            with open(Path(tmpdir, "config.json"), "r") as fp:
-                _c = json.load(fp)
+    def export_cpp_header(self, filename: _Path):
+        with _TemporaryDirectory() as tmpdir:
+            tmpdir = _Path(tmpdir)
+            self.export(_Path(tmpdir))
+            with open(_Path(tmpdir, "config.json"), "r") as fp:
+                _c = _json.load(fp)
             version = _c["version"]
             config = _c["config"]
             with open(filename, "w") as f:
@@ -187,7 +192,7 @@ class ConvNet(BaseNet):
                         f"const std::string ACTIVATION = \"{config['activation']}\";\n",
                         "std::vector<float> PARAMS{"
                         + ",".join(
-                            [f"{w:.16f}" for w in np.load(Path(tmpdir, "weights.npy"))]
+                            [f"{w:.16f}" for w in np.load(_Path(tmpdir, "weights.npy"))]
                         )
                         + "};\n",
                     )
@@ -201,11 +206,11 @@ class ConvNet(BaseNet):
             "activation": self._activation,
         }
 
-    def _export_input_output(self, x=None) -> Tuple[np.ndarray, np.ndarray]:
+    def _export_input_output(self, x=None) -> _Tuple[np.ndarray, np.ndarray]:
         """
         :return: (L,), (L,)
         """
-        with torch.no_grad():
+        with _torch.no_grad():
             training = self.training
             self.eval()
             x = self._export_input_signal() if x is None else x
@@ -222,14 +227,14 @@ class ConvNet(BaseNet):
             raise RuntimeError(
                 "Cannot export model's input and output without a sample rate."
             )
-        return torch.cat(
+        return _torch.cat(
             [
-                torch.zeros((rate,)),
+                _torch.zeros((rate,)),
                 0.5
-                * torch.sin(
-                    2.0 * math.pi * 220.0 * torch.linspace(0.0, 1.0, rate + 1)[:-1]
+                * _torch.sin(
+                    2.0 * _math.pi * 220.0 * _torch.linspace(0.0, 1.0, rate + 1)[:-1]
                 ),
-                torch.zeros((rate,)),
+                _torch.zeros((rate,)),
             ]
         )
 
@@ -266,11 +271,11 @@ class ConvNet(BaseNet):
                 params.append(bn.running_var.flatten())
                 params.append(bn.weight.flatten())
                 params.append(bn.bias.flatten())
-                params.append(torch.Tensor([bn.eps]).to(bn.weight.device))
+                params.append(_torch.Tensor([bn.eps]).to(bn.weight.device))
         head = self._net._modules["head"]
         params.append(head.weight.flatten())
         params.append(head.bias.flatten())
-        params = torch.cat(params).detach().cpu().numpy()
+        params = _torch.cat(params).detach().cpu().numpy()
         return params
 
     def _forward(self, x):
@@ -279,7 +284,7 @@ class ConvNet(BaseNet):
             y = self._ir(y)
         return y
 
-    def _get_dilations(self) -> Tuple[int]:
+    def _get_dilations(self) -> _Tuple[int]:
         return tuple(
             self._net._modules[f"block_{i}"]._modules[CONV_NAME].dilation[0]
             for i in range(self._num_blocks)

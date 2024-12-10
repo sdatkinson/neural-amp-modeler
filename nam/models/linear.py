@@ -7,7 +7,7 @@ Linear model
 """
 
 import numpy as np
-import torch
+import torch as _torch
 import torch.nn as nn
 
 from .._version import __version__
@@ -34,7 +34,7 @@ class Linear(BaseNet):
     def _bias(self) -> bool:
         return self._net.bias is not None
 
-    def _forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _forward(self, x: _torch.Tensor) -> _torch.Tensor:
         return self._net(x[:, None])[:, 0]
 
     def _export_config(self):
@@ -47,5 +47,5 @@ class Linear(BaseNet):
         params_list = [self._net.weight.flatten()]
         if self._bias:
             params_list.append(self._net.bias.flatten())
-        params = torch.cat(params_list).detach().cpu().numpy()
+        params = _torch.cat(params_list).detach().cpu().numpy()
         return params
