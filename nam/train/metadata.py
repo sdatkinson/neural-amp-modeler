@@ -9,15 +9,15 @@ Information from the simplified trainers that is good to know about.
 # This isn't part of ../metadata because it's not necessarily worth knowning about--only
 # if you're using the simplified trainers!
 
-from typing import List, Optional
+from typing import List as _List, Optional as _Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel as _BaseModel
 
 # The key under which the metadata are saved in the .nam:
 TRAINING_KEY = "training"
 
 
-class Settings(BaseModel):
+class Settings(_BaseModel):
     """
     User-provided settings
     """
@@ -25,7 +25,7 @@ class Settings(BaseModel):
     ignore_checks: bool
 
 
-class LatencyCalibrationWarnings(BaseModel):
+class LatencyCalibrationWarnings(_BaseModel):
     """
     Things that aren't necessarily wrong with the latency calibration but are
     worth looking into.
@@ -42,34 +42,34 @@ class LatencyCalibrationWarnings(BaseModel):
     disagreement_too_high: bool
 
 
-class LatencyCalibration(BaseModel):
+class LatencyCalibration(_BaseModel):
     algorithm_version: int
-    delays: List[int]
+    delays: _List[int]
     safety_factor: int
     recommended: int
     warnings: LatencyCalibrationWarnings
 
 
-class Latency(BaseModel):
+class Latency(_BaseModel):
     """
     Information about the latency
     """
 
-    manual: Optional[int]
+    manual: _Optional[int]
     calibration: LatencyCalibration
 
 
-class DataChecks(BaseModel):
+class DataChecks(_BaseModel):
     version: int
     passed: bool
 
 
-class Data(BaseModel):
+class Data(_BaseModel):
     latency: Latency
     checks: DataChecks
 
 
-class TrainingMetadata(BaseModel):
+class TrainingMetadata(_BaseModel):
     settings: Settings
     data: Data
-    validation_esr: Optional[float]
+    validation_esr: _Optional[float]

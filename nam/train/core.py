@@ -8,22 +8,31 @@ The core of the "simplified trainer"
 Used by the GUI and Colab trainers.
 """
 
-import hashlib
+import hashlib as _hashlib
 import tkinter as tk
-from copy import deepcopy
-from enum import Enum
-from functools import partial
-from pathlib import Path
-from time import time
-from typing import Dict, NamedTuple, Optional, Sequence, Tuple, Union
+from copy import deepcopy as _deepcopy
+from enum import Enum as _Enum
+from functools import partial as _partial
+from pathlib import Path as _Path
+from time import time as _time
+from typing import (
+    Dict as _Dict,
+    NamedTuple as _NamedTuple,
+    Optional as _Optional,
+    Sequence as _Sequence,
+    Tuple as _Tuple,
+    Union as _Union,
+)
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
-import torch
-from pydantic import BaseModel
-from pytorch_lightning.utilities.warnings import PossibleUserWarning
-from torch.utils.data import DataLoader
+import torch as _torch
+from pydantic import BaseModel as _BaseModel
+from pytorch_lightning.utilities.warnings import (
+    PossibleUserWarning as _PossibleUserWarning,
+)
+from torch.utils.data import DataLoader as _DataLoader
 
 from ..data import DataError, Split, init_dataset, wav_to_np, wav_to_tensor
 from ..models.exportable import Exportable
@@ -40,7 +49,7 @@ STANDARD_SAMPLE_RATE = 48_000.0
 _NY_DEFAULT = 8192
 
 
-class Architecture(Enum):
+class Architecture(_Enum):
     STANDARD = "standard"
     LITE = "lite"
     FEATHER = "feather"
@@ -51,17 +60,17 @@ class _InputValidationError(ValueError):
     pass
 
 
-def _detect_input_version(input_path) -> Tuple[Version, bool]:
+def _detect_input_version(input_path) -> _Tuple[Version, bool]:
     """
     Check to see if the input matches any of the known inputs
 
     :return: version, strong match
     """
 
-    def detect_strong(input_path) -> Optional[Version]:
+    def detect_strong(input_path) -> _Optional[Version]:
         def assign_hash(path):
             # Use this to create hashes for new files
-            md5 = hashlib.md5()
+            md5 = _hashlib.md5()
             buffer_size = 65536
             with open(path, "rb") as f:
                 while True:
@@ -89,13 +98,13 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             )
         return version
 
-    def detect_weak(input_path) -> Optional[Version]:
+    def detect_weak(input_path) -> _Optional[Version]:
         def assign_hash(path):
-            Hash = Optional[str]
-            Hashes = Tuple[Hash, Hash]
+            Hash = _Optional[str]
+            Hashes = _Tuple[Hash, Hash]
 
             def _hash(x: np.ndarray) -> str:
-                return hashlib.md5(x).hexdigest()
+                return _hashlib.md5(x).hexdigest()
 
             def assign_hashes_v1(path) -> Hashes:
                 # Use this to create recognized hashes for new files
@@ -239,20 +248,20 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
     return version, strong_match
 
 
-class _DataInfo(BaseModel):
+class _DataInfo(_BaseModel):
     """
     :param major_version: Data major version
     """
 
     major_version: int
-    rate: Optional[float]
+    rate: _Optional[float]
     t_blips: int
     first_blips_start: int
     t_validate: int
     train_start: int
     validation_start: int
-    noise_interval: Tuple[int, int]
-    blip_locations: Sequence[Sequence[int]]
+    noise_interval: _Tuple[int, int]
+    blip_locations: _Sequence[_Sequence[int]]
 
 
 _V1_DATA_INFO = _DataInfo(
@@ -336,7 +345,7 @@ _DELAY_CALIBRATION_REL_THRESHOLD = 0.001
 _DELAY_CALIBRATION_SAFETY_FACTOR = 1  # Might be able to make this zero...
 
 
-def _warn_lookaheads(indices: Sequence[int]) -> str:
+def _warn_lookaheads(indices: _Sequence[int]) -> str:
     return (
         f"WARNING: delays from some blips ({','.join([str(i) for i in indices])}) are "
         "at the minimum value possible. This usually means that something is "
@@ -359,7 +368,7 @@ def _calibrate_latency_v_all(
     """
 
     def report_any_latency_warnings(
-        delays: Sequence[int],
+        delays: _Sequence[int],
     ) -> metadata.LatencyCalibrationWarnings:
         # Warnings associated with any single delay:
 
@@ -463,10 +472,10 @@ def _calibrate_latency_v_all(
     )
 
 
-_calibrate_latency_v1 = partial(_calibrate_latency_v_all, _V1_DATA_INFO)
-_calibrate_latency_v2 = partial(_calibrate_latency_v_all, _V2_DATA_INFO)
-_calibrate_latency_v3 = partial(_calibrate_latency_v_all, _V3_DATA_INFO)
-_calibrate_latency_v4 = partial(_calibrate_latency_v_all, _V4_DATA_INFO)
+_calibrate_latency_v1 = _partial(_calibrate_latency_v_all, _V1_DATA_INFO)
+_calibrate_latency_v2 = _partial(_calibrate_latency_v_all, _V2_DATA_INFO)
+_calibrate_latency_v3 = _partial(_calibrate_latency_v_all, _V3_DATA_INFO)
+_calibrate_latency_v4 = _partial(_calibrate_latency_v_all, _V4_DATA_INFO)
 
 
 def _plot_latency_v_all(
@@ -516,14 +525,14 @@ def _plot_latency_v_all(
         plt.show()  # This doesn't freeze the notebook
 
 
-_plot_latency_v1 = partial(_plot_latency_v_all, _V1_DATA_INFO)
-_plot_latency_v2 = partial(_plot_latency_v_all, _V2_DATA_INFO)
-_plot_latency_v3 = partial(_plot_latency_v_all, _V3_DATA_INFO)
-_plot_latency_v4 = partial(_plot_latency_v_all, _V4_DATA_INFO)
+_plot_latency_v1 = _partial(_plot_latency_v_all, _V1_DATA_INFO)
+_plot_latency_v2 = _partial(_plot_latency_v_all, _V2_DATA_INFO)
+_plot_latency_v3 = _partial(_plot_latency_v_all, _V3_DATA_INFO)
+_plot_latency_v4 = _partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
 def _analyze_latency(
-    user_latency: Optional[int],
+    user_latency: _Optional[int],
     input_version: Version,
     input_path: str,
     output_path: str,
@@ -602,7 +611,7 @@ def _esr_validation_replicate_msg(threshold: float) -> str:
 
 
 def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.DataChecks:
-    with torch.no_grad():
+    with _torch.no_grad():
         print("V2 checks...")
         rate = _V2_DATA_INFO.rate
         y = wav_to_tensor(output_path, rate=rate)
@@ -630,10 +639,10 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.Dat
             i0, i1, j0, j1 = [i + delay for i in (i0, i1, j0, j1)]
             start = -10
             end = 1000
-            blips = torch.stack(
+            blips = _torch.stack(
                 [
-                    torch.stack([y[i0 + start : i0 + end], y[i1 + start : i1 + end]]),
-                    torch.stack([y[j0 + start : j0 + end], y[j1 + start : j1 + end]]),
+                    _torch.stack([y[i0 + start : i0 + end], y[i1 + start : i1 + end]]),
+                    _torch.stack([y[j0 + start : j0 + end], y[j1 + start : j1 + end]]),
                 ]
             )
             return blips
@@ -655,8 +664,8 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.Dat
         def plot_esr_blip_error(
             show_plot: bool,
             msg: str,
-            arrays: Sequence[Sequence[float]],
-            labels: Sequence[str],
+            arrays: _Sequence[_Sequence[float]],
+            labels: _Sequence[str],
         ):
             """
             :param silent: Whether to make and show a plot about it
@@ -714,7 +723,7 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.Dat
 def _check_v3(
     input_path, output_path, silent: bool, *args, **kwargs
 ) -> metadata.DataChecks:
-    with torch.no_grad():
+    with _torch.no_grad():
         print("V3 checks...")
         rate = _V3_DATA_INFO.rate
         y = wav_to_tensor(output_path, rate=rate)
@@ -766,7 +775,7 @@ def _check_v4(
 
 def _check_data(
     input_path: str, output_path: str, input_version: Version, delay: int, silent: bool
-) -> Optional[metadata.DataChecks]:
+) -> _Optional[metadata.DataChecks]:
     """
     Ensure that everything should go smoothly
 
@@ -912,7 +921,7 @@ _CAB_MRSTFT_PRE_EMPH_COEF = 0.85
 
 
 def _get_data_config(
-    input_version: Version, input_path: Path, output_path: Path, ny: int, latency: int
+    input_version: Version, input_path: _Path, output_path: _Path, ny: int, latency: int
 ) -> dict:
     def get_split_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
@@ -1031,9 +1040,9 @@ def _get_configs(
         model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
         model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
 
-    if torch.cuda.is_available():
+    if _torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
-    elif torch.backends.mps.is_available():
+    elif _torch.backends.mps.is_available():
         device_config = {"accelerator": "mps", "devices": 1}
     else:
         print("WARNING: No GPU was found. Training will be very slow!")
@@ -1053,45 +1062,49 @@ def _get_configs(
 
 
 def _get_dataloaders(
-    data_config: Dict, learning_config: Dict, model: LightningModule
-) -> Tuple[DataLoader, DataLoader]:
-    data_config, learning_config = [deepcopy(c) for c in (data_config, learning_config)]
+    data_config: _Dict, learning_config: _Dict, model: LightningModule
+) -> _Tuple[_DataLoader, _DataLoader]:
+    data_config, learning_config = [
+        _deepcopy(c) for c in (data_config, learning_config)
+    ]
     data_config["common"]["nx"] = model.net.receptive_field
     dataset_train = init_dataset(data_config, Split.TRAIN)
     dataset_validation = init_dataset(data_config, Split.VALIDATION)
-    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
-    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    train_dataloader = _DataLoader(dataset_train, **learning_config["train_dataloader"])
+    val_dataloader = _DataLoader(
+        dataset_validation, **learning_config["val_dataloader"]
+    )
     return train_dataloader, val_dataloader
 
 
-def _esr(pred: torch.Tensor, target: torch.Tensor) -> float:
+def _esr(pred: _torch.Tensor, target: _torch.Tensor) -> float:
     return (
-        torch.mean(torch.square(pred - target)).item()
-        / torch.mean(torch.square(target)).item()
+        _torch.mean(_torch.square(pred - target)).item()
+        / _torch.mean(_torch.square(target)).item()
     )
 
 
 def _plot(
     model,
     ds,
-    window_start: Optional[int] = None,
-    window_end: Optional[int] = None,
-    filepath: Optional[str] = None,
+    window_start: _Optional[int] = None,
+    window_end: _Optional[int] = None,
+    filepath: _Optional[str] = None,
     silent: bool = False,
 ) -> float:
     """
     :return: The ESR
     """
     print("Plotting a comparison of your model with the target output...")
-    with torch.no_grad():
+    with _torch.no_grad():
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx:.2f} sec)")
-        t0 = time()
+        t0 = _time()
         output = model(ds.x).flatten().cpu().numpy()
-        t1 = time()
+        t1 = _time()
         print(f"Took {t1 - t0:.2f} sec ({tx / (t1 - t0):.2f}x)")
 
-    esr = _esr(torch.Tensor(output), ds.y)
+    esr = _esr(_torch.Tensor(output), ds.y)
     # Trying my best to put numbers to it...
     if esr < 0.01:
         esr_comment = "Great!"
@@ -1175,9 +1188,9 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
     def __init__(
         self,
         *args,
-        user_metadata: Optional[UserMetadata] = None,
-        settings_metadata: Optional[metadata.Settings] = None,
-        data_metadata: Optional[metadata.Data] = None,
+        user_metadata: _Optional[UserMetadata] = None,
+        settings_metadata: _Optional[metadata.Settings] = None,
+        data_metadata: _Optional[metadata.Data] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -1188,7 +1201,7 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
     _NAM_FILE_EXTENSION = Exportable.FILE_EXTENSION
 
     @classmethod
-    def _get_nam_filepath(cls, filepath: str) -> Path:
+    def _get_nam_filepath(cls, filepath: str) -> _Path:
         """
         Given a .ckpt filepath, figure out a .nam for it.
         """
@@ -1197,7 +1210,7 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
                 f"Checkpoint filepath {filepath} doesn't end in expected extension "
                 f"{cls.FILE_EXTENSION}"
             )
-        return Path(filepath[: -len(cls.FILE_EXTENSION)] + cls._NAM_FILE_EXTENSION)
+        return _Path(filepath[: -len(cls.FILE_EXTENSION)] + cls._NAM_FILE_EXTENSION)
 
     @property
     def _include_other_metadata(self) -> bool:
@@ -1239,10 +1252,10 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
 
 
 def get_callbacks(
-    threshold_esr: Optional[float],
-    user_metadata: Optional[UserMetadata] = None,
-    settings_metadata: Optional[metadata.Settings] = None,
-    data_metadata: Optional[metadata.Data] = None,
+    threshold_esr: _Optional[float],
+    user_metadata: _Optional[UserMetadata] = None,
+    settings_metadata: _Optional[metadata.Settings] = None,
+    data_metadata: _Optional[metadata.Data] = None,
 ):
     callbacks = [
         _ModelCheckpoint(
@@ -1269,14 +1282,14 @@ def get_callbacks(
     return callbacks
 
 
-class TrainOutput(NamedTuple):
+class TrainOutput(_NamedTuple):
     """
     :param model: The trained model
     :param simpliifed_trianer_metadata: The metadata summarizing training with the
         simplified trainer.
     """
 
-    model: Optional[LightningModule]
+    model: _Optional[LightningModule]
     metadata: metadata.TrainingMetadata
 
 
@@ -1294,27 +1307,27 @@ def train(
     input_path: str,
     output_path: str,
     train_path: str,
-    input_version: Optional[Version] = None,  # Deprecate?
+    input_version: _Optional[Version] = None,  # Deprecate?
     epochs=100,
-    delay: Optional[int] = None,
-    latency: Optional[int] = None,
+    delay: _Optional[int] = None,
+    latency: _Optional[int] = None,
     model_type: str = "WaveNet",
-    architecture: Union[Architecture, str] = Architecture.STANDARD,
+    architecture: _Union[Architecture, str] = Architecture.STANDARD,
     batch_size: int = 16,
     ny: int = _NY_DEFAULT,
     lr=0.004,
     lr_decay=0.007,
-    seed: Optional[int] = 0,
+    seed: _Optional[int] = 0,
     save_plot: bool = False,
     silent: bool = False,
     modelname: str = "model",
     ignore_checks: bool = False,
     local: bool = False,
     fit_mrstft: bool = True,
-    threshold_esr: Optional[bool] = None,
-    user_metadata: Optional[UserMetadata] = None,
-    fast_dev_run: Union[bool, int] = False,
-) -> Optional[TrainOutput]:
+    threshold_esr: _Optional[bool] = None,
+    user_metadata: _Optional[UserMetadata] = None,
+    fast_dev_run: _Union[bool, int] = False,
+) -> _Optional[TrainOutput]:
     """
     :param lr_decay: =1-gamma for Exponential learning rate decay.
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
@@ -1322,8 +1335,8 @@ def train(
     """
 
     def parse_user_latency(
-        delay: Optional[int], latency: Optional[int]
-    ) -> Optional[int]:
+        delay: _Optional[int], latency: _Optional[int]
+    ) -> _Optional[int]:
         if delay is not None:
             if latency is not None:
                 raise ValueError("Both delay and latency are provided; use latency!")
@@ -1332,7 +1345,7 @@ def train(
         return latency
 
     if seed is not None:
-        torch.manual_seed(seed)
+        _torch.manual_seed(seed)
 
     # HACK: We need to check the sample rates and lengths of the audio here or else
     # It will look like a bad self-ESR (Issue 473)
@@ -1446,7 +1459,7 @@ def train(
         **learning_config["trainer"],
     )
     # Suppress the PossibleUserWarning about num_workers (Issue 345)
-    with filter_warnings("ignore", category=PossibleUserWarning):
+    with filter_warnings("ignore", category=_PossibleUserWarning):
         trainer.fit(model, train_dataloader, val_dataloader)
 
     # Go to best checkpoint
@@ -1495,7 +1508,7 @@ def train(
     )
 
 
-class DataInputValidation(BaseModel):
+class DataInputValidation(_BaseModel):
     passed: bool
 
 
@@ -1512,33 +1525,33 @@ def validate_input(input_path) -> DataInputValidation:
         return DataInputValidation(passed=False)
 
 
-class _PyTorchDataSplitValidation(BaseModel):
+class _PyTorchDataSplitValidation(_BaseModel):
     """
     :param msg: On exception, catch and assign. Otherwise None
     """
 
     passed: bool
-    msg: Optional[str]
+    msg: _Optional[str]
 
 
-class _PyTorchDataValidation(BaseModel):
+class _PyTorchDataValidation(_BaseModel):
     passed: bool
     train: _PyTorchDataSplitValidation  # cf Split.TRAIN
     validation: _PyTorchDataSplitValidation  # Split.VALIDATION
 
 
-class _SampleRateValidation(BaseModel):
+class _SampleRateValidation(_BaseModel):
     passed: bool
     input: int
     output: int
 
 
-class _LengthValidation(BaseModel):
+class _LengthValidation(_BaseModel):
     passed: bool
     delta_seconds: float
 
 
-class DataValidationOutput(BaseModel):
+class DataValidationOutput(_BaseModel):
     passed: bool
     passed_critical: bool
     sample_rate: _SampleRateValidation
@@ -1550,8 +1563,8 @@ class DataValidationOutput(BaseModel):
 
 
 def _check_audio_sample_rates(
-    input_path: Path,
-    output_path: Path,
+    input_path: _Path,
+    output_path: _Path,
 ) -> _SampleRateValidation:
     _, x_info = wav_to_np(input_path, info=True)
     _, y_info = wav_to_np(output_path, info=True)
@@ -1564,10 +1577,10 @@ def _check_audio_sample_rates(
 
 
 def _check_audio_lengths(
-    input_path: Path,
-    output_path: Path,
-    max_under_seconds: Optional[float] = 0.0,
-    max_over_seconds: Optional[float] = 1.0,
+    input_path: _Path,
+    output_path: _Path,
+    max_under_seconds: _Optional[float] = 0.0,
+    max_over_seconds: _Optional[float] = 1.0,
 ) -> _LengthValidation:
     """
     Check that the input and output have the right lengths compared to each
@@ -1601,9 +1614,9 @@ def _check_audio_lengths(
 
 
 def validate_data(
-    input_path: Path,
-    output_path: Path,
-    user_latency: Optional[int],
+    input_path: _Path,
+    output_path: _Path,
+    user_latency: _Optional[int],
     num_output_samples_per_datum: int = _NY_DEFAULT,
 ):
     """
@@ -1660,7 +1673,7 @@ def validate_data(
     # be unlikely to make a difference. Still, would be nice to fix.
     data_config["common"]["nx"] = 4096
 
-    pytorch_data_split_validation_dict: Dict[str, _PyTorchDataSplitValidation] = {}
+    pytorch_data_split_validation_dict: _Dict[str, _PyTorchDataSplitValidation] = {}
     for split in Split:
         try:
             init_dataset(data_config, split)

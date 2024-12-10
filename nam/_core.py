@@ -2,7 +2,7 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-from copy import deepcopy
+from copy import deepcopy as _deepcopy
 
 
 class InitializableFromConfig(object):
@@ -12,4 +12,4 @@ class InitializableFromConfig(object):
 
     @classmethod
     def parse_config(cls, config):
-        return deepcopy(config)
+        return _deepcopy(config)

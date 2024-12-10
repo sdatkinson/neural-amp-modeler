@@ -7,11 +7,16 @@ WaveNet implementation
 https://arxiv.org/abs/1609.03499
 """
 
-import json
-from copy import deepcopy
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Dict, Optional, Sequence, Tuple
+import json as _json
+from copy import deepcopy as _deepcopy
+from pathlib import Path as _Path
+from tempfile import TemporaryDirectory as _TemporaryDirectory
+from typing import (
+    Dict as _Dict,
+    Optional as _Optional,
+    Sequence as _Sequence,
+    Tuple as _Tuple,
+)
 
 import numpy as np
 import torch
@@ -98,8 +103,8 @@ class _Layer(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, h: Optional[torch.Tensor], out_length: int
-    ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
+        self, x: torch.Tensor, h: _Optional[torch.Tensor], out_length: int
+    ) -> _Tuple[_Optional[torch.Tensor], torch.Tensor]:
         """
         :param x: (B,C,L1) From last layer
         :param h: (B,DX,L2) Conditioning. If first, ignored.
@@ -152,7 +157,7 @@ class _Layers(nn.Module):
         head_size,
         channels: int,
         kernel_size: int,
-        dilations: Sequence[int],
+        dilations: _Sequence[int],
         activation: str = "Tanh",
         gated: bool = True,
         head_bias: bool = True,
@@ -187,7 +192,7 @@ class _Layers(nn.Module):
         return 1 + (self._kernel_size - 1) * sum(self._dilations)
 
     def export_config(self):
-        return deepcopy(self._config)
+        return _deepcopy(self._config)
 
     def export_weights(self) -> torch.Tensor:
         return torch.cat(
@@ -206,8 +211,8 @@ class _Layers(nn.Module):
         self,
         x: torch.Tensor,
         c: torch.Tensor,
-        head_input: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        head_input: _Optional[torch.Tensor] = None,
+    ) -> _Tuple[torch.Tensor, torch.Tensor]:
         """
         :param x: (B,Dx,L) layer input
         :param c: (B,Dc,L) condition
@@ -228,7 +233,7 @@ class _Layers(nn.Module):
         return self._head_rechannel(head_input), x
 
     @property
-    def _dilations(self) -> Sequence[int]:
+    def _dilations(self) -> _Sequence[int]:
         return self._config["dilations"]
 
     @property
@@ -273,7 +278,7 @@ class _Head(nn.Module):
         }
 
     def export_config(self):
-        return deepcopy(self._config)
+        return _deepcopy(self._config)
 
     def export_weights(self) -> torch.Tensor:
         return torch.cat([layer[1].export_weights() for layer in self._layers])
@@ -290,8 +295,8 @@ class _Head(nn.Module):
 class _WaveNet(nn.Module):
     def __init__(
         self,
-        layers_configs: Sequence[Dict],
-        head_config: Optional[Dict] = None,
+        layers_configs: _Sequence[_Dict],
+        head_config: _Optional[_Dict] = None,
         head_scale: float = 1.0,
     ):
         super().__init__()
@@ -339,7 +344,7 @@ class _WaveNet(nn.Module):
 
 
 class WaveNet(BaseNet):
-    def __init__(self, *args, sample_rate: Optional[float] = None, **kwargs):
+    def __init__(self, *args, sample_rate: _Optional[float] = None, **kwargs):
         super().__init__(sample_rate=sample_rate)
         self._net = _WaveNet(*args, **kwargs)
 
@@ -351,12 +356,12 @@ class WaveNet(BaseNet):
     def receptive_field(self) -> int:
         return self._net.receptive_field
 
-    def export_cpp_header(self, filename: Path):
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            WaveNet.export(self, Path(tmpdir))  # Hacky...need to work w/ CatWaveNet
-            with open(Path(tmpdir, "model.nam"), "r") as fp:
-                _c = json.load(fp)
+    def export_cpp_header(self, filename: _Path):
+        with _TemporaryDirectory() as tmpdir:
+            tmpdir = _Path(tmpdir)
+            WaveNet.export(self, _Path(tmpdir))  # Hacky...need to work w/ CatWaveNet
+            with open(_Path(tmpdir, "model.nam"), "r") as fp:
+                _c = _json.load(fp)
             version = _c["version"]
             config = _c["config"]
 
@@ -412,7 +417,7 @@ class WaveNet(BaseNet):
                     )
                 )
 
-    def import_weights(self, weights: Sequence[float]):
+    def import_weights(self, weights: _Sequence[float]):
         if not isinstance(weights, torch.Tensor):
             weights = torch.Tensor(weights)
         self._net.import_weights(weights)

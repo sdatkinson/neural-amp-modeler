@@ -10,14 +10,20 @@ along with loss function boilerplate.
 For the base *PyTorch* model containing the actual architecture, see `..models.base`.
 """
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Dict, NamedTuple, Optional, Tuple
+from dataclasses import dataclass as _dataclass
+from enum import Enum as _Enum
+from typing import (
+    Any as _Any,
+    Dict as _Dict,
+    NamedTuple as _NamedTuple,
+    Optional as _Optional,
+    Tuple as _Tuple,
+)
 
-import auraloss
-import logging
+import auraloss as _auraloss
+import logging as _logging
 import pytorch_lightning as pl
-import torch
+import torch as _torch
 import torch.nn as nn
 
 from .._core import InitializableFromConfig
@@ -32,10 +38,10 @@ from ..models.losses import (
 from ..models.recurrent import LSTM
 from ..models.wavenet import WaveNet
 
-logger = logging.getLogger(__name__)
+logger = _logging.getLogger(__name__)
 
 
-class ValidationLoss(Enum):
+class ValidationLoss(_Enum):
     """
     mse: mean squared error
     esr: error signal ratio (Eq. (10) from
@@ -51,7 +57,7 @@ class ValidationLoss(Enum):
     ESR = "esr"
 
 
-@dataclass
+@_dataclass
 class LossConfig(InitializableFromConfig):
     """
     :param mrstft_weight: Multi-resolution short-time Fourier transform loss
@@ -64,15 +70,15 @@ class LossConfig(InitializableFromConfig):
     :param pre_
     """
 
-    mrstft_weight: Optional[float] = None
+    mrstft_weight: _Optional[float] = None
     fourier: bool = False
     mask_first: int = 0
     dc_weight: float = None
     val_loss: ValidationLoss = ValidationLoss.MSE
-    pre_emph_weight: Optional[float] = None
-    pre_emph_coef: Optional[float] = None
-    pre_emph_mrstft_weight: Optional[float] = None
-    pre_emph_mrstft_coef: Optional[float] = None
+    pre_emph_weight: _Optional[float] = None
+    pre_emph_coef: _Optional[float] = None
+    pre_emph_mrstft_weight: _Optional[float] = None
+    pre_emph_mrstft_coef: _Optional[float] = None
 
     @classmethod
     def parse_config(cls, config):
@@ -97,7 +103,7 @@ class LossConfig(InitializableFromConfig):
         return tuple(a[..., self.mask_first :] for a in args)
 
     @classmethod
-    def _get_mrstft_weight(cls, config) -> Optional[float]:
+    def _get_mrstft_weight(cls, config) -> _Optional[float]:
         key = "mrstft_weight"
         wrong_key = "mstft_key"  # Backward compatibility
         if key in config:
@@ -117,9 +123,9 @@ class LossConfig(InitializableFromConfig):
             return None
 
 
-class _LossItem(NamedTuple):
-    weight: Optional[float]
-    value: Optional[torch.Tensor]
+class _LossItem(_NamedTuple):
+    weight: _Optional[float]
+    value: _Optional[_torch.Tensor]
 
 
 _model_net_init_registry = {
@@ -139,9 +145,9 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
     def __init__(
         self,
         net,
-        optimizer_config: Optional[dict] = None,
-        scheduler_config: Optional[dict] = None,
-        loss_config: Optional[LossConfig] = None,
+        optimizer_config: _Optional[dict] = None,
+        scheduler_config: _Optional[dict] = None,
+        loss_config: _Optional[LossConfig] = None,
     ):
         """
         :param scheduler_config: contains
@@ -162,7 +168,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
         # Where to compute the MRSTFT.
         # Keeping it on-device is preferable, but if that fails, then remember to drop
         # it to cpu from then on.
-        self._mrstft_device: Optional[torch.device] = None
+        self._mrstft_device: _Optional[_torch.device] = None
 
     @classmethod
     def init_from_config(cls, config):
@@ -227,12 +233,12 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
         return self._net
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), **self._optimizer_config)
+        optimizer = _torch.optim.Adam(self.parameters(), **self._optimizer_config)
         if self._scheduler_config is None:
             return optimizer
         else:
             lr_scheduler = getattr(
-                torch.optim.lr_scheduler, self._scheduler_config["class"]
+                _torch.optim.lr_scheduler, self._scheduler_config["class"]
             )(optimizer, **self._scheduler_config["kwargs"])
             lr_scheduler_config = {"scheduler": lr_scheduler}
             for key in ("interval", "frequency", "monitor"):
@@ -243,17 +249,17 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
     def forward(self, *args, **kwargs):
         return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
 
-    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    def on_load_checkpoint(self, checkpoint: _Dict[str, _Any]) -> None:
         # Resolves https://github.com/sdatkinson/neural-amp-modeler/issues/351
         self.net.sample_rate = checkpoint["sample_rate"]
 
-    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    def on_save_checkpoint(self, checkpoint: _Dict[str, _Any]) -> None:
         # Resolves https://github.com/sdatkinson/neural-amp-modeler/issues/351
         checkpoint["sample_rate"] = self.net.sample_rate
 
     def _shared_step(
         self, batch
-    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, _LossItem]]:
+    ) -> _Tuple[_torch.Tensor, _torch.Tensor, _Dict[str, _LossItem]]:
         """
         B: Batch size
         L: Sequence length
@@ -300,7 +306,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
         if dc_weight is not None and dc_weight > 0.0:
             # Denominator could be a bad idea. I'm going to omit it esp since I'm
             # using mini batches
-            mean_dims = torch.arange(1, preds.ndim).tolist()
+            mean_dims = _torch.arange(1, preds.ndim).tolist()
             dc_loss = nn.MSELoss()(
                 preds.mean(dim=mean_dims), targets.mean(dim=mean_dims)
             )
@@ -344,7 +350,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
         )
         return val_loss
 
-    def _esr_loss(self, preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def _esr_loss(self, preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
         """
         Error signal ratio aka ESR loss.
 
@@ -360,7 +366,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
         """
         return esr(preds, targets)
 
-    def _mse_loss(self, preds, targets, pre_emph_coef: Optional[float] = None):
+    def _mse_loss(self, preds, targets, pre_emph_coef: _Optional[float] = None):
         if pre_emph_coef is not None:
             preds, targets = [
                 apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
@@ -369,10 +375,10 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
 
     def _mrstft_loss(
         self,
-        preds: torch.Tensor,
-        targets: torch.Tensor,
-        pre_emph_coef: Optional[float] = None,
-    ) -> torch.Tensor:
+        preds: _torch.Tensor,
+        targets: _torch.Tensor,
+        pre_emph_coef: _Optional[float] = None,
+    ) -> _torch.Tensor:
         """
         Experimental Multi Resolution Short Time Fourier Transform Loss using auraloss implementation.
         B: Batch size
@@ -383,7 +389,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
         :return: ()
         """
         if self._mrstft is None:
-            self._mrstft = auraloss.freq.MultiResolutionSTFTLoss()
+            self._mrstft = _auraloss.freq.MultiResolutionSTFTLoss()
         backup_device = "cpu"
 
         if pre_emph_coef is not None:
