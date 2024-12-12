@@ -1,10 +1,9 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=61", "wheel", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "neural-amp-modeler"
-version = "0.11.0"
 description = "Neural Amp Modeler"
 authors = [
     {name = "Steven Atkinson", email = "steven@atkinson.mn"},
@@ -24,6 +23,7 @@ dependencies = [
     "tqdm",
     "wavio>=0.0.5",
 ]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 # Optional features
@@ -45,6 +45,10 @@ homepage = "https://github.com/sdatkinson/"
 nam = "nam.cli:nam_gui"
 nam-full = "nam.cli:nam_full"
 
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+write_to = "nam/_version.py"
+
 [tool.setuptools]
 packages = ["nam", "nam.train", "nam.train.gui", "nam.train.gui._resources", "nam.models", "nam.models._resources" ]
-
