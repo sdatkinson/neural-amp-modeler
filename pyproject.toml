@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neural-amp-modeler"
+version = "0.11.0"
+description = "Neural Amp Modeler"
+authors = [
+    {name = "Steven Atkinson", email = "steven@atkinson.mn"},
+]
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.8"
+dependencies = [
+    "auraloss==0.3.0",
+    "matplotlib",
+    "pydantic>=2.0.0",
+    "pytorch_lightning",
+    "scipy",
+    "sounddevice",
+    "tensorboard",
+    "torch",
+    "tqdm",
+    "wavio>=0.0.5",
+]
+
+[project.optional-dependencies]
+# Optional features
+transformers-compat = [
+    "transformers>=4",  # Issue-294
+    "numpy<2",  # For older PyTorch versions; user must know when to include
+]
+
+test = [
+    "pytest",
+    "pytest-mock",
+    "requests",
+]
+
+[project.urls]
+homepage = "https://github.com/sdatkinson/"
+
+[project.scripts]
+nam = "nam.cli:nam_gui"
+nam-full = "nam.cli:nam_full"
+
+[tool.setuptools]
+packages = ["nam", "nam.train", "nam.train.gui", "nam.train.gui._resources", "nam.models", "nam.models._resources" ]
+
