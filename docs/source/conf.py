@@ -11,6 +11,7 @@ project = "neural-amp-modeler"
 copyright = "2024 Steven Atkinson"
 author = "Steven Atkinson"
 
+# TODO update this automatically from nam.__version__!
 release = "0.12"
 version = "0.12.0"
 
