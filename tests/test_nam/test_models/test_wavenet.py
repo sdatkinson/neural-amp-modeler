@@ -2,19 +2,22 @@
 # Created Date: Friday May 5th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import pytest
-import torch
+import pytest as _pytest
+import torch as _torch
 
-from nam.models.wavenet import WaveNet
-from nam.train.core import Architecture, get_wavenet_config
+from nam.models.wavenet import WaveNet as _WaveNet
+from nam.train.core import (
+    Architecture as _Architecture,
+    get_wavenet_config as _get_wavenet_config,
+)
 
-from ._convolutional import Convolutional as _Convolutional
+from .base import Base as _Base
 
 
-class TestWaveNet(_Convolutional):
+class TestWaveNet(_Base):
     @classmethod
     def setup_class(cls):
-        C = WaveNet
+        C = _WaveNet
         args = ()
         kwargs = {
             "layers_configs": [
@@ -31,12 +34,12 @@ class TestWaveNet(_Convolutional):
         super().setup_class(C, args, kwargs)
 
     def test_import_weights(self):
-        config = get_wavenet_config(Architecture.FEATHER)
-        model_1 = WaveNet.init_from_config(config)
-        model_2 = WaveNet.init_from_config(config)
+        config = _get_wavenet_config(_Architecture.FEATHER)
+        model_1 = _WaveNet.init_from_config(config)
+        model_2 = _WaveNet.init_from_config(config)
 
         batch_size = 2
-        x = torch.randn(batch_size, model_1.receptive_field + 23)
+        x = _torch.randn(batch_size, model_1.receptive_field + 23)
 
         y1 = model_1(x)
         y2_before = model_2(x)
@@ -44,9 +47,9 @@ class TestWaveNet(_Convolutional):
         model_2.import_weights(model_1._export_weights())
         y2_after = model_2(x)
 
-        assert not torch.allclose(y2_before, y1)
-        assert torch.allclose(y2_after, y1)
+        assert not _torch.allclose(y2_before, y1)
+        assert _torch.allclose(y2_after, y1)
 
 
 if __name__ == "__main__":
-    pytest.main()
+    _pytest.main()
