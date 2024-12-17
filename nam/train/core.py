@@ -34,7 +34,13 @@ from pytorch_lightning.utilities.warnings import (
 )
 from torch.utils.data import DataLoader as _DataLoader
 
-from ..data import DataError as _DataError, Split as _Split, init_dataset as _init_dataset, wav_to_np as _wav_to_np, wav_to_tensor as _wav_to_tensor
+from ..data import (
+    DataError as _DataError,
+    Split as _Split,
+    init_dataset as _init_dataset,
+    wav_to_np as _wav_to_np,
+    wav_to_tensor as _wav_to_tensor,
+)
 from ..models.exportable import Exportable as _Exportable
 from ..models.losses import esr as _ESR
 from ..models.metadata import UserMetadata as _UserMetadata
@@ -610,7 +616,9 @@ def _esr_validation_replicate_msg(threshold: float) -> str:
     )
 
 
-def _check_v2(input_path, output_path, delay: int, silent: bool) -> _metadata.DataChecks:
+def _check_v2(
+    input_path, output_path, delay: int, silent: bool
+) -> _metadata.DataChecks:
     with _torch.no_grad():
         print("V2 checks...")
         rate = _V2_DATA_INFO.rate
@@ -921,7 +929,11 @@ _CAB_MRSTFT_PRE_EMPH_COEF = 0.85
 
 
 def _get_data_config(
-    input_version: _Version, input_path: _Path, output_path: _Path, ny: int, latency: int
+    input_version: _Version,
+    input_path: _Path,
+    output_path: _Path,
+    ny: int,
+    latency: int,
 ) -> dict:
     def get_split_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:

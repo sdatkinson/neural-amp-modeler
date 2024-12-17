@@ -25,7 +25,11 @@ from .. import __version__
 from ..data import wav_to_tensor as _wav_to_tensor
 from ._activations import get_activation as _get_activation
 from .base import BaseNet as _BaseNet
-from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, BATCHNORM_NAME as _BATCHNORM_NAME, CONV_NAME as CONV_NAME
+from ._names import (
+    ACTIVATION_NAME as _ACTIVATION_NAME,
+    BATCHNORM_NAME as _BATCHNORM_NAME,
+    CONV_NAME as CONV_NAME,
+)
 
 
 class TrainStrategy(_Enum):
@@ -192,7 +196,10 @@ class ConvNet(_BaseNet):
                         f"const std::string ACTIVATION = \"{config['activation']}\";\n",
                         "std::vector<float> PARAMS{"
                         + ",".join(
-                            [f"{w:.16f}" for w in _np.load(_Path(tmpdir, "weights.npy"))]
+                            [
+                                f"{w:.16f}"
+                                for w in _np.load(_Path(tmpdir, "weights.npy"))
+                            ]
                         )
                         + "};\n",
                     )

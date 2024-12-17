@@ -10,7 +10,11 @@ from pathlib import Path as _Path
 from typing import Optional as _Optional, Tuple as _Tuple
 
 from ..models.metadata import UserMetadata as _UserMetadata
-from ._names import INPUT_BASENAMES as _INPUT_BASENAMES, LATEST_VERSION as _LATEST_VERSION, Version as _Version
+from ._names import (
+    INPUT_BASENAMES as _INPUT_BASENAMES,
+    LATEST_VERSION as _LATEST_VERSION,
+    Version as _Version,
+)
 from ._version import PROTEUS_VERSION as _PROTEUS_VERSION, Version as _Version
 from .core import TrainOutput as _TrainOutput, train as _train
 from .metadata import TRAINING_KEY as _TRAINING_KEY
