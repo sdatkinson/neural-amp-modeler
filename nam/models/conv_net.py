@@ -28,7 +28,7 @@ from .base import BaseNet as _BaseNet
 from ._names import (
     ACTIVATION_NAME as _ACTIVATION_NAME,
     BATCHNORM_NAME as _BATCHNORM_NAME,
-    CONV_NAME as CONV_NAME,
+    CONV_NAME as _CONV_NAME,
 )
 
 
@@ -79,7 +79,7 @@ def _conv_net(
     def block(cin, cout, dilation):
         net = _nn.Sequential()
         net.add_module(
-            CONV_NAME, _nn.Conv1d(cin, cout, 2, dilation=dilation, bias=not batchnorm)
+            _CONV_NAME, _nn.Conv1d(cin, cout, 2, dilation=dilation, bias=not batchnorm)
         )
         if batchnorm:
             net.add_module(_BATCHNORM_NAME, _nn.BatchNorm1d(cout))
@@ -163,7 +163,7 @@ class ConvNet(_BaseNet):
 
     @property
     def _channels(self) -> int:
-        return self._net._modules["block_0"]._modules[CONV_NAME].weight.shape[0]
+        return self._net._modules["block_0"]._modules[_CONV_NAME].weight.shape[0]
 
     @property
     def _num_layers(self) -> int:
@@ -268,7 +268,7 @@ class ConvNet(_BaseNet):
         for i in range(self._num_layers):
             block_name = f"block_{i}"
             block = self._net._modules[block_name]
-            conv = block._modules[CONV_NAME]
+            conv = block._modules[_CONV_NAME]
             params.append(conv.weight.flatten())
             if conv.bias is not None:
                 params.append(conv.bias.flatten())
@@ -293,7 +293,7 @@ class ConvNet(_BaseNet):
 
     def _get_dilations(self) -> _Tuple[int]:
         return tuple(
-            self._net._modules[f"block_{i}"]._modules[CONV_NAME].dilation[0]
+            self._net._modules[f"block_{i}"]._modules[_CONV_NAME].dilation[0]
             for i in range(self._num_blocks)
         )
 

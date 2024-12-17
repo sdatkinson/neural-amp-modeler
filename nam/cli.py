@@ -16,10 +16,10 @@ def _ensure_graceful_shutdowns():
     https://github.com/sdatkinson/neural-amp-modeler/issues/105
     https://stackoverflow.com/a/44822794
     """
-    import os as _os
+    import os
 
-    if _os.name == "nt":  # OS is Windows
-        _os.environ["FOR_DISABLE_CONSOLE_CTRL_HANDLER"] = "1"
+    if os.name == "nt":  # OS is Windows
+        os.environ["FOR_DISABLE_CONSOLE_CTRL_HANDLER"] = "1"
 
 
 _ensure_graceful_shutdowns()
@@ -37,38 +37,38 @@ def _apply_extensions():
             return s
         return s[: -len(suffix)] if s.endswith(suffix) else s
 
-    import importlib as _importlib
-    import os as _os
-    import sys as _sys
+    import importlib
+    import os
+    import sys
 
     # DRY: Make sure this matches the test!
-    home_path = _os.environ["HOMEPATH"] if _os.name == "nt" else _os.environ["HOME"]
-    extensions_path = _os.path.join(home_path, ".neural-amp-modeler", "extensions")
-    if not _os.path.exists(extensions_path):
+    home_path = os.environ["HOMEPATH"] if os.name == "nt" else os.environ["HOME"]
+    extensions_path = os.path.join(home_path, ".neural-amp-modeler", "extensions")
+    if not os.path.exists(extensions_path):
         return
-    if not _os.path.isdir(extensions_path):
+    if not os.path.isdir(extensions_path):
         print(
             f"WARNING: non-directory object found at expected extensions path {extensions_path}; skip"
         )
     print("Applying extensions...")
-    if extensions_path not in _sys.path:
-        _sys.path.append(extensions_path)
+    if extensions_path not in sys.path:
+        sys.path.append(extensions_path)
         extensions_path_not_in_sys_path = True
     else:
         extensions_path_not_in_sys_path = False
-    for name in _os.listdir(extensions_path):
+    for name in os.listdir(extensions_path):
         if name in {"__pycache__", ".DS_Store"}:
             continue
         try:
-            _importlib.import_module(removesuffix(name, ".py"))  # Runs it
+            importlib.import_module(removesuffix(name, ".py"))  # Runs it
             print(f"  {name} [SUCCESS]")
         except Exception as e:
             print(f"  {name} [FAILED]")
             print(e)
     if extensions_path_not_in_sys_path:
-        for i, p in enumerate(_sys.path):
+        for i, p in enumerate(sys.path):
             if p == extensions_path:
-                _sys.path = _sys.path[:i] + _sys.path[i + 1 :]
+                sys.path = sys.path[:i] + sys.path[i + 1 :]
                 break
         else:
             raise RuntimeError("Failed to remove extensions path from sys.path?")

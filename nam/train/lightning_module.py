@@ -30,10 +30,10 @@ from .._core import InitializableFromConfig as _InitializableFromConfig
 from ..models.conv_net import ConvNet as _ConvNet
 from ..models.linear import Linear as _Linear
 from ..models.losses import (
-    apply_pre_emphasis_filter,
-    esr,
-    multi_resolution_stft_loss,
-    mse_fft,
+    apply_pre_emphasis_filter as _apply_pre_emphasis_filter,
+    esr as _esr,
+    multi_resolution_stft_loss as _multi_resolution_stft_loss,
+    mse_fft as _mse_fft,
 )
 from ..models.recurrent import LSTM as _LSTM
 from ..models.wavenet import WaveNet as _WaveNet
@@ -273,7 +273,7 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         loss_dict = {}  # Mind keys versus validation loss requested...
         # Prediction aka MSE loss
         if self._loss_config.fourier:
-            loss_dict["MSE_FFT"] = _LossItem(1.0, mse_fft(preds, targets))
+            loss_dict["MSE_FFT"] = _LossItem(1.0, _mse_fft(preds, targets))
         else:
             loss_dict["MSE"] = _LossItem(1.0, self._mse_loss(preds, targets))
         # Pre-emphasized MSE
@@ -364,12 +364,12 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         :param targets: (B,L)
         :return: ()
         """
-        return esr(preds, targets)
+        return _esr(preds, targets)
 
     def _mse_loss(self, preds, targets, pre_emph_coef: _Optional[float] = None):
         if pre_emph_coef is not None:
             preds, targets = [
-                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
+                _apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
             ]
         return _nn.MSELoss()(preds, targets)
 
@@ -394,11 +394,11 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
 
         if pre_emph_coef is not None:
             preds, targets = [
-                apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
+                _apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
             ]
 
         try:
-            return multi_resolution_stft_loss(
+            return _multi_resolution_stft_loss(
                 preds, targets, self._mrstft, device=self._mrstft_device
             )
         except Exception as e:
@@ -406,6 +406,6 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
                 raise e
             logger.warning("MRSTFT failed on device; falling back to CPU")
             self._mrstft_device = backup_device
-            return multi_resolution_stft_loss(
+            return _multi_resolution_stft_loss(
                 preds, targets, self._mrstft, device=self._mrstft_device
             )
