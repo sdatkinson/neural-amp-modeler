@@ -11,8 +11,8 @@ project = "neural-amp-modeler"
 copyright = "2024 Steven Atkinson"
 author = "Steven Atkinson"
 
-release = "0.8"
-version = "0.8.1"
+release = "0.12"
+version = "0.12.0"
 
 # -- General configuration
 

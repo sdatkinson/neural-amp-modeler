@@ -9,7 +9,7 @@ Loss functions
 from typing import Optional as _Optional
 
 import torch as _torch
-from auraloss.freq import MultiResolutionSTFTLoss
+from auraloss.freq import MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss
 
 
 def apply_pre_emphasis_filter(x: _torch.Tensor, coef: float) -> _torch.Tensor:
@@ -51,7 +51,7 @@ def esr(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
 def multi_resolution_stft_loss(
     preds: _torch.Tensor,
     targets: _torch.Tensor,
-    loss_func: _Optional[MultiResolutionSTFTLoss] = None,
+    loss_func: _Optional[_MultiResolutionSTFTLoss] = None,
     device: _Optional[_torch.device] = None,
 ) -> _torch.Tensor:
     """
@@ -66,7 +66,7 @@ def multi_resolution_stft_loss(
     :param device: If provided, send the preds and targets to the provided device.
     :return: ()
     """
-    loss_func = MultiResolutionSTFTLoss() if loss_func is None else loss_func
+    loss_func = _MultiResolutionSTFTLoss() if loss_func is None else loss_func
     if device is not None:
         preds, targets = [z.to(device) for z in (preds, targets)]
     return loss_func(preds, targets)

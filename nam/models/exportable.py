@@ -17,9 +17,9 @@ from typing import (
     Union as _Union,
 )
 
-import numpy as np
+import numpy as _np
 
-from .metadata import Date, UserMetadata
+from .metadata import Date as _Date, UserMetadata as _UserMetadata
 
 logger = _logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class Exportable(_abc.ABC):
         outdir: _Path,
         include_snapshot: bool = False,
         basename: str = "model",
-        user_metadata: _Optional[UserMetadata] = None,
+        user_metadata: _Optional[_UserMetadata] = None,
         other_metadata: _Optional[dict] = None,
     ):
         """
@@ -95,9 +95,9 @@ class Exportable(_abc.ABC):
             x_path = _Path(outdir, "test_inputs.npy")
             y_path = _Path(outdir, "test_outputs.npy")
             logger.debug(f"Saving snapshot input to {x_path}")
-            np.save(x_path, x)
+            _np.save(x_path, x)
             logger.debug(f"Saving snapshot output to {y_path}")
-            np.save(y_path, y)
+            _np.save(y_path, y)
 
         # And resume training state
         self.train(training)
@@ -139,7 +139,7 @@ class Exportable(_abc.ABC):
         pass
 
     @_abc.abstractmethod
-    def _export_input_output(self) -> _Tuple[np.ndarray, np.ndarray]:
+    def _export_input_output(self) -> _Tuple[_np.ndarray, _np.ndarray]:
         """
         Create an input and corresponding output signal to verify its behavior.
 
@@ -149,7 +149,7 @@ class Exportable(_abc.ABC):
         pass
 
     @_abc.abstractmethod
-    def _export_weights(self) -> np.ndarray:
+    def _export_weights(self) -> _np.ndarray:
         """
         Flatten the weights out to a 1D array
         """
@@ -170,7 +170,7 @@ class Exportable(_abc.ABC):
         """
         t = _datetime.now()
         return {
-            "date": Date(
+            "date": _Date(
                 year=t.year,
                 month=t.month,
                 day=t.day,

@@ -18,16 +18,16 @@ from typing import (
     Union as _Union,
 )
 
-import numpy as np
+import numpy as _np
 import torch as _torch
-import torch.nn as nn
+import torch.nn as _nn
 
-from .._core import InitializableFromConfig
-from ..data import wav_to_tensor
-from .exportable import Exportable
+from .._core import InitializableFromConfig as _InitializableFromConfig
+from ..data import wav_to_tensor as _wav_to_tensor
+from .exportable import Exportable as _Exportable
 
 
-class _Base(nn.Module, InitializableFromConfig, Exportable):
+class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
     def __init__(self, sample_rate: _Optional[float] = None):
         super().__init__()
         self.register_buffer(
@@ -57,7 +57,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
 
     @classmethod
     def _metadata_loudness_x(cls) -> _torch.Tensor:
-        return wav_to_tensor(
+        return _wav_to_tensor(
             _pkg_resources.resource_filename(
                 "nam", "models/_resources/loudness_input.wav"
             )
@@ -113,8 +113,8 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         """
         Between 0 and 1, how much gain / compression does the model seem to have?
         """
-        x = np.linspace(0.0, 1.0, 11)
-        y = np.array([self._metadata_loudness(gain=gain, db=False) for gain in x])
+        x = _np.linspace(0.0, 1.0, 11)
+        y = _np.array([self._metadata_loudness(gain=gain, db=False) for gain in x])
         #
         # O ^ o o o o o o
         # u | o       x   +-------------------------------------+
@@ -130,7 +130,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         gain_range = max_gain - min_gain
         this_gain = y.sum()
         normalized_gain = (this_gain - min_gain) / gain_range
-        return np.clip(normalized_gain, 0.0, 1.0)
+        return _np.clip(normalized_gain, 0.0, 1.0)
 
     def _at_nominal_settings(self, x: _torch.Tensor) -> _torch.Tensor:
         # parametric?...
@@ -152,7 +152,7 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         """
         return ()
 
-    def _export_input_output(self) -> _Tuple[np.ndarray, np.ndarray]:
+    def _export_input_output(self) -> _Tuple[_np.ndarray, _np.ndarray]:
         args = self._export_input_output_args()
         rate = self.sample_rate
         if rate is None:

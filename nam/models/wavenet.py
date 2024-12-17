@@ -18,28 +18,28 @@ from typing import (
     Tuple as _Tuple,
 )
 
-import numpy as np
-import torch
-import torch.nn as nn
+import numpy as _np
+import torch as _torch
+import torch.nn as _nn
 
-from ._activations import get_activation
-from .base import BaseNet
-from ._names import ACTIVATION_NAME, CONV_NAME
+from ._activations import get_activation as _get_activation
+from .base import BaseNet as _BaseNet
+from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
 
 
-class Conv1d(nn.Conv1d):
-    def export_weights(self) -> torch.Tensor:
+class Conv1d(_nn.Conv1d):
+    def export_weights(self) -> _torch.Tensor:
         tensors = []
         if self.weight is not None:
             tensors.append(self.weight.data.flatten())
         if self.bias is not None:
             tensors.append(self.bias.data.flatten())
         if len(tensors) == 0:
-            return torch.zeros((0,))
+            return _torch.zeros((0,))
         else:
-            return torch.cat(tensors)
+            return _torch.cat(tensors)
 
-    def import_weights(self, weights: torch.Tensor, i: int) -> int:
+    def import_weights(self, weights: _torch.Tensor, i: int) -> int:
         if self.weight is not None:
             n = self.weight.numel()
             self.weight.data = (
@@ -55,7 +55,7 @@ class Conv1d(nn.Conv1d):
         return i
 
 
-class _Layer(nn.Module):
+class _Layer(_nn.Module):
     def __init__(
         self,
         condition_size: int,
@@ -72,7 +72,7 @@ class _Layer(nn.Module):
         # Custom init: favors direct input-output
         # self._conv.weight.data.zero_()
         self._input_mixer = Conv1d(condition_size, mid_channels, 1, bias=False)
-        self._activation = get_activation(activation)
+        self._activation = _get_activation(activation)
         self._activation_name = activation
         self._1x1 = Conv1d(channels, channels, 1)
         self._gated = gated
@@ -93,8 +93,8 @@ class _Layer(nn.Module):
     def kernel_size(self) -> int:
         return self._conv.kernel_size[0]
 
-    def export_weights(self) -> torch.Tensor:
-        return torch.cat(
+    def export_weights(self) -> _torch.Tensor:
+        return _torch.cat(
             [
                 self.conv.export_weights(),
                 self._input_mixer.export_weights(),
@@ -103,8 +103,8 @@ class _Layer(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, h: _Optional[torch.Tensor], out_length: int
-    ) -> _Tuple[_Optional[torch.Tensor], torch.Tensor]:
+        self, x: _torch.Tensor, h: _Optional[_torch.Tensor], out_length: int
+    ) -> _Tuple[_Optional[_torch.Tensor], _torch.Tensor]:
         """
         :param x: (B,C,L1) From last layer
         :param h: (B,DX,L2) Conditioning. If first, ignored.
@@ -122,7 +122,7 @@ class _Layer(nn.Module):
             if not self._gated
             else (
                 self._activation(z1[:, : self._channels])
-                * torch.sigmoid(z1[:, self._channels :])
+                * _torch.sigmoid(z1[:, self._channels :])
             )
         )
         return (
@@ -130,7 +130,7 @@ class _Layer(nn.Module):
             post_activation[:, :, -out_length:],
         )
 
-    def import_weights(self, weights: torch.Tensor, i: int) -> int:
+    def import_weights(self, weights: _torch.Tensor, i: int) -> int:
         i = self.conv.import_weights(weights, i)
         i = self._input_mixer.import_weights(weights, i)
         return self._1x1.import_weights(weights, i)
@@ -140,7 +140,7 @@ class _Layer(nn.Module):
         return self._1x1.in_channels
 
 
-class _Layers(nn.Module):
+class _Layers(_nn.Module):
     """
     Takes in the input and condition (and maybe the head input so far); outputs the
     layer output and head input.
@@ -164,7 +164,7 @@ class _Layers(nn.Module):
     ):
         super().__init__()
         self._rechannel = Conv1d(input_size, channels, 1, bias=False)
-        self._layers = nn.ModuleList(
+        self._layers = _nn.ModuleList(
             [
                 _Layer(
                     condition_size, channels, kernel_size, dilation, activation, gated
@@ -194,14 +194,14 @@ class _Layers(nn.Module):
     def export_config(self):
         return _deepcopy(self._config)
 
-    def export_weights(self) -> torch.Tensor:
-        return torch.cat(
+    def export_weights(self) -> _torch.Tensor:
+        return _torch.cat(
             [self._rechannel.export_weights()]
             + [layer.export_weights() for layer in self._layers]
             + [self._head_rechannel.export_weights()]
         )
 
-    def import_weights(self, weights: torch.Tensor, i: int) -> int:
+    def import_weights(self, weights: _torch.Tensor, i: int) -> int:
         i = self._rechannel.import_weights(weights, i)
         for layer in self._layers:
             i = layer.import_weights(weights, i)
@@ -209,10 +209,10 @@ class _Layers(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        c: torch.Tensor,
-        head_input: _Optional[torch.Tensor] = None,
-    ) -> _Tuple[torch.Tensor, torch.Tensor]:
+        x: _torch.Tensor,
+        c: _torch.Tensor,
+        head_input: _Optional[_torch.Tensor] = None,
+    ) -> _Tuple[_torch.Tensor, _torch.Tensor]:
         """
         :param x: (B,Dx,L) layer input
         :param c: (B,Dc,L) condition
@@ -241,7 +241,7 @@ class _Layers(nn.Module):
         return self._layers[0].kernel_size
 
 
-class _Head(nn.Module):
+class _Head(_nn.Module):
     def __init__(
         self,
         in_channels: int,
@@ -253,14 +253,14 @@ class _Head(nn.Module):
         super().__init__()
 
         def block(cx, cy):
-            net = nn.Sequential()
-            net.add_module(ACTIVATION_NAME, get_activation(activation))
-            net.add_module(CONV_NAME, Conv1d(cx, cy, 1))
+            net = _nn.Sequential()
+            net.add_module(_ACTIVATION_NAME, _get_activation(activation))
+            net.add_module(_CONV_NAME, Conv1d(cx, cy, 1))
             return net
 
         assert num_layers > 0
 
-        layers = nn.Sequential()
+        layers = _nn.Sequential()
         cin = in_channels
         for i in range(num_layers):
             layers.add_module(
@@ -280,19 +280,19 @@ class _Head(nn.Module):
     def export_config(self):
         return _deepcopy(self._config)
 
-    def export_weights(self) -> torch.Tensor:
-        return torch.cat([layer[1].export_weights() for layer in self._layers])
+    def export_weights(self) -> _torch.Tensor:
+        return _torch.cat([layer[1].export_weights() for layer in self._layers])
 
     def forward(self, *args, **kwargs):
         return self._layers(*args, **kwargs)
 
-    def import_weights(self, weights: torch.Tensor, i: int) -> int:
+    def import_weights(self, weights: _torch.Tensor, i: int) -> int:
         for layer in self._layers:
             i = layer[1].import_weights(weights, i)
         return i
 
 
-class _WaveNet(nn.Module):
+class _WaveNet(_nn.Module):
     def __init__(
         self,
         layers_configs: _Sequence[_Dict],
@@ -301,7 +301,7 @@ class _WaveNet(nn.Module):
     ):
         super().__init__()
 
-        self._layers = nn.ModuleList([_Layers(**lc) for lc in layers_configs])
+        self._layers = _nn.ModuleList([_Layers(**lc) for lc in layers_configs])
         self._head = None if head_config is None else _Head(**head_config)
         self._head_scale = head_scale
 
@@ -316,22 +316,22 @@ class _WaveNet(nn.Module):
             "head_scale": self._head_scale,
         }
 
-    def export_weights(self) -> np.ndarray:
+    def export_weights(self) -> _np.ndarray:
         """
         :return: 1D array
         """
-        weights = torch.cat([layer.export_weights() for layer in self._layers])
+        weights = _torch.cat([layer.export_weights() for layer in self._layers])
         if self._head is not None:
-            weights = torch.cat([weights, self._head.export_weights()])
-        weights = torch.cat([weights.cpu(), torch.Tensor([self._head_scale])])
+            weights = _torch.cat([weights, self._head.export_weights()])
+        weights = _torch.cat([weights.cpu(), _torch.Tensor([self._head_scale])])
         return weights.detach().cpu().numpy()
 
-    def import_weights(self, weights: torch.Tensor):
+    def import_weights(self, weights: _torch.Tensor):
         i = 0
         for layer in self._layers:
             i = layer.import_weights(weights, i)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: _torch.Tensor) -> _torch.Tensor:
         """
         :param x: (B,Cx,L)
         :return: (B,Cy,L-R)
@@ -343,7 +343,7 @@ class _WaveNet(nn.Module):
         return head_input if self._head is None else self._head(head_input)
 
 
-class WaveNet(BaseNet):
+class WaveNet(_BaseNet):
     def __init__(self, *args, sample_rate: _Optional[float] = None, **kwargs):
         super().__init__(sample_rate=sample_rate)
         self._net = _WaveNet(*args, **kwargs)
@@ -418,8 +418,8 @@ class WaveNet(BaseNet):
                 )
 
     def import_weights(self, weights: _Sequence[float]):
-        if not isinstance(weights, torch.Tensor):
-            weights = torch.Tensor(weights)
+        if not isinstance(weights, _torch.Tensor):
+            weights = _torch.Tensor(weights)
         self._net.import_weights(weights)
 
     def _export_config(self):
@@ -430,7 +430,7 @@ class WaveNet(BaseNet):
             raise ValueError("Got non-None parametric config")
         return ("nlohmann::json PARAMETRIC {};\n",)
 
-    def _export_weights(self) -> np.ndarray:
+    def _export_weights(self) -> _np.ndarray:
         return self._net.export_weights()
 
     def _forward(self, x):
