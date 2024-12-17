@@ -23,14 +23,14 @@ from typing import (
     Union as _Union,
 )
 
-import numpy as np
+import numpy as _np
 import torch as _torch
 import wavio as _wavio
 from scipy.interpolate import interp1d as _interp1d
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm as _tqdm
 
-from ._core import InitializableFromConfig
+from ._core import InitializableFromConfig as _InitializableFromConfig
 
 logger = _logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def wav_to_np(
     required_wavinfo: _Optional[WavInfo] = None,
     preroll: _Optional[int] = None,
     info: bool = False,
-) -> _Union[np.ndarray, _Tuple[np.ndarray, WavInfo]]:
+) -> _Union[_np.ndarray, _Tuple[_np.ndarray, WavInfo]]:
     """
     :param filename: Where to load from
     :param rate: Expected sample rate. `None` allows for anything.
@@ -147,7 +147,7 @@ def tensor_to_wav(x: _torch.Tensor, *args, **kwargs):
 
 
 def np_to_wav(
-    x: np.ndarray,
+    x: _np.ndarray,
     filename: _Union[str, _Path],
     rate: int = 48_000,
     sampwidth: int = 3,
@@ -158,7 +158,7 @@ def np_to_wav(
         scale = "none"
     _wavio.write(
         str(filename),
-        (np.clip(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1))).astype(np.int32),
+        (_np.clip(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1))).astype(_np.int32),
         rate,
         scale=scale,
         sampwidth=sampwidth,
@@ -189,18 +189,18 @@ class _DelayInterpolationMethod(_Enum):
 
 def _interpolate_delay(
     x: _torch.Tensor, delay: float, method: _DelayInterpolationMethod
-) -> np.ndarray:
+) -> _np.ndarray:
     """
     NOTE: This breaks the gradient tape!
     """
     if delay == 0.0:
         return x
-    t_in = np.arange(len(x))
-    n_out = len(x) - int(np.ceil(np.abs(delay)))
+    t_in = _np.arange(len(x))
+    n_out = len(x) - int(_np.ceil(_np.abs(delay)))
     if delay > 0:
-        t_out = np.arange(n_out) + delay
+        t_out = _np.arange(n_out) + delay
     elif delay < 0:
-        t_out = np.arange(len(x) - n_out, len(x)) - np.abs(delay)
+        t_out = _np.arange(len(x) - n_out, len(x)) - _np.abs(delay)
 
     return _torch.Tensor(
         _interp1d(t_in, x.detach().cpu().numpy(), kind=method.value)(t_out)
@@ -250,7 +250,7 @@ def _sample_to_time(s, rate):
     return f"{hours}:{minutes:02d}:{seconds:02d} and {remainder} samples"
 
 
-class Dataset(AbstractDataset, InitializableFromConfig):
+class Dataset(AbstractDataset, _InitializableFromConfig):
     """
     Take a pair of matched audio files and serve input + output pairs.
     """
@@ -505,7 +505,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         delay: float,
         method: _DelayInterpolationMethod,
     ) -> _Tuple[_torch.Tensor, _torch.Tensor]:
-        n_out = len(y) - int(np.ceil(np.abs(delay)))
+        n_out = len(y) - int(_np.ceil(_np.abs(delay)))
         if delay > 0:
             x = x[:n_out]
         elif delay < 0:
@@ -695,7 +695,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             )
 
 
-class ConcatDataset(AbstractDataset, InitializableFromConfig):
+class ConcatDataset(AbstractDataset, _InitializableFromConfig):
     def __init__(self, datasets: _Sequence[Dataset], flatten=True):
         if flatten:
             datasets = self._flatten_datasets(datasets)

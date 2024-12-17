@@ -78,16 +78,16 @@ def _apply_extensions():
 _apply_extensions()
 
 import json as _json
-from argparse import ArgumentParser
-from pathlib import Path
+from argparse import ArgumentParser as _ArgumentParser
+from pathlib import Path as _Path
 
 from nam.train.full import main as _nam_full
-from nam.train.gui import run as nam_gui  # noqa F401 Used as an entry point
-from nam.util import timestamp
+from nam.train.gui import run as _nam_gui  # noqa F401 Used as an entry point
+from nam.util import timestamp as _timestamp
 
 
 def nam_full():
-    parser = ArgumentParser()
+    parser = _ArgumentParser()
     parser.add_argument("data_config_path", type=str)
     parser.add_argument("model_config_path", type=str)
     parser.add_argument("learning_config_path", type=str)
@@ -96,8 +96,8 @@ def nam_full():
 
     args = parser.parse_args()
 
-    def ensure_outdir(outdir: str) -> Path:
-        outdir = Path(outdir, timestamp())
+    def ensure_outdir(outdir: str) -> _Path:
+        outdir = _Path(outdir, _timestamp())
         outdir.mkdir(parents=True, exist_ok=False)
         return outdir
 
