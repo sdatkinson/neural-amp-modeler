@@ -8,9 +8,9 @@ from time import time as _time
 from typing import Optional as _Optional, Union as _Union
 from warnings import warn as _warn
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pytorch_lightning as pl
+import matplotlib.pyplot as _plt
+import numpy as _np
+import pytorch_lightning as _pl
 from pytorch_lightning.utilities.warnings import (
     PossibleUserWarning as _PossibleUserWarning,
 )
@@ -28,9 +28,9 @@ from nam.util import filter_warnings as _filter_warnings
 _torch.manual_seed(0)
 
 
-def _rms(x: _Union[np.ndarray, _torch.Tensor]) -> float:
-    if isinstance(x, np.ndarray):
-        return np.sqrt(np.mean(np.square(x)))
+def _rms(x: _Union[_np.ndarray, _torch.Tensor]) -> float:
+    if isinstance(x, _np.ndarray):
+        return _np.sqrt(_np.mean(_np.square(x)))
     elif isinstance(x, _torch.Tensor):
         return _torch.sqrt(_torch.mean(_torch.square(x))).item()
     else:
@@ -77,17 +77,17 @@ def _plot(
             rt = "???"
         print(f"Took {t1 - t0:.2f} ({rt}x)")
 
-    plt.figure(figsize=(16, 5))
-    plt.plot(output[window_start:window_end], label="Prediction")
-    plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
+    _plt.figure(figsize=(16, 5))
+    _plt.plot(output[window_start:window_end], label="Prediction")
+    _plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
     nrmse = _rms(_torch.Tensor(output) - ds.y) / _rms(ds.y)
     esr = nrmse**2
-    plt.title(f"ESR={esr:.3f}")
-    plt.legend()
+    _plt.title(f"ESR={esr:.3f}")
+    _plt.legend()
     if savefig is not None:
-        plt.savefig(savefig)
+        _plt.savefig(savefig)
     if show:
-        plt.show()
+        _plt.show()
 
 
 def _create_callbacks(learning_config):
@@ -108,7 +108,7 @@ def _create_callbacks(learning_config):
             )
         }
 
-    checkpoint_best = pl.callbacks.model_checkpoint.ModelCheckpoint(
+    checkpoint_best = _pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
         save_top_k=3,
         monitor="val_loss",
@@ -117,14 +117,14 @@ def _create_callbacks(learning_config):
 
     # return [checkpoint_best, checkpoint_last]
     # The last epoch that was finished.
-    checkpoint_epoch = pl.callbacks.model_checkpoint.ModelCheckpoint(
+    checkpoint_epoch = _pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="checkpoint_epoch_{epoch:04d}", every_n_epochs=1
     )
     if not validate_inside_epoch:
         return [checkpoint_best, checkpoint_epoch]
     else:
         # The last validation pass, whether at the end of an epoch or not
-        checkpoint_last = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        checkpoint_last = _pl.callbacks.model_checkpoint.ModelCheckpoint(
             filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
         )
         return [checkpoint_best, checkpoint_last, checkpoint_epoch]
@@ -171,7 +171,7 @@ def main(
         dataset_validation, **learning_config["val_dataloader"]
     )
 
-    trainer = pl.Trainer(
+    trainer = _pl.Trainer(
         callbacks=_create_callbacks(learning_config),
         default_root_dir=outdir,
         **learning_config["trainer"],

@@ -9,11 +9,11 @@ Hide the mess in Colab to make things look pretty for users.
 from pathlib import Path as _Path
 from typing import Optional as _Optional, Tuple as _Tuple
 
-from ..models.metadata import UserMetadata
-from ._names import INPUT_BASENAMES, LATEST_VERSION, Version
-from ._version import PROTEUS_VERSION, Version
-from .core import TrainOutput, train
-from .metadata import TRAINING_KEY
+from ..models.metadata import UserMetadata as _UserMetadata
+from ._names import INPUT_BASENAMES as _INPUT_BASENAMES, LATEST_VERSION as _LATEST_VERSION, Version as _Version
+from ._version import PROTEUS_VERSION as _PROTEUS_VERSION, Version as _Version
+from .core import TrainOutput as _TrainOutput, train as _train
+from .metadata import TRAINING_KEY as _TRAINING_KEY
 
 _BUGGY_INPUT_BASENAMES = {
     # 1.1.0 has the spikes at the wrong spots.
@@ -23,23 +23,23 @@ _OUTPUT_BASENAME = "output.wav"
 _TRAIN_PATH = "."
 
 
-def _check_for_files() -> _Tuple[Version, str]:
+def _check_for_files() -> _Tuple[_Version, str]:
     # TODO use hash logic as in GUI trainer!
     print("Checking that we have all of the required audio files...")
     for name in _BUGGY_INPUT_BASENAMES:
         if _Path(name).exists():
             raise RuntimeError(
-                f"Detected input signal {name} that has known bugs. Please download the latest input signal, {LATEST_VERSION[1]}"
+                f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_LATEST_VERSION[1]}"
             )
-    for input_version, input_basename, other_names in INPUT_BASENAMES:
+    for input_version, input_basename, other_names in _INPUT_BASENAMES:
         if _Path(input_basename).exists():
-            if input_version == PROTEUS_VERSION:
+            if input_version == _PROTEUS_VERSION:
                 print(f"Using Proteus input file...")
-            elif input_version != LATEST_VERSION.version:
+            elif input_version != _LATEST_VERSION.version:
                 print(
                     f"WARNING: Using out-of-date input file {input_basename}. "
                     "Recommend downloading and using the latest version, "
-                    f"{LATEST_VERSION.name}."
+                    f"{_LATEST_VERSION.name}."
                 )
             break
         if other_names is not None:
@@ -50,14 +50,14 @@ def _check_for_files() -> _Tuple[Version, str]:
                     )
     else:
         raise FileNotFoundError(
-            f"Didn't find NAM's input audio file. Please upload {LATEST_VERSION.name}"
+            f"Didn't find NAM's input audio file. Please upload {_LATEST_VERSION.name}"
         )
     # We found it
     if not _Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
         )
-    if input_version != PROTEUS_VERSION:
+    if input_version != _PROTEUS_VERSION:
         print(f"Found {input_basename}, version {input_version}")
     else:
         print(f"Found Proteus input {input_basename}.")
@@ -82,7 +82,7 @@ def run(
     lr: float = 0.004,
     lr_decay: float = 0.007,
     seed: _Optional[int] = 0,
-    user_metadata: _Optional[UserMetadata] = None,
+    user_metadata: _Optional[_UserMetadata] = None,
     ignore_checks: bool = False,
     fit_mrstft: bool = True,
 ):
@@ -101,7 +101,7 @@ def run(
 
     input_version, input_basename = _check_for_files()
 
-    train_output: TrainOutput = train(
+    train_output: _TrainOutput = _train(
         input_basename,
         _OUTPUT_BASENAME,
         _TRAIN_PATH,
@@ -129,6 +129,6 @@ def run(
         model.net.export(
             model_export_outdir,
             user_metadata=user_metadata,
-            other_metadata={TRAINING_KEY: training_metadata.model_dump()},
+            other_metadata={_TRAINING_KEY: training_metadata.model_dump()},
         )
         print(f"Model exported to {model_export_outdir}. Enjoy!")

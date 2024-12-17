@@ -22,21 +22,21 @@ from typing import (
 
 import auraloss as _auraloss
 import logging as _logging
-import pytorch_lightning as pl
+import pytorch_lightning as _pl
 import torch as _torch
-import torch.nn as nn
+import torch.nn as _nn
 
-from .._core import InitializableFromConfig
-from ..models.conv_net import ConvNet
-from ..models.linear import Linear
+from .._core import InitializableFromConfig as _InitializableFromConfig
+from ..models.conv_net import ConvNet as _ConvNet
+from ..models.linear import Linear as _Linear
 from ..models.losses import (
     apply_pre_emphasis_filter,
     esr,
     multi_resolution_stft_loss,
     mse_fft,
 )
-from ..models.recurrent import LSTM
-from ..models.wavenet import WaveNet
+from ..models.recurrent import LSTM as _LSTM
+from ..models.wavenet import WaveNet as _WaveNet
 
 logger = _logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class ValidationLoss(_Enum):
 
 
 @_dataclass
-class LossConfig(InitializableFromConfig):
+class LossConfig(_InitializableFromConfig):
     """
     :param mrstft_weight: Multi-resolution short-time Fourier transform loss
         coefficient. None means to skip; 2e-4 works pretty well if one wants to use it.
@@ -129,14 +129,14 @@ class _LossItem(_NamedTuple):
 
 
 _model_net_init_registry = {
-    "ConvNet": ConvNet.init_from_config,
-    "Linear": Linear.init_from_config,
-    "LSTM": LSTM.init_from_config,
-    "WaveNet": WaveNet.init_from_config,
+    "ConvNet": _ConvNet.init_from_config,
+    "Linear": _Linear.init_from_config,
+    "LSTM": _LSTM.init_from_config,
+    "WaveNet": _WaveNet.init_from_config,
 }
 
 
-class LightningModule(pl.LightningModule, InitializableFromConfig):
+class LightningModule(_pl.LightningModule, _InitializableFromConfig):
     """
     The PyTorch Lightning Module that unites the model with its loss and
     optimization recipe.
@@ -229,7 +229,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
         _model_net_init_registry[name] = constructor
 
     @property
-    def net(self) -> nn.Module:
+    def net(self) -> _nn.Module:
         return self._net
 
     def configure_optimizers(self):
@@ -307,7 +307,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
             # Denominator could be a bad idea. I'm going to omit it esp since I'm
             # using mini batches
             mean_dims = _torch.arange(1, preds.ndim).tolist()
-            dc_loss = nn.MSELoss()(
+            dc_loss = _nn.MSELoss()(
                 preds.mean(dim=mean_dims), targets.mean(dim=mean_dims)
             )
             loss_dict["DC MSE"] = _LossItem(dc_weight, dc_loss)
@@ -371,7 +371,7 @@ class LightningModule(pl.LightningModule, InitializableFromConfig):
             preds, targets = [
                 apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
             ]
-        return nn.MSELoss()(preds, targets)
+        return _nn.MSELoss()(preds, targets)
 
     def _mrstft_loss(
         self,

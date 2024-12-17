@@ -48,9 +48,9 @@ try:  # 3rd-party and 1st-party imports
     from nam.models.metadata import GearType as _GearType, UserMetadata as _UserMetadata, ToneType as _ToneType
 
     # Ok private access here--this is technically allowed access
-    from nam.train import metadata
-    from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
-    from nam.train._version import Version, get_current_version
+    from nam.train import metadata as _metadata
+    from nam.train._names import INPUT_BASENAMES as _INPUT_BASENAMES, LATEST_VERSION as _LATEST_VERSION
+    from nam.train._version import Version as _Version, get_current_version as _get_current_version
 
     _install_is_valid = True
     _HAVE_ACCELERATOR = _torch.cuda.is_available() or _torch.backends.mps.is_available()
@@ -237,11 +237,11 @@ class _InputPathButton(_PathButton):
             "v1.wav": "",
         }
         # Pick the most recent file.
-        for input_basename in INPUT_BASENAMES:
+        for input_basename in _INPUT_BASENAMES:
             name = input_basename.name
             url = file_urls.get(name)
             if url:
-                if name != LATEST_VERSION.name:
+                if name != _LATEST_VERSION.name:
                     print(
                         f"WARNING: File {name} is out of date. "
                         "This needs to be updated!"
@@ -403,7 +403,7 @@ class GUI(object):
         self._widgets[_GUIWidgets.INPUT_PATH] = _InputPathButton(
             self._frame_input,
             "Input Audio",
-            f"Select input (DI) file (e.g. {LATEST_VERSION.name})",
+            f"Select input (DI) file (e.g. {_LATEST_VERSION.name})",
             _PathType.FILE,
             _settings.PathKey.INPUT_FILE,
             hooks=[self._check_button_states],
@@ -584,7 +584,7 @@ class GUI(object):
 
         self._wait_while_func(lambda resume: UserMetadataGUI(resume, self))
 
-    def _pack_update_button(self, version_from: Version, version_to: Version):
+    def _pack_update_button(self, version_from: _Version, version_to: _Version):
         """
         Pack a button that a user can click to update
         """
@@ -623,13 +623,13 @@ class GUI(object):
     def _pack_update_button_if_update_is_available(self):
         class UpdateInfo(_NamedTuple):
             available: bool
-            current_version: Version
-            new_version: _Optional[Version]
+            current_version: _Version
+            new_version: _Optional[_Version]
 
         def get_info() -> UpdateInfo:
             # TODO error handling
             url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
-            current_version = get_current_version()
+            current_version = _get_current_version()
             try:
                 response = _requests.get(url)
             except _requests.exceptions.ConnectionError:
@@ -651,7 +651,7 @@ class GUI(object):
                         if not tag.startswith("v"):
                             print(f"Found invalid version {tag}")
                         else:
-                            this_version = Version.from_string(tag[1:])
+                            this_version = _Version.from_string(tag[1:])
                             if latest_version is None or this_version > latest_version:
                                 latest_version = this_version
                 else:
@@ -735,7 +735,7 @@ class GUI(object):
                 basename=basename,
                 user_metadata=user_metadata,
                 other_metadata={
-                    metadata.TRAINING_KEY: train_output.metadata.model_dump()
+                    _metadata.TRAINING_KEY: train_output.metadata.model_dump()
                 },
             )
             print("Done!")
