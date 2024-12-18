@@ -7,57 +7,64 @@ The foundation of the model without the PyTorch Lightning attributes (losses, tr
 steps)
 """
 
-import abc
-import math
-import pkg_resources
-from typing import Any, Dict, Optional, Tuple, Union
+import abc as _abc
+import math as _math
+import pkg_resources as _pkg_resources
+from typing import (
+    Any as _Any,
+    Dict as _Dict,
+    Optional as _Optional,
+    Tuple as _Tuple,
+    Union as _Union,
+)
 
-import numpy as np
-import torch
-import torch.nn as nn
+import numpy as _np
+import torch as _torch
+import torch.nn as _nn
 
-from .._core import InitializableFromConfig
-from ..data import wav_to_tensor
-from .exportable import Exportable
+from .._core import InitializableFromConfig as _InitializableFromConfig
+from ..data import wav_to_tensor as _wav_to_tensor
+from .exportable import Exportable as _Exportable
 
 
-class _Base(nn.Module, InitializableFromConfig, Exportable):
-    def __init__(self, sample_rate: Optional[float] = None):
+class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
+    def __init__(self, sample_rate: _Optional[float] = None):
         super().__init__()
         self.register_buffer(
-            "_has_sample_rate", torch.tensor(sample_rate is not None, dtype=torch.bool)
+            "_has_sample_rate",
+            _torch.tensor(sample_rate is not None, dtype=_torch.bool),
         )
         self.register_buffer(
-            "_sample_rate", torch.tensor(0.0 if sample_rate is None else sample_rate)
+            "_sample_rate", _torch.tensor(0.0 if sample_rate is None else sample_rate)
         )
 
     @property
-    @abc.abstractmethod
+    @_abc.abstractmethod
     def pad_start_default(self) -> bool:
         pass
 
     @property
-    @abc.abstractmethod
+    @_abc.abstractmethod
     def receptive_field(self) -> int:
         """
         Receptive field of the model
         """
         pass
 
-    @abc.abstractmethod
-    def forward(self, *args, **kwargs) -> torch.Tensor:
+    @_abc.abstractmethod
+    def forward(self, *args, **kwargs) -> _torch.Tensor:
         pass
 
     @classmethod
-    def _metadata_loudness_x(cls) -> torch.Tensor:
-        return wav_to_tensor(
-            pkg_resources.resource_filename(
+    def _metadata_loudness_x(cls) -> _torch.Tensor:
+        return _wav_to_tensor(
+            _pkg_resources.resource_filename(
                 "nam", "models/_resources/loudness_input.wav"
             )
         )
 
     @property
-    def device(self) -> Optional[torch.device]:
+    def device(self) -> _Optional[_torch.device]:
         """
         Helpful property, where the parameters of the model live.
         """
@@ -69,13 +76,13 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
             return None
 
     @property
-    def sample_rate(self) -> Optional[float]:
+    def sample_rate(self) -> _Optional[float]:
         return self._sample_rate.item() if self._has_sample_rate else None
 
     @sample_rate.setter
-    def sample_rate(self, val: Optional[float]):
-        self._has_sample_rate = torch.tensor(val is not None, dtype=torch.bool)
-        self._sample_rate = torch.tensor(0.0 if val is None else val)
+    def sample_rate(self, val: _Optional[float]):
+        self._has_sample_rate = _torch.tensor(val is not None, dtype=_torch.bool)
+        self._sample_rate = _torch.tensor(0.0 if val is None else val)
 
     def _get_export_dict(self):
         d = super()._get_export_dict()
@@ -97,17 +104,17 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         """
         x = self._metadata_loudness_x().to(self.device)
         y = self._at_nominal_settings(gain * x)
-        loudness = torch.sqrt(torch.mean(torch.square(y)))
+        loudness = _torch.sqrt(_torch.mean(_torch.square(y)))
         if db:
-            loudness = 20.0 * torch.log10(loudness)
+            loudness = 20.0 * _torch.log10(loudness)
         return loudness.item()
 
     def _metadata_gain(self) -> float:
         """
         Between 0 and 1, how much gain / compression does the model seem to have?
         """
-        x = np.linspace(0.0, 1.0, 11)
-        y = np.array([self._metadata_loudness(gain=gain, db=False) for gain in x])
+        x = _np.linspace(0.0, 1.0, 11)
+        y = _np.array([self._metadata_loudness(gain=gain, db=False) for gain in x])
         #
         # O ^ o o o o o o
         # u | o       x   +-------------------------------------+
@@ -123,14 +130,14 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         gain_range = max_gain - min_gain
         this_gain = y.sum()
         normalized_gain = (this_gain - min_gain) / gain_range
-        return np.clip(normalized_gain, 0.0, 1.0)
+        return _np.clip(normalized_gain, 0.0, 1.0)
 
-    def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
+    def _at_nominal_settings(self, x: _torch.Tensor) -> _torch.Tensor:
         # parametric?...
         raise NotImplementedError()
 
-    @abc.abstractmethod
-    def _forward(self, *args) -> torch.Tensor:
+    @_abc.abstractmethod
+    def _forward(self, *args) -> _torch.Tensor:
         """
         The true forward method.
 
@@ -139,27 +146,27 @@ class _Base(nn.Module, InitializableFromConfig, Exportable):
         """
         pass
 
-    def _export_input_output_args(self) -> Tuple[Any]:
+    def _export_input_output_args(self) -> _Tuple[_Any]:
         """
         Create any other args necessesary (e.g. params to eval at)
         """
         return ()
 
-    def _export_input_output(self) -> Tuple[np.ndarray, np.ndarray]:
+    def _export_input_output(self) -> _Tuple[_np.ndarray, _np.ndarray]:
         args = self._export_input_output_args()
         rate = self.sample_rate
         if rate is None:
             raise RuntimeError(
                 "Cannot export model's input and output without a sample rate."
             )
-        x = torch.cat(
+        x = _torch.cat(
             [
-                torch.zeros((rate,)),
+                _torch.zeros((rate,)),
                 0.5
-                * torch.sin(
-                    2.0 * math.pi * 220.0 * torch.linspace(0.0, 1.0, rate + 1)[:-1]
+                * _torch.sin(
+                    2.0 * _math.pi * 220.0 * _torch.linspace(0.0, 1.0, rate + 1)[:-1]
                 ),
-                torch.zeros((rate,)),
+                _torch.zeros((rate,)),
             ]
         )
         # Use pad start to ensure same length as requested by ._export_input_output()
@@ -174,14 +181,15 @@ class BaseNet(_Base):
         super().__init__(*args, **kwargs)
         self._mps_65536_fallback = False
 
-    def forward(self, x: torch.Tensor, pad_start: Optional[bool] = None, **kwargs):
+    def forward(self, x: _torch.Tensor, pad_start: _Optional[bool] = None, **kwargs):
         pad_start = self.pad_start_default if pad_start is None else pad_start
         scalar = x.ndim == 1
         if scalar:
             x = x[None]
         if pad_start:
-            x = torch.cat(
-                (torch.zeros((len(x), self.receptive_field - 1)).to(x.device), x), dim=1
+            x = _torch.cat(
+                (_torch.zeros((len(x), self.receptive_field - 1)).to(x.device), x),
+                dim=1,
             )
         if x.shape[1] < self.receptive_field:
             raise ValueError(
@@ -193,10 +201,10 @@ class BaseNet(_Base):
             y = y[0]
         return y
 
-    def _at_nominal_settings(self, x: torch.Tensor) -> torch.Tensor:
+    def _at_nominal_settings(self, x: _torch.Tensor) -> _torch.Tensor:
         return self(x)
 
-    def _forward_mps_safe(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _forward_mps_safe(self, x: _torch.Tensor, **kwargs) -> _torch.Tensor:
         """
         Wrap `._forward()` to protect against MPS-unsupported input lengths
         beyond 65,536 samples.
@@ -213,7 +221,7 @@ class BaseNet(_Base):
                         "===WARNING===\n"
                         "NAM encountered a bug in PyTorch's MPS backend and will "
                         "switch to a fallback.\n"
-                        f"Your version of PyTorch is {torch.__version__}.\n"
+                        f"Your version of PyTorch is {_torch.__version__}.\n"
                         "Please report this in an Issue at:\n"
                         "https://github.com/sdatkinson/neural-amp-modeler/issues/new/choose"
                         "\n"
@@ -236,10 +244,10 @@ class BaseNet(_Base):
                 # Bit hacky, but correct.
                 if j == x.shape[1]:
                     break
-            return torch.cat(out_list, dim=1)
+            return _torch.cat(out_list, dim=1)
 
-    @abc.abstractmethod
-    def _forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+    @_abc.abstractmethod
+    def _forward(self, x: _torch.Tensor, **kwargs) -> _torch.Tensor:
         """
         The true forward method.
 
@@ -248,7 +256,7 @@ class BaseNet(_Base):
         """
         pass
 
-    def _get_non_user_metadata(self) -> Dict[str, Union[str, int, float]]:
+    def _get_non_user_metadata(self) -> _Dict[str, _Union[str, int, float]]:
         d = super()._get_non_user_metadata()
         d["loudness"] = self._metadata_loudness()
         d["gain"] = self._metadata_gain()

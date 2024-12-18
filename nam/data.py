@@ -6,35 +6,43 @@
 Functions and classes for working with audio data with NAM
 """
 
-import abc
-import logging
-from collections import namedtuple
-from copy import deepcopy
-from dataclasses import dataclass
-from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
+import abc as _abc
+import logging as _logging
+from collections import namedtuple as _namedtuple
+from copy import deepcopy as _deepcopy
+from dataclasses import dataclass as _dataclass
+from enum import Enum as _Enum
+from pathlib import Path as _Path
+from typing import (
+    Any as _Any,
+    Callable as _Callable,
+    Dict as _Dict,
+    Optional as _Optional,
+    Sequence as _Sequence,
+    Tuple as _Tuple,
+    Union as _Union,
+)
 
-import numpy as np
-import torch
-import wavio
-from scipy.interpolate import interp1d
+import numpy as _np
+import torch as _torch
+import wavio as _wavio
+from scipy.interpolate import interp1d as _interp1d
 from torch.utils.data import Dataset as _Dataset
-from tqdm import tqdm
+from tqdm import tqdm as _tqdm
 
-from ._core import InitializableFromConfig
+from ._core import InitializableFromConfig as _InitializableFromConfig
 
-logger = logging.getLogger(__name__)
+logger = _logging.getLogger(__name__)
 
 _REQUIRED_CHANNELS = 1  # Mono
 
 
-class Split(Enum):
+class Split(_Enum):
     TRAIN = "train"
     VALIDATION = "validation"
 
 
-@dataclass
+@_dataclass
 class WavInfo:
     sampwidth: int
     rate: int
@@ -69,14 +77,14 @@ class AudioShapeMismatchError(ValueError, DataError):
 
 
 def wav_to_np(
-    filename: Union[str, Path],
-    rate: Optional[int] = None,
-    require_match: Optional[Union[str, Path]] = None,
-    required_shape: Optional[Tuple[int, ...]] = None,
-    required_wavinfo: Optional[WavInfo] = None,
-    preroll: Optional[int] = None,
+    filename: _Union[str, _Path],
+    rate: _Optional[int] = None,
+    require_match: _Optional[_Union[str, _Path]] = None,
+    required_shape: _Optional[_Tuple[int, ...]] = None,
+    required_wavinfo: _Optional[WavInfo] = None,
+    preroll: _Optional[int] = None,
     info: bool = False,
-) -> Union[np.ndarray, Tuple[np.ndarray, WavInfo]]:
+) -> _Union[_np.ndarray, _Tuple[_np.ndarray, WavInfo]]:
     """
     :param filename: Where to load from
     :param rate: Expected sample rate. `None` allows for anything.
@@ -89,7 +97,7 @@ def wav_to_np(
     :param preroll: Drop this many samples off the front
     :param info: If `True`, also return the WAV info of this file.
     """
-    x_wav = wavio.read(str(filename))
+    x_wav = _wavio.read(str(filename))
     assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
     if rate is not None and x_wav.rate != rate:
         raise RuntimeError(
@@ -100,7 +108,7 @@ def wav_to_np(
     if require_match is not None:
         assert required_shape is None
         assert required_wavinfo is None
-        y_wav = wavio.read(str(require_match))
+        y_wav = _wavio.read(str(require_match))
         required_shape = y_wav.data.shape
         required_wavinfo = WavInfo(y_wav.sampwidth, y_wav.rate)
     if required_wavinfo is not None:
@@ -124,33 +132,33 @@ def wav_to_np(
 
 def wav_to_tensor(
     *args, info: bool = False, **kwargs
-) -> Union[torch.Tensor, Tuple[torch.Tensor, WavInfo]]:
+) -> _Union[_torch.Tensor, _Tuple[_torch.Tensor, WavInfo]]:
     out = wav_to_np(*args, info=info, **kwargs)
     if info:
         arr, info = out
-        return torch.Tensor(arr), info
+        return _torch.Tensor(arr), info
     else:
         arr = out
-        return torch.Tensor(arr)
+        return _torch.Tensor(arr)
 
 
-def tensor_to_wav(x: torch.Tensor, *args, **kwargs):
+def tensor_to_wav(x: _torch.Tensor, *args, **kwargs):
     np_to_wav(x.detach().cpu().numpy(), *args, **kwargs)
 
 
 def np_to_wav(
-    x: np.ndarray,
-    filename: Union[str, Path],
+    x: _np.ndarray,
+    filename: _Union[str, _Path],
     rate: int = 48_000,
     sampwidth: int = 3,
     scale=None,
     **kwargs,
 ):
-    if wavio.__version__ <= "0.0.4" and scale is None:
+    if _wavio.__version__ <= "0.0.4" and scale is None:
         scale = "none"
-    wavio.write(
+    _wavio.write(
         str(filename),
-        (np.clip(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1))).astype(np.int32),
+        (_np.clip(x, -1.0, 1.0) * (2 ** (8 * sampwidth - 1))).astype(_np.int32),
         rate,
         scale=scale,
         sampwidth=sampwidth,
@@ -158,8 +166,8 @@ def np_to_wav(
     )
 
 
-class AbstractDataset(_Dataset, abc.ABC):
-    @abc.abstractmethod
+class AbstractDataset(_Dataset, _abc.ABC):
+    @_abc.abstractmethod
     def __getitem__(self, idx: int):
         """
         Get input and output audio segment for training / evaluation.
@@ -168,7 +176,7 @@ class AbstractDataset(_Dataset, abc.ABC):
         pass
 
 
-class _DelayInterpolationMethod(Enum):
+class _DelayInterpolationMethod(_Enum):
     """
     :param LINEAR: Linear interpolation
     :param CUBIC: Cubic spline interpolation
@@ -180,22 +188,22 @@ class _DelayInterpolationMethod(Enum):
 
 
 def _interpolate_delay(
-    x: torch.Tensor, delay: float, method: _DelayInterpolationMethod
-) -> np.ndarray:
+    x: _torch.Tensor, delay: float, method: _DelayInterpolationMethod
+) -> _np.ndarray:
     """
     NOTE: This breaks the gradient tape!
     """
     if delay == 0.0:
         return x
-    t_in = np.arange(len(x))
-    n_out = len(x) - int(np.ceil(np.abs(delay)))
+    t_in = _np.arange(len(x))
+    n_out = len(x) - int(_np.ceil(_np.abs(delay)))
     if delay > 0:
-        t_out = np.arange(n_out) + delay
+        t_out = _np.arange(n_out) + delay
     elif delay < 0:
-        t_out = np.arange(len(x) - n_out, len(x)) - np.abs(delay)
+        t_out = _np.arange(len(x) - n_out, len(x)) - _np.abs(delay)
 
-    return torch.Tensor(
-        interp1d(t_in, x.detach().cpu().numpy(), kind=method.value)(t_out)
+    return _torch.Tensor(
+        _interp1d(t_in, x.detach().cpu().numpy(), kind=method.value)(t_out)
     )
 
 
@@ -242,33 +250,35 @@ def _sample_to_time(s, rate):
     return f"{hours}:{minutes:02d}:{seconds:02d} and {remainder} samples"
 
 
-class Dataset(AbstractDataset, InitializableFromConfig):
+class Dataset(AbstractDataset, _InitializableFromConfig):
     """
     Take a pair of matched audio files and serve input + output pairs.
     """
 
     def __init__(
         self,
-        x: torch.Tensor,
-        y: torch.Tensor,
+        x: _torch.Tensor,
+        y: _torch.Tensor,
         nx: int,
-        ny: Optional[int],
-        start: Optional[int] = None,
-        stop: Optional[int] = None,
-        start_samples: Optional[int] = None,
-        stop_samples: Optional[int] = None,
-        start_seconds: Optional[Union[int, float]] = None,
-        stop_seconds: Optional[Union[int, float]] = None,
-        delay: Optional[Union[int, float]] = None,
-        delay_interpolation_method: Union[
+        ny: _Optional[int],
+        start: _Optional[int] = None,
+        stop: _Optional[int] = None,
+        start_samples: _Optional[int] = None,
+        stop_samples: _Optional[int] = None,
+        start_seconds: _Optional[_Union[int, float]] = None,
+        stop_seconds: _Optional[_Union[int, float]] = None,
+        delay: _Optional[_Union[int, float]] = None,
+        delay_interpolation_method: _Union[
             str, _DelayInterpolationMethod
         ] = _DelayInterpolationMethod.CUBIC,
         y_scale: float = 1.0,
-        x_path: Optional[Union[str, Path]] = None,
-        y_path: Optional[Union[str, Path]] = None,
+        x_path: _Optional[_Union[str, _Path]] = None,
+        y_path: _Optional[_Union[str, _Path]] = None,
         input_gain: float = 0.0,
-        sample_rate: Optional[float] = None,
-        require_input_pre_silence: Optional[float] = _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
+        sample_rate: _Optional[float] = None,
+        require_input_pre_silence: _Optional[
+            float
+        ] = _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
     ):
         """
         :param x: The input signal. A 1D array.
@@ -347,7 +357,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         self._nx = nx
         self._ny = ny if ny is not None else len(x) - nx + 1
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> _Tuple[_torch.Tensor, _torch.Tensor]:
         """
         :return:
             Input (NX+NY-1,)
@@ -370,11 +380,11 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         return self._ny
 
     @property
-    def sample_rate(self) -> Optional[float]:
+    def sample_rate(self) -> _Optional[float]:
         return self._sample_rate
 
     @property
-    def x(self) -> torch.Tensor:
+    def x(self) -> _torch.Tensor:
         """
         The input audio data
 
@@ -383,7 +393,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         return self._x
 
     @property
-    def y(self) -> torch.Tensor:
+    def y(self) -> _torch.Tensor:
         """
         The output audio data
 
@@ -411,7 +421,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
                 y (torch.Tensor) - loaded from y_path
             Everything else is passed on to __init__
         """
-        config = deepcopy(config)
+        config = _deepcopy(config)
         sample_rate = config.pop("sample_rate", None)
         x, x_wavinfo = wav_to_tensor(config.pop("x_path"), info=True, rate=sample_rate)
         sample_rate = x_wavinfo.rate
@@ -460,11 +470,11 @@ class Dataset(AbstractDataset, InitializableFromConfig):
     @classmethod
     def _apply_delay(
         cls,
-        x: torch.Tensor,
-        y: torch.Tensor,
-        delay: Union[int, float],
+        x: _torch.Tensor,
+        y: _torch.Tensor,
+        delay: _Union[int, float],
         method: _DelayInterpolationMethod,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> _Tuple[_torch.Tensor, _torch.Tensor]:
         # Check for floats that could be treated like ints (simpler algorithm)
         if isinstance(delay, float) and int(delay) == delay:
             delay = int(delay)
@@ -477,8 +487,8 @@ class Dataset(AbstractDataset, InitializableFromConfig):
 
     @classmethod
     def _apply_delay_int(
-        cls, x: torch.Tensor, y: torch.Tensor, delay: int
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        cls, x: _torch.Tensor, y: _torch.Tensor, delay: int
+    ) -> _Tuple[_torch.Tensor, _torch.Tensor]:
         if delay > 0:
             x = x[:-delay]
             y = y[delay:]
@@ -490,12 +500,12 @@ class Dataset(AbstractDataset, InitializableFromConfig):
     @classmethod
     def _apply_delay_float(
         cls,
-        x: torch.Tensor,
-        y: torch.Tensor,
+        x: _torch.Tensor,
+        y: _torch.Tensor,
         delay: float,
         method: _DelayInterpolationMethod,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        n_out = len(y) - int(np.ceil(np.abs(delay)))
+    ) -> _Tuple[_torch.Tensor, _torch.Tensor]:
+        n_out = len(y) - int(_np.ceil(_np.abs(delay)))
         if delay > 0:
             x = x[:n_out]
         elif delay < 0:
@@ -506,16 +516,16 @@ class Dataset(AbstractDataset, InitializableFromConfig):
     @classmethod
     def _validate_start_stop(
         cls,
-        x: torch.Tensor,
-        y: torch.Tensor,
-        start: Optional[int] = None,
-        stop: Optional[int] = None,
-        start_samples: Optional[int] = None,
-        stop_samples: Optional[int] = None,
-        start_seconds: Optional[Union[int, float]] = None,
-        stop_seconds: Optional[Union[int, float]] = None,
-        sample_rate: Optional[int] = None,
-    ) -> Tuple[Optional[int], Optional[int]]:
+        x: _torch.Tensor,
+        y: _torch.Tensor,
+        start: _Optional[int] = None,
+        stop: _Optional[int] = None,
+        start_samples: _Optional[int] = None,
+        stop_samples: _Optional[int] = None,
+        start_seconds: _Optional[_Union[int, float]] = None,
+        stop_seconds: _Optional[_Union[int, float]] = None,
+        sample_rate: _Optional[int] = None,
+    ) -> _Tuple[_Optional[int], _Optional[int]]:
         """
         Parse the requested start and stop trim points.
 
@@ -639,7 +649,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             )
         if ny is not None:
             assert ny <= len(y) - nx + 1
-        if torch.abs(y).max() >= 1.0:
+        if _torch.abs(y).max() >= 1.0:
             msg = "Output clipped."
             if self._y_path is not None:
                 msg += f"Source is {self._y_path}"
@@ -648,10 +658,10 @@ class Dataset(AbstractDataset, InitializableFromConfig):
     @classmethod
     def _validate_preceding_silence(
         cls,
-        x: torch.Tensor,
-        start: Optional[int],
+        x: _torch.Tensor,
+        start: _Optional[int],
         silent_seconds: float,
-        sample_rate: Optional[float],
+        sample_rate: _Optional[float],
     ):
         """
         Make sure that the input is silent before the starting index.
@@ -677,7 +687,7 @@ class Dataset(AbstractDataset, InitializableFromConfig):
         raw_check_start = start - silent_samples
         check_start = max(raw_check_start, 0) if start >= 0 else min(raw_check_start, 0)
         check_end = start
-        if not torch.all(x[check_start:check_end] == 0.0):
+        if not _torch.all(x[check_start:check_end] == 0.0):
             raise XYError(
                 f"Input provided isn't silent for at least {silent_samples} samples "
                 "before the starting index. Responses to this non-silent input may "
@@ -685,15 +695,15 @@ class Dataset(AbstractDataset, InitializableFromConfig):
             )
 
 
-class ConcatDataset(AbstractDataset, InitializableFromConfig):
-    def __init__(self, datasets: Sequence[Dataset], flatten=True):
+class ConcatDataset(AbstractDataset, _InitializableFromConfig):
+    def __init__(self, datasets: _Sequence[Dataset], flatten=True):
         if flatten:
             datasets = self._flatten_datasets(datasets)
         self._validate_datasets(datasets)
         self._datasets = datasets
         self._lookup = self._make_lookup()
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> _Tuple[_torch.Tensor, _torch.Tensor]:
         i, j = self._lookup[idx]
         return self.datasets[i][j]
 
@@ -712,7 +722,7 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
         init = _dataset_init_registry[config.get("type", "dataset")]
         return {
             "datasets": tuple(
-                init(c) for c in tqdm(config["dataset_configs"], desc="Loading data")
+                init(c) for c in _tqdm(config["dataset_configs"], desc="Loading data")
             )
         }
 
@@ -756,8 +766,8 @@ class ConcatDataset(AbstractDataset, InitializableFromConfig):
         return lookup
 
     @classmethod
-    def _validate_datasets(cls, datasets: Sequence[Dataset]):
-        Reference = namedtuple("Reference", ("index", "val"))
+    def _validate_datasets(cls, datasets: _Sequence[Dataset]):
+        Reference = _namedtuple("Reference", ("index", "val"))
         ref_keys, ref_ny = None, None
         for i, d in enumerate(datasets):
             ref_ny = Reference(i, d.ny) if ref_ny is None else ref_ny
@@ -771,7 +781,7 @@ _dataset_init_registry = {"dataset": Dataset.init_from_config}
 
 
 def register_dataset_initializer(
-    name: str, constructor: Callable[[Any], AbstractDataset], overwrite=False
+    name: str, constructor: _Callable[[_Any], AbstractDataset], overwrite=False
 ):
     """
     If you have other data set types, you can register their initializer by name using

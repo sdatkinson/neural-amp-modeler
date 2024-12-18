@@ -2,31 +2,37 @@
 # Created Date: Tuesday March 26th 2024
 # Author: Enrico Schifano (eraz1997@live.it)
 
-import json
-from pathlib import Path
-from time import time
-from typing import Optional, Union
-from warnings import warn
+import json as _json
+from pathlib import Path as _Path
+from time import time as _time
+from typing import Optional as _Optional, Union as _Union
+from warnings import warn as _warn
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pytorch_lightning as pl
-from pytorch_lightning.utilities.warnings import PossibleUserWarning
-import torch
-from torch.utils.data import DataLoader
+import matplotlib.pyplot as _plt
+import numpy as _np
+import pytorch_lightning as _pl
+from pytorch_lightning.utilities.warnings import (
+    PossibleUserWarning as _PossibleUserWarning,
+)
+import torch as _torch
+from torch.utils.data import DataLoader as _DataLoader
 
-from nam.data import ConcatDataset, Split, init_dataset
-from nam.train.lightning_module import LightningModule
-from nam.util import filter_warnings
+from nam.data import (
+    ConcatDataset as _ConcatDataset,
+    Split as _Split,
+    init_dataset as _init_dataset,
+)
+from nam.train.lightning_module import LightningModule as _LightningModule
+from nam.util import filter_warnings as _filter_warnings
 
-torch.manual_seed(0)
+_torch.manual_seed(0)
 
 
-def _rms(x: Union[np.ndarray, torch.Tensor]) -> float:
-    if isinstance(x, np.ndarray):
-        return np.sqrt(np.mean(np.square(x)))
-    elif isinstance(x, torch.Tensor):
-        return torch.sqrt(torch.mean(torch.square(x))).item()
+def _rms(x: _Union[_np.ndarray, _torch.Tensor]) -> float:
+    if isinstance(x, _np.ndarray):
+        return _np.sqrt(_np.mean(_np.square(x)))
+    elif isinstance(x, _torch.Tensor):
+        return _torch.sqrt(_torch.mean(_torch.square(x))).item()
     else:
         raise TypeError(type(x))
 
@@ -36,18 +42,18 @@ def _plot(
     ds,
     savefig=None,
     show=True,
-    window_start: Optional[int] = None,
-    window_end: Optional[int] = None,
+    window_start: _Optional[int] = None,
+    window_end: _Optional[int] = None,
 ):
-    if isinstance(ds, ConcatDataset):
+    if isinstance(ds, _ConcatDataset):
 
         def extend_savefig(i, savefig):
             if savefig is None:
                 return None
-            savefig = Path(savefig)
+            savefig = _Path(savefig)
             extension = savefig.name.split(".")[-1]
             stem = savefig.name[: -len(extension) - 1]
-            return Path(savefig.parent, f"{stem}_{i}.{extension}")
+            return _Path(savefig.parent, f"{stem}_{i}.{extension}")
 
         for i, ds_i in enumerate(ds.datasets):
             _plot(
@@ -59,29 +65,29 @@ def _plot(
                 window_end=window_end,
             )
         return
-    with torch.no_grad():
+    with _torch.no_grad():
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx:.2f})")
-        t0 = time()
+        t0 = _time()
         output = model(ds.x).flatten().cpu().numpy()
-        t1 = time()
+        t1 = _time()
         try:
             rt = f"{tx / (t1 - t0):.2f}"
         except ZeroDivisionError as e:
             rt = "???"
         print(f"Took {t1 - t0:.2f} ({rt}x)")
 
-    plt.figure(figsize=(16, 5))
-    plt.plot(output[window_start:window_end], label="Prediction")
-    plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    nrmse = _rms(torch.Tensor(output) - ds.y) / _rms(ds.y)
+    _plt.figure(figsize=(16, 5))
+    _plt.plot(output[window_start:window_end], label="Prediction")
+    _plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
+    nrmse = _rms(_torch.Tensor(output) - ds.y) / _rms(ds.y)
     esr = nrmse**2
-    plt.title(f"ESR={esr:.3f}")
-    plt.legend()
+    _plt.title(f"ESR={esr:.3f}")
+    _plt.legend()
     if savefig is not None:
-        plt.savefig(savefig)
+        _plt.savefig(savefig)
     if show:
-        plt.show()
+        _plt.show()
 
 
 def _create_callbacks(learning_config):
@@ -102,7 +108,7 @@ def _create_callbacks(learning_config):
             )
         }
 
-    checkpoint_best = pl.callbacks.model_checkpoint.ModelCheckpoint(
+    checkpoint_best = _pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
         save_top_k=3,
         monitor="val_loss",
@@ -111,14 +117,14 @@ def _create_callbacks(learning_config):
 
     # return [checkpoint_best, checkpoint_last]
     # The last epoch that was finished.
-    checkpoint_epoch = pl.callbacks.model_checkpoint.ModelCheckpoint(
+    checkpoint_epoch = _pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="checkpoint_epoch_{epoch:04d}", every_n_epochs=1
     )
     if not validate_inside_epoch:
         return [checkpoint_best, checkpoint_epoch]
     else:
         # The last validation pass, whether at the end of an epoch or not
-        checkpoint_last = pl.callbacks.model_checkpoint.ModelCheckpoint(
+        checkpoint_last = _pl.callbacks.model_checkpoint.ModelCheckpoint(
             filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
         )
         return [checkpoint_best, checkpoint_last, checkpoint_epoch]
@@ -128,7 +134,7 @@ def main(
     data_config,
     model_config,
     learning_config,
-    outdir: Path,
+    outdir: _Path,
     no_show: bool = False,
     make_plots=True,
 ):
@@ -140,35 +146,37 @@ def main(
         ("model", model_config),
         ("learning", learning_config),
     ):
-        with open(Path(outdir, f"config_{basename}.json"), "w") as fp:
-            json.dump(config, fp, indent=4)
+        with open(_Path(outdir, f"config_{basename}.json"), "w") as fp:
+            _json.dump(config, fp, indent=4)
 
-    model = LightningModule.init_from_config(model_config)
+    model = _LightningModule.init_from_config(model_config)
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
-        warn(
+        _warn(
             f"Overriding data nx={data_config['common']['nx']} with model requried {model.net.receptive_field}"
         )
     data_config["common"]["nx"] = model.net.receptive_field
 
-    dataset_train = init_dataset(data_config, Split.TRAIN)
-    dataset_validation = init_dataset(data_config, Split.VALIDATION)
+    dataset_train = _init_dataset(data_config, _Split.TRAIN)
+    dataset_validation = _init_dataset(data_config, _Split.VALIDATION)
     if dataset_train.sample_rate != dataset_validation.sample_rate:
         raise RuntimeError(
             "Train and validation data loaders have different data set sample rates: "
             f"{dataset_train.sample_rate}, {dataset_validation.sample_rate}"
         )
     model.net.sample_rate = dataset_train.sample_rate
-    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
-    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    train_dataloader = _DataLoader(dataset_train, **learning_config["train_dataloader"])
+    val_dataloader = _DataLoader(
+        dataset_validation, **learning_config["val_dataloader"]
+    )
 
-    trainer = pl.Trainer(
+    trainer = _pl.Trainer(
         callbacks=_create_callbacks(learning_config),
         default_root_dir=outdir,
         **learning_config["trainer"],
     )
-    with filter_warnings("ignore", category=PossibleUserWarning):
+    with _filter_warnings("ignore", category=_PossibleUserWarning):
         trainer.fit(
             model,
             train_dataloader,
@@ -178,9 +186,9 @@ def main(
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
     if best_checkpoint != "":
-        model = LightningModule.load_from_checkpoint(
+        model = _LightningModule.load_from_checkpoint(
             trainer.checkpoint_callback.best_model_path,
-            **LightningModule.parse_config(model_config),
+            **_LightningModule.parse_config(model_config),
         )
     model.cpu()
     model.eval()
@@ -188,7 +196,7 @@ def main(
         _plot(
             model,
             dataset_validation,
-            savefig=Path(outdir, "comparison.png"),
+            savefig=_Path(outdir, "comparison.png"),
             window_start=100_000,
             window_end=110_000,
             show=False,

@@ -8,31 +8,46 @@ The core of the "simplified trainer"
 Used by the GUI and Colab trainers.
 """
 
-import hashlib
-import tkinter as tk
-from copy import deepcopy
-from enum import Enum
-from functools import partial
-from pathlib import Path
-from time import time
-from typing import Dict, NamedTuple, Optional, Sequence, Tuple, Union
+import hashlib as _hashlib
+import tkinter as _tk
+from copy import deepcopy as _deepcopy
+from enum import Enum as _Enum
+from functools import partial as _partial
+from pathlib import Path as _Path
+from time import time as _time
+from typing import (
+    Dict as _Dict,
+    NamedTuple as _NamedTuple,
+    Optional as _Optional,
+    Sequence as _Sequence,
+    Tuple as _Tuple,
+    Union as _Union,
+)
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pytorch_lightning as pl
-import torch
-from pydantic import BaseModel
-from pytorch_lightning.utilities.warnings import PossibleUserWarning
-from torch.utils.data import DataLoader
+import matplotlib.pyplot as _plt
+import numpy as _np
+import pytorch_lightning as _pl
+import torch as _torch
+from pydantic import BaseModel as _BaseModel
+from pytorch_lightning.utilities.warnings import (
+    PossibleUserWarning as _PossibleUserWarning,
+)
+from torch.utils.data import DataLoader as _DataLoader
 
-from ..data import DataError, Split, init_dataset, wav_to_np, wav_to_tensor
-from ..models.exportable import Exportable
-from ..models.losses import esr
-from ..models.metadata import UserMetadata
-from ..util import filter_warnings
-from ._version import PROTEUS_VERSION, Version
-from .lightning_module import LightningModule
-from . import metadata
+from ..data import (
+    DataError as _DataError,
+    Split as _Split,
+    init_dataset as _init_dataset,
+    wav_to_np as _wav_to_np,
+    wav_to_tensor as _wav_to_tensor,
+)
+from ..models.exportable import Exportable as _Exportable
+from ..models.losses import esr as _ESR
+from ..models.metadata import UserMetadata as _UserMetadata
+from ..util import filter_warnings as _filter_warnings
+from ._version import PROTEUS_VERSION as _PROTEUS_VERSION, Version as _Version
+from .lightning_module import LightningModule as _LightningModule
+from . import metadata as _metadata
 
 # Training using the simplified trainers in NAM is done at 48k.
 STANDARD_SAMPLE_RATE = 48_000.0
@@ -40,7 +55,7 @@ STANDARD_SAMPLE_RATE = 48_000.0
 _NY_DEFAULT = 8192
 
 
-class Architecture(Enum):
+class Architecture(_Enum):
     STANDARD = "standard"
     LITE = "lite"
     FEATHER = "feather"
@@ -51,17 +66,17 @@ class _InputValidationError(ValueError):
     pass
 
 
-def _detect_input_version(input_path) -> Tuple[Version, bool]:
+def _detect_input_version(input_path) -> _Tuple[_Version, bool]:
     """
     Check to see if the input matches any of the known inputs
 
     :return: version, strong match
     """
 
-    def detect_strong(input_path) -> Optional[Version]:
+    def detect_strong(input_path) -> _Optional[_Version]:
         def assign_hash(path):
             # Use this to create hashes for new files
-            md5 = hashlib.md5()
+            md5 = _hashlib.md5()
             buffer_size = 65536
             with open(path, "rb") as f:
                 while True:
@@ -76,11 +91,11 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
         print(f"Strong hash: {file_hash}")
 
         version = {
-            "4d54a958861bf720ec4637f43d44a7ef": Version(1, 0, 0),
-            "7c3b6119c74465f79d96c761a0e27370": Version(1, 1, 1),
-            "ede3b9d82135ce10c7ace3bb27469422": Version(2, 0, 0),
-            "36cd1af62985c2fac3e654333e36431e": Version(3, 0, 0),
-            "80e224bd5622fd6153ff1fd9f34cb3bd": PROTEUS_VERSION,
+            "4d54a958861bf720ec4637f43d44a7ef": _Version(1, 0, 0),
+            "7c3b6119c74465f79d96c761a0e27370": _Version(1, 1, 1),
+            "ede3b9d82135ce10c7ace3bb27469422": _Version(2, 0, 0),
+            "36cd1af62985c2fac3e654333e36431e": _Version(3, 0, 0),
+            "80e224bd5622fd6153ff1fd9f34cb3bd": _PROTEUS_VERSION,
         }.get(file_hash)
         if version is None:
             print(
@@ -89,17 +104,17 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             )
         return version
 
-    def detect_weak(input_path) -> Optional[Version]:
+    def detect_weak(input_path) -> _Optional[_Version]:
         def assign_hash(path):
-            Hash = Optional[str]
-            Hashes = Tuple[Hash, Hash]
+            Hash = _Optional[str]
+            Hashes = _Tuple[Hash, Hash]
 
-            def _hash(x: np.ndarray) -> str:
-                return hashlib.md5(x).hexdigest()
+            def _hash(x: _np.ndarray) -> str:
+                return _hashlib.md5(x).hexdigest()
 
             def assign_hashes_v1(path) -> Hashes:
                 # Use this to create recognized hashes for new files
-                x, info = wav_to_np(path, info=True)
+                x, info = _wav_to_np(path, info=True)
                 rate = info.rate
                 if rate != _V1_DATA_INFO.rate:
                     return None, None
@@ -116,7 +131,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
 
             def assign_hashes_v2(path) -> Hashes:
                 # Use this to create recognized hashes for new files
-                x, info = wav_to_np(path, info=True)
+                x, info = _wav_to_np(path, info=True)
                 rate = info.rate
                 if rate != _V2_DATA_INFO.rate:
                     return None, None
@@ -133,7 +148,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
 
             def assign_hashes_v3(path) -> Hashes:
                 # Use this to create recognized hashes for new files
-                x, info = wav_to_np(path, info=True)
+                x, info = _wav_to_np(path, info=True)
                 rate = info.rate
                 if rate != _V3_DATA_INFO.rate:
                     return None, None
@@ -147,7 +162,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
 
             def assign_hash_v4(path) -> Hash:
                 # Use this to create recognized hashes for new files
-                x, info = wav_to_np(path, info=True)
+                x, info = _wav_to_np(path, info=True)
                 rate = info.rate
                 if rate != _V4_DATA_INFO.rate:
                     return None
@@ -195,7 +210,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             (
                 "dadb5d62f6c3973a59bf01439799809b",
                 "8458126969a3f9d8e19a53554eb1fd52",
-            ): Version(3, 0, 0)
+            ): _Version(3, 0, 0)
         }.get((start_hash_v3, end_hash_v3))
         if version is not None:
             return version
@@ -203,7 +218,7 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             (
                 "1c4d94fbcb47e4d820bef611c1d4ae65",
                 "28694e7bf9ab3f8ae6ef86e9545d4663",
-            ): Version(2, 0, 0)
+            ): _Version(2, 0, 0)
         }.get((start_hash_v2, end_hash_v2))
         if version is not None:
             return version
@@ -211,17 +226,17 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
             (
                 "bb4e140c9299bae67560d280917eb52b",
                 "9b2468fcb6e9460a399fc5f64389d353",
-            ): Version(
+            ): _Version(
                 1, 0, 0
             ),  # FIXME!
             (
                 "9f20c6b5f7fef68dd88307625a573a14",
                 "8458126969a3f9d8e19a53554eb1fd52",
-            ): Version(1, 1, 1),
+            ): _Version(1, 1, 1),
         }.get((start_hash_v1, end_hash_v1))
         if version is not None:
             return version
-        version = {"46151c8030798081acc00a725325a07d": PROTEUS_VERSION}.get(hash_v4)
+        version = {"46151c8030798081acc00a725325a07d": _PROTEUS_VERSION}.get(hash_v4)
         return version
 
     version = detect_strong(input_path)
@@ -239,20 +254,20 @@ def _detect_input_version(input_path) -> Tuple[Version, bool]:
     return version, strong_match
 
 
-class _DataInfo(BaseModel):
+class _DataInfo(_BaseModel):
     """
     :param major_version: Data major version
     """
 
     major_version: int
-    rate: Optional[float]
+    rate: _Optional[float]
     t_blips: int
     first_blips_start: int
     t_validate: int
     train_start: int
     validation_start: int
-    noise_interval: Tuple[int, int]
-    blip_locations: Sequence[Sequence[int]]
+    noise_interval: _Tuple[int, int]
+    blip_locations: _Sequence[_Sequence[int]]
 
 
 _V1_DATA_INFO = _DataInfo(
@@ -336,7 +351,7 @@ _DELAY_CALIBRATION_REL_THRESHOLD = 0.001
 _DELAY_CALIBRATION_SAFETY_FACTOR = 1  # Might be able to make this zero...
 
 
-def _warn_lookaheads(indices: Sequence[int]) -> str:
+def _warn_lookaheads(indices: _Sequence[int]) -> str:
     return (
         f"WARNING: delays from some blips ({','.join([str(i) for i in indices])}) are "
         "at the minimum value possible. This usually means that something is "
@@ -350,7 +365,7 @@ def _calibrate_latency_v_all(
     abs_threshold=_DELAY_CALIBRATION_ABS_THRESHOLD,
     rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
     safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
-) -> metadata.LatencyCalibration:
+) -> _metadata.LatencyCalibration:
     """
     Calibrate the delay in teh input-output pair based on blips.
     This only uses the blips in the first set of blip locations!
@@ -359,8 +374,8 @@ def _calibrate_latency_v_all(
     """
 
     def report_any_latency_warnings(
-        delays: Sequence[int],
-    ) -> metadata.LatencyCalibrationWarnings:
+        delays: _Sequence[int],
+    ) -> _metadata.LatencyCalibrationWarnings:
         # Warnings associated with any single delay:
 
         # "Lookahead warning": if the delay is equal to the lookahead, then it's
@@ -375,7 +390,7 @@ def _calibrate_latency_v_all(
         # If they're _really_ different, then something might be wrong.
         max_disagreement_threshold = 20
         max_disagreement_too_high = (
-            np.max(delays) - np.min(delays) >= max_disagreement_threshold
+            _np.max(delays) - _np.min(delays) >= max_disagreement_threshold
         )
         if max_disagreement_too_high:
             print(
@@ -384,7 +399,7 @@ def _calibrate_latency_v_all(
                 "badly, then you might need to provide the latency manually."
             )
 
-        return metadata.LatencyCalibrationWarnings(
+        return _metadata.LatencyCalibrationWarnings(
             matches_lookahead=matches_lookahead,
             disagreement_too_high=max_disagreement_too_high,
         )
@@ -393,8 +408,8 @@ def _calibrate_latency_v_all(
     lookback = 10_000
     # Calibrate the level for the trigger:
     y = y[data_info.first_blips_start : data_info.first_blips_start + data_info.t_blips]
-    background_level = np.max(
-        np.abs(
+    background_level = _np.max(
+        _np.abs(
             y[
                 data_info.noise_interval[0]
                 - data_info.first_blips_start : data_info.noise_interval[1]
@@ -414,8 +429,8 @@ def _calibrate_latency_v_all(
         start_looking = i_rel - lookahead
         stop_looking = i_rel + lookback
         y_scans.append(y[start_looking:stop_looking])
-    y_scan_average = np.mean(np.stack(y_scans), axis=0)
-    triggered = np.where(np.abs(y_scan_average) > trigger_threshold)[0]
+    y_scan_average = _np.mean(_np.stack(y_scans), axis=0)
+    triggered = _np.where(_np.abs(y_scan_average) > trigger_threshold)[0]
     if len(triggered) == 0:
         msg = (
             "No response activated the trigger in response to input spikes. "
@@ -423,24 +438,24 @@ def _calibrate_latency_v_all(
         )
         print(msg)
         print("SHARE THIS PLOT IF YOU ASK FOR HELP")
-        plt.figure()
-        plt.plot(
-            np.arange(-lookahead, lookback),
+        _plt.figure()
+        _plt.plot(
+            _np.arange(-lookahead, lookback),
             y_scan_average,
             color="C0",
             label="Signal average",
         )
         for y_scan in y_scans:
-            plt.plot(np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2)
-        plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
-        plt.axhline(y=-trigger_threshold, color="k", linestyle="--", label="Threshold")
-        plt.axhline(y=trigger_threshold, color="k", linestyle="--")
-        plt.xlim((-lookahead, lookback))
-        plt.xlabel("Samples")
-        plt.ylabel("Response")
-        plt.legend()
-        plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
-        plt.show()
+            _plt.plot(_np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2)
+        _plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
+        _plt.axhline(y=-trigger_threshold, color="k", linestyle="--", label="Threshold")
+        _plt.axhline(y=trigger_threshold, color="k", linestyle="--")
+        _plt.xlim((-lookahead, lookback))
+        _plt.xlabel("Samples")
+        _plt.ylabel("Response")
+        _plt.legend()
+        _plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
+        _plt.show()
         raise RuntimeError(msg)
     else:
         j = triggered[0]
@@ -454,7 +469,7 @@ def _calibrate_latency_v_all(
         f"After aplying safety factor of {safety_factor}, the final delay is "
         f"{delay_post_safety_factor}"
     )
-    return metadata.LatencyCalibration(
+    return _metadata.LatencyCalibration(
         algorithm_version=1,
         delays=[delay],
         safety_factor=safety_factor,
@@ -463,72 +478,72 @@ def _calibrate_latency_v_all(
     )
 
 
-_calibrate_latency_v1 = partial(_calibrate_latency_v_all, _V1_DATA_INFO)
-_calibrate_latency_v2 = partial(_calibrate_latency_v_all, _V2_DATA_INFO)
-_calibrate_latency_v3 = partial(_calibrate_latency_v_all, _V3_DATA_INFO)
-_calibrate_latency_v4 = partial(_calibrate_latency_v_all, _V4_DATA_INFO)
+_calibrate_latency_v1 = _partial(_calibrate_latency_v_all, _V1_DATA_INFO)
+_calibrate_latency_v2 = _partial(_calibrate_latency_v_all, _V2_DATA_INFO)
+_calibrate_latency_v3 = _partial(_calibrate_latency_v_all, _V3_DATA_INFO)
+_calibrate_latency_v4 = _partial(_calibrate_latency_v_all, _V4_DATA_INFO)
 
 
 def _plot_latency_v_all(
     data_info: _DataInfo, latency: int, input_path: str, output_path: str, _nofail=True
 ):
     print("Plotting the latency for manual inspection...")
-    x = wav_to_np(input_path)[
+    x = _wav_to_np(input_path)[
         data_info.first_blips_start : data_info.first_blips_start + data_info.t_blips
     ]
-    y = wav_to_np(output_path)[
+    y = _wav_to_np(output_path)[
         data_info.first_blips_start : data_info.first_blips_start + data_info.t_blips
     ]
     # Only get the blips we really want.
-    i = np.where(np.abs(x) > 0.5 * np.abs(x).max())[0]
+    i = _np.where(_np.abs(x) > 0.5 * _np.abs(x).max())[0]
     if len(i) == 0:
         print("Failed to find the spike in the input file.")
         print(
             "Plotting the input and output; there should be spikes at around the "
             "marked locations."
         )
-        t = np.arange(
+        t = _np.arange(
             data_info.first_blips_start, data_info.first_blips_start + data_info.t_blips
         )
         expected_spikes = data_info.blip_locations[0]  # For v1 specifically
-        fig, axs = plt.subplots(len((x, y)), 1)
+        fig, axs = _plt.subplots(len((x, y)), 1)
         for ax, curve in zip(axs, (x, y)):
             ax.plot(t, curve)
             [ax.axvline(x=es, color="C1", linestyle="--") for es in expected_spikes]
-        plt.show()
+        _plt.show()
         if _nofail:
             raise RuntimeError("Failed to plot delay")
     else:
-        plt.figure()
+        _plt.figure()
         di = 20
         # V1's got not a spike but a longer plateau; take the front of it.
         if data_info.major_version == 1:
             i = [i[0]]
         for e, ii in enumerate(i, 1):
-            plt.plot(
-                np.arange(-di, di),
+            _plt.plot(
+                _np.arange(-di, di),
                 y[ii - di + latency : ii + di + latency],
                 ".-",
                 label=f"Output {e}",
             )
-        plt.axvline(x=0, linestyle="--", color="k")
-        plt.legend()
-        plt.show()  # This doesn't freeze the notebook
+        _plt.axvline(x=0, linestyle="--", color="k")
+        _plt.legend()
+        _plt.show()  # This doesn't freeze the notebook
 
 
-_plot_latency_v1 = partial(_plot_latency_v_all, _V1_DATA_INFO)
-_plot_latency_v2 = partial(_plot_latency_v_all, _V2_DATA_INFO)
-_plot_latency_v3 = partial(_plot_latency_v_all, _V3_DATA_INFO)
-_plot_latency_v4 = partial(_plot_latency_v_all, _V4_DATA_INFO)
+_plot_latency_v1 = _partial(_plot_latency_v_all, _V1_DATA_INFO)
+_plot_latency_v2 = _partial(_plot_latency_v_all, _V2_DATA_INFO)
+_plot_latency_v3 = _partial(_plot_latency_v_all, _V3_DATA_INFO)
+_plot_latency_v4 = _partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
 def _analyze_latency(
-    user_latency: Optional[int],
-    input_version: Version,
+    user_latency: _Optional[int],
+    input_version: _Version,
     input_path: str,
     output_path: str,
     silent: bool = False,
-) -> metadata.Latency:
+) -> _metadata.Latency:
     """
     :param is_proteus: Forget the version; d
     """
@@ -546,14 +561,14 @@ def _analyze_latency(
         )
     if user_latency is not None:
         print(f"Delay is specified as {user_latency}")
-    calibration_output = calibrate(wav_to_np(output_path))
+    calibration_output = calibrate(_wav_to_np(output_path))
     latency = (
         user_latency if user_latency is not None else calibration_output.recommended
     )
     if not silent:
         plot(latency, input_path, output_path)
 
-    return metadata.Latency(manual=user_latency, calibration=calibration_output)
+    return _metadata.Latency(manual=user_latency, calibration=calibration_output)
 
 
 def get_lstm_config(architecture):
@@ -585,8 +600,8 @@ def get_lstm_config(architecture):
     }[architecture]
 
 
-def _check_v1(*args, **kwargs) -> metadata.DataChecks:
-    return metadata.DataChecks(version=1, passed=True)
+def _check_v1(*args, **kwargs) -> _metadata.DataChecks:
+    return _metadata.DataChecks(version=1, passed=True)
 
 
 def _esr_validation_replicate_msg(threshold: float) -> str:
@@ -601,16 +616,18 @@ def _esr_validation_replicate_msg(threshold: float) -> str:
     )
 
 
-def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.DataChecks:
-    with torch.no_grad():
+def _check_v2(
+    input_path, output_path, delay: int, silent: bool
+) -> _metadata.DataChecks:
+    with _torch.no_grad():
         print("V2 checks...")
         rate = _V2_DATA_INFO.rate
-        y = wav_to_tensor(output_path, rate=rate)
+        y = _wav_to_tensor(output_path, rate=rate)
         t_blips = _V2_DATA_INFO.t_blips
         t_validate = _V2_DATA_INFO.t_validate
         y_val_1 = y[-(t_blips + 2 * t_validate) : -(t_blips + t_validate)]
         y_val_2 = y[-(t_blips + t_validate) : -t_blips]
-        esr_replicate = esr(y_val_1, y_val_2).item()
+        esr_replicate = _ESR(y_val_1, y_val_2).item()
         print(f"Replicate ESR is {esr_replicate:.8f}.")
         esr_replicate_threshold = 0.01
         if esr_replicate > esr_replicate_threshold:
@@ -630,19 +647,19 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.Dat
             i0, i1, j0, j1 = [i + delay for i in (i0, i1, j0, j1)]
             start = -10
             end = 1000
-            blips = torch.stack(
+            blips = _torch.stack(
                 [
-                    torch.stack([y[i0 + start : i0 + end], y[i1 + start : i1 + end]]),
-                    torch.stack([y[j0 + start : j0 + end], y[j1 + start : j1 + end]]),
+                    _torch.stack([y[i0 + start : i0 + end], y[i1 + start : i1 + end]]),
+                    _torch.stack([y[j0 + start : j0 + end], y[j1 + start : j1 + end]]),
                 ]
             )
             return blips
 
         blips = get_blips(y)
-        esr_0 = esr(blips[0][0], blips[0][1]).item()  # Within start
-        esr_1 = esr(blips[1][0], blips[1][1]).item()  # Within end
-        esr_cross_0 = esr(blips[0][0], blips[1][0]).item()  # 1st repeat, start vs end
-        esr_cross_1 = esr(blips[0][1], blips[1][1]).item()  # 2nd repeat, start vs end
+        esr_0 = _ESR(blips[0][0], blips[0][1]).item()  # Within start
+        esr_1 = _ESR(blips[1][0], blips[1][1]).item()  # Within end
+        esr_cross_0 = _ESR(blips[0][0], blips[1][0]).item()  # 1st repeat, start vs end
+        esr_cross_1 = _ESR(blips[0][1], blips[1][1]).item()  # 2nd repeat, start vs end
 
         print("  ESRs:")
         print(f"    Start     : {esr_0}")
@@ -655,22 +672,22 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.Dat
         def plot_esr_blip_error(
             show_plot: bool,
             msg: str,
-            arrays: Sequence[Sequence[float]],
-            labels: Sequence[str],
+            arrays: _Sequence[_Sequence[float]],
+            labels: _Sequence[str],
         ):
             """
             :param silent: Whether to make and show a plot about it
             """
             if show_plot:
-                plt.figure()
-                [plt.plot(array, label=label) for array, label in zip(arrays, labels)]
-                plt.xlabel("Sample")
-                plt.ylabel("Output")
-                plt.legend()
-                plt.grid()
+                _plt.figure()
+                [_plt.plot(array, label=label) for array, label in zip(arrays, labels)]
+                _plt.xlabel("Sample")
+                _plt.ylabel("Output")
+                _plt.legend()
+                _plt.grid()
             print(msg)
             if show_plot:
-                plt.show()
+                _plt.show()
             print(
                 "This is known to be a very sensitive test, so training will continue. "
                 "If the model doesn't look good, then this may be why!"
@@ -693,7 +710,7 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.Dat
                     blip_pair,
                     ("Replicate 1", "Replicate 2"),
                 )
-                return metadata.DataChecks(version=2, passed=False)
+                return _metadata.DataChecks(version=2, passed=False)
         # Check blips between start & end of train signal
         for e, blip_pair, replicate in zip(
             (esr_cross_0, esr_cross_1), blips.permute(1, 0, 2), (1, 2)
@@ -707,46 +724,46 @@ def _check_v2(input_path, output_path, delay: int, silent: bool) -> metadata.Dat
                     blip_pair,
                     (f"Start, replicate {replicate}", f"End, replicate {replicate}"),
                 )
-                return metadata.DataChecks(version=2, passed=False)
-        return metadata.DataChecks(version=2, passed=True)
+                return _metadata.DataChecks(version=2, passed=False)
+        return _metadata.DataChecks(version=2, passed=True)
 
 
 def _check_v3(
     input_path, output_path, silent: bool, *args, **kwargs
-) -> metadata.DataChecks:
-    with torch.no_grad():
+) -> _metadata.DataChecks:
+    with _torch.no_grad():
         print("V3 checks...")
         rate = _V3_DATA_INFO.rate
-        y = wav_to_tensor(output_path, rate=rate)
-        n = len(wav_to_tensor(input_path))  # to End-crop output
+        y = _wav_to_tensor(output_path, rate=rate)
+        n = len(_wav_to_tensor(input_path))  # to End-crop output
         y_val_1 = y[: _V3_DATA_INFO.t_validate]
         y_val_2 = y[n - _V3_DATA_INFO.t_validate : n]
-        esr_replicate = esr(y_val_1, y_val_2).item()
+        esr_replicate = _ESR(y_val_1, y_val_2).item()
         print(f"Replicate ESR is {esr_replicate:.8f}.")
         esr_replicate_threshold = 0.01
         if esr_replicate > esr_replicate_threshold:
             print(_esr_validation_replicate_msg(esr_replicate_threshold))
             if not silent:
-                plt.figure()
-                t = np.arange(len(y_val_1)) / rate
-                plt.plot(t, y_val_1, label="Validation 1")
-                plt.plot(t, y_val_2, label="Validation 2")
-                plt.xlabel("Time (sec)")
-                plt.legend()
-                plt.title("V3 check: Validation replicate FAILURE")
-                plt.show()
-            return metadata.DataChecks(version=3, passed=False)
-    return metadata.DataChecks(version=3, passed=True)
+                _plt.figure()
+                t = _np.arange(len(y_val_1)) / rate
+                _plt.plot(t, y_val_1, label="Validation 1")
+                _plt.plot(t, y_val_2, label="Validation 2")
+                _plt.xlabel("Time (sec)")
+                _plt.legend()
+                _plt.title("V3 check: Validation replicate FAILURE")
+                _plt.show()
+            return _metadata.DataChecks(version=3, passed=False)
+    return _metadata.DataChecks(version=3, passed=True)
 
 
 def _check_v4(
     input_path, output_path, silent: bool, *args, **kwargs
-) -> metadata.DataChecks:
+) -> _metadata.DataChecks:
     # Things we can't check:
     # Latency compensation agreement
     # Data replicability
     print("Using Proteus audio file. Standard data checks aren't possible!")
-    signal, info = wav_to_np(output_path, info=True)
+    signal, info = _wav_to_np(output_path, info=True)
     passed = True
     if info.rate != _V4_DATA_INFO.rate:
         print(
@@ -761,12 +778,12 @@ def _check_v4(
             "File doesn't meet the minimum length requirements for latency compensation and validation signal!"
         )
         passed = False
-    return metadata.DataChecks(version=4, passed=passed)
+    return _metadata.DataChecks(version=4, passed=passed)
 
 
 def _check_data(
-    input_path: str, output_path: str, input_version: Version, delay: int, silent: bool
-) -> Optional[metadata.DataChecks]:
+    input_path: str, output_path: str, input_version: _Version, delay: int, silent: bool
+) -> _Optional[_metadata.DataChecks]:
     """
     Ensure that everything should go smoothly
 
@@ -912,7 +929,11 @@ _CAB_MRSTFT_PRE_EMPH_COEF = 0.85
 
 
 def _get_data_config(
-    input_version: Version, input_path: Path, output_path: Path, ny: int, latency: int
+    input_version: _Version,
+    input_path: _Path,
+    output_path: _Path,
+    ny: int,
+    latency: int,
 ) -> dict:
     def get_split_kwargs(data_info: _DataInfo):
         if data_info.major_version == 1:
@@ -976,7 +997,7 @@ def _get_data_config(
 
 
 def _get_configs(
-    input_version: Version,
+    input_version: _Version,
     input_path: str,
     output_path: str,
     latency: int,
@@ -1031,9 +1052,9 @@ def _get_configs(
         model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
         model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
 
-    if torch.cuda.is_available():
+    if _torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
-    elif torch.backends.mps.is_available():
+    elif _torch.backends.mps.is_available():
         device_config = {"accelerator": "mps", "devices": 1}
     else:
         print("WARNING: No GPU was found. Training will be very slow!")
@@ -1053,45 +1074,49 @@ def _get_configs(
 
 
 def _get_dataloaders(
-    data_config: Dict, learning_config: Dict, model: LightningModule
-) -> Tuple[DataLoader, DataLoader]:
-    data_config, learning_config = [deepcopy(c) for c in (data_config, learning_config)]
+    data_config: _Dict, learning_config: _Dict, model: _LightningModule
+) -> _Tuple[_DataLoader, _DataLoader]:
+    data_config, learning_config = [
+        _deepcopy(c) for c in (data_config, learning_config)
+    ]
     data_config["common"]["nx"] = model.net.receptive_field
-    dataset_train = init_dataset(data_config, Split.TRAIN)
-    dataset_validation = init_dataset(data_config, Split.VALIDATION)
-    train_dataloader = DataLoader(dataset_train, **learning_config["train_dataloader"])
-    val_dataloader = DataLoader(dataset_validation, **learning_config["val_dataloader"])
+    dataset_train = _init_dataset(data_config, _Split.TRAIN)
+    dataset_validation = _init_dataset(data_config, _Split.VALIDATION)
+    train_dataloader = _DataLoader(dataset_train, **learning_config["train_dataloader"])
+    val_dataloader = _DataLoader(
+        dataset_validation, **learning_config["val_dataloader"]
+    )
     return train_dataloader, val_dataloader
 
 
-def _esr(pred: torch.Tensor, target: torch.Tensor) -> float:
+def _esr(pred: _torch.Tensor, target: _torch.Tensor) -> float:
     return (
-        torch.mean(torch.square(pred - target)).item()
-        / torch.mean(torch.square(target)).item()
+        _torch.mean(_torch.square(pred - target)).item()
+        / _torch.mean(_torch.square(target)).item()
     )
 
 
 def _plot(
     model,
     ds,
-    window_start: Optional[int] = None,
-    window_end: Optional[int] = None,
-    filepath: Optional[str] = None,
+    window_start: _Optional[int] = None,
+    window_end: _Optional[int] = None,
+    filepath: _Optional[str] = None,
     silent: bool = False,
 ) -> float:
     """
     :return: The ESR
     """
     print("Plotting a comparison of your model with the target output...")
-    with torch.no_grad():
+    with _torch.no_grad():
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx:.2f} sec)")
-        t0 = time()
+        t0 = _time()
         output = model(ds.x).flatten().cpu().numpy()
-        t1 = time()
+        t1 = _time()
         print(f"Took {t1 - t0:.2f} sec ({tx / (t1 - t0):.2f}x)")
 
-    esr = _esr(torch.Tensor(output), ds.y)
+    esr = _esr(_torch.Tensor(output), ds.y)
     # Trying my best to put numbers to it...
     if esr < 0.01:
         esr_comment = "Great!"
@@ -1106,15 +1131,15 @@ def _plot(
     print(f"Error-signal ratio = {esr:.4g}")
     print(esr_comment)
 
-    plt.figure(figsize=(16, 5))
-    plt.plot(output[window_start:window_end], label="Prediction")
-    plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    plt.title(f"ESR={esr:.4g}")
-    plt.legend()
+    _plt.figure(figsize=(16, 5))
+    _plt.plot(output[window_start:window_end], label="Prediction")
+    _plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
+    _plt.title(f"ESR={esr:.4g}")
+    _plt.legend()
     if filepath is not None:
-        plt.savefig(filepath + ".png")
+        _plt.savefig(filepath + ".png")
     if not silent:
-        plt.show()
+        _plt.show()
     return esr
 
 
@@ -1139,14 +1164,14 @@ def _print_nasty_checks_warning():
 def _nasty_checks_modal():
     msg = "You are ignoring the checks!\nYour model might turn out bad!"
 
-    root = tk.Tk()
+    root = _tk.Tk()
     root.withdraw()  # hide the root window
-    modal = tk.Toplevel(root)
+    modal = _tk.Toplevel(root)
     modal.geometry("300x100")
     modal.title("Warning!")
-    label = tk.Label(modal, text=msg)
+    label = _tk.Label(modal, text=msg)
     label.pack(pady=10)
-    ok_button = tk.Button(
+    ok_button = _tk.Button(
         modal,
         text="I can only blame myself!",
         command=lambda: [modal.destroy(), root.quit()],
@@ -1156,7 +1181,7 @@ def _nasty_checks_modal():
     modal.mainloop()
 
 
-class _ValidationStopping(pl.callbacks.EarlyStopping):
+class _ValidationStopping(_pl.callbacks.EarlyStopping):
     """
     Callback to indicate to stop training if the validation metric is good enough,
     without the other conditions that EarlyStopping usually forces like patience.
@@ -1164,10 +1189,10 @@ class _ValidationStopping(pl.callbacks.EarlyStopping):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.patience = np.inf
+        self.patience = _np.inf
 
 
-class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
+class _ModelCheckpoint(_pl.callbacks.model_checkpoint.ModelCheckpoint):
     """
     Extension to model checkpoint to save a .nam file as well as the .ckpt file.
     """
@@ -1175,9 +1200,9 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
     def __init__(
         self,
         *args,
-        user_metadata: Optional[UserMetadata] = None,
-        settings_metadata: Optional[metadata.Settings] = None,
-        data_metadata: Optional[metadata.Data] = None,
+        user_metadata: _Optional[_UserMetadata] = None,
+        settings_metadata: _Optional[_metadata.Settings] = None,
+        data_metadata: _Optional[_metadata.Data] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -1185,10 +1210,10 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
         self._settings_metadata = settings_metadata
         self._data_metadata = data_metadata
 
-    _NAM_FILE_EXTENSION = Exportable.FILE_EXTENSION
+    _NAM_FILE_EXTENSION = _Exportable.FILE_EXTENSION
 
     @classmethod
-    def _get_nam_filepath(cls, filepath: str) -> Path:
+    def _get_nam_filepath(cls, filepath: str) -> _Path:
         """
         Given a .ckpt filepath, figure out a .nam for it.
         """
@@ -1197,18 +1222,18 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
                 f"Checkpoint filepath {filepath} doesn't end in expected extension "
                 f"{cls.FILE_EXTENSION}"
             )
-        return Path(filepath[: -len(cls.FILE_EXTENSION)] + cls._NAM_FILE_EXTENSION)
+        return _Path(filepath[: -len(cls.FILE_EXTENSION)] + cls._NAM_FILE_EXTENSION)
 
     @property
     def _include_other_metadata(self) -> bool:
         return self._settings_metadata is not None and self._data_metadata is not None
 
-    def _save_checkpoint(self, trainer: pl.Trainer, filepath: str):
+    def _save_checkpoint(self, trainer: _pl.Trainer, filepath: str):
         # Save the .ckpt:
         super()._save_checkpoint(trainer, filepath)
         # Save the .nam:
         nam_filepath = self._get_nam_filepath(filepath)
-        pl_model: LightningModule = trainer.model
+        pl_model: _LightningModule = trainer.model
         nam_model = pl_model.net
         outdir = nam_filepath.parent
         # HACK: Assume the extension
@@ -1217,7 +1242,7 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
             None
             if not self._include_other_metadata
             else {
-                metadata.TRAINING_KEY: metadata.TrainingMetadata(
+                _metadata.TRAINING_KEY: _metadata.TrainingMetadata(
                     settings=self._settings_metadata,
                     data=self._data_metadata,
                     validation_esr=None,  # TODO how to get this?
@@ -1231,7 +1256,7 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
             other_metadata=other_metadata,
         )
 
-    def _remove_checkpoint(self, trainer: pl.Trainer, filepath: str) -> None:
+    def _remove_checkpoint(self, trainer: _pl.Trainer, filepath: str) -> None:
         super()._remove_checkpoint(trainer, filepath)
         nam_path = self._get_nam_filepath(filepath)
         if nam_path.exists():
@@ -1239,10 +1264,10 @@ class _ModelCheckpoint(pl.callbacks.model_checkpoint.ModelCheckpoint):
 
 
 def get_callbacks(
-    threshold_esr: Optional[float],
-    user_metadata: Optional[UserMetadata] = None,
-    settings_metadata: Optional[metadata.Settings] = None,
-    data_metadata: Optional[metadata.Data] = None,
+    threshold_esr: _Optional[float],
+    user_metadata: _Optional[_UserMetadata] = None,
+    settings_metadata: _Optional[_metadata.Settings] = None,
+    data_metadata: _Optional[_metadata.Data] = None,
 ):
     callbacks = [
         _ModelCheckpoint(
@@ -1269,18 +1294,18 @@ def get_callbacks(
     return callbacks
 
 
-class TrainOutput(NamedTuple):
+class TrainOutput(_NamedTuple):
     """
     :param model: The trained model
     :param simpliifed_trianer_metadata: The metadata summarizing training with the
         simplified trainer.
     """
 
-    model: Optional[LightningModule]
-    metadata: metadata.TrainingMetadata
+    model: _Optional[_LightningModule]
+    metadata: _metadata.TrainingMetadata
 
 
-def _get_final_latency(latency_analysis: metadata.Latency) -> int:
+def _get_final_latency(latency_analysis: _metadata.Latency) -> int:
     if latency_analysis.manual is not None:
         latency = latency_analysis.manual
         print(f"Latency provided as {latency_analysis.manual}; override calibration")
@@ -1294,27 +1319,27 @@ def train(
     input_path: str,
     output_path: str,
     train_path: str,
-    input_version: Optional[Version] = None,  # Deprecate?
+    input_version: _Optional[_Version] = None,  # Deprecate?
     epochs=100,
-    delay: Optional[int] = None,
-    latency: Optional[int] = None,
+    delay: _Optional[int] = None,
+    latency: _Optional[int] = None,
     model_type: str = "WaveNet",
-    architecture: Union[Architecture, str] = Architecture.STANDARD,
+    architecture: _Union[Architecture, str] = Architecture.STANDARD,
     batch_size: int = 16,
     ny: int = _NY_DEFAULT,
     lr=0.004,
     lr_decay=0.007,
-    seed: Optional[int] = 0,
+    seed: _Optional[int] = 0,
     save_plot: bool = False,
     silent: bool = False,
     modelname: str = "model",
     ignore_checks: bool = False,
     local: bool = False,
     fit_mrstft: bool = True,
-    threshold_esr: Optional[bool] = None,
-    user_metadata: Optional[UserMetadata] = None,
-    fast_dev_run: Union[bool, int] = False,
-) -> Optional[TrainOutput]:
+    threshold_esr: _Optional[bool] = None,
+    user_metadata: _Optional[_UserMetadata] = None,
+    fast_dev_run: _Union[bool, int] = False,
+) -> _Optional[TrainOutput]:
     """
     :param lr_decay: =1-gamma for Exponential learning rate decay.
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
@@ -1322,8 +1347,8 @@ def train(
     """
 
     def parse_user_latency(
-        delay: Optional[int], latency: Optional[int]
-    ) -> Optional[int]:
+        delay: _Optional[int], latency: _Optional[int]
+    ) -> _Optional[int]:
         if delay is not None:
             if latency is not None:
                 raise ValueError("Both delay and latency are provided; use latency!")
@@ -1332,7 +1357,7 @@ def train(
         return latency
 
     if seed is not None:
-        torch.manual_seed(seed)
+        _torch.manual_seed(seed)
 
     # HACK: We need to check the sample rates and lengths of the audio here or else
     # It will look like a bad self-ESR (Issue 473)
@@ -1384,9 +1409,9 @@ def train(
                 print("Exiting core training...")
                 return TrainOutput(
                     model=None,
-                    metadata=metadata.TrainingMetadata(
-                        settings=metadata.Settings(ignore_checks=ignore_checks),
-                        data=metadata.Data(
+                    metadata=_metadata.TrainingMetadata(
+                        settings=_metadata.Settings(ignore_checks=ignore_checks),
+                        data=_metadata.Data(
                             latency=latency_analysis, checks=data_check_output
                         ),
                         validation_esr=None,
@@ -1417,7 +1442,7 @@ def train(
     # * Model is re-instantiated after training anyways.
     # (Hacky) solution: set sample rate in model from dataloader after second
     # instantiation from final checkpoint.
-    model = LightningModule.init_from_config(model_config)
+    model = _LightningModule.init_from_config(model_config)
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
     )
@@ -1431,10 +1456,10 @@ def train(
     model.net.sample_rate = sample_rate
 
     # Put together the metadata that's needed in checkpoints:
-    settings_metadata = metadata.Settings(ignore_checks=ignore_checks)
-    data_metadata = metadata.Data(latency=latency_analysis, checks=data_check_output)
+    settings_metadata = _metadata.Settings(ignore_checks=ignore_checks)
+    data_metadata = _metadata.Data(latency=latency_analysis, checks=data_check_output)
 
-    trainer = pl.Trainer(
+    trainer = _pl.Trainer(
         callbacks=get_callbacks(
             threshold_esr,
             user_metadata=user_metadata,
@@ -1446,21 +1471,21 @@ def train(
         **learning_config["trainer"],
     )
     # Suppress the PossibleUserWarning about num_workers (Issue 345)
-    with filter_warnings("ignore", category=PossibleUserWarning):
+    with _filter_warnings("ignore", category=_PossibleUserWarning):
         trainer.fit(model, train_dataloader, val_dataloader)
 
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
     if best_checkpoint != "":
-        model = LightningModule.load_from_checkpoint(
+        model = _LightningModule.load_from_checkpoint(
             trainer.checkpoint_callback.best_model_path,
-            **LightningModule.parse_config(model_config),
+            **_LightningModule.parse_config(model_config),
         )
     model.cpu()
     model.eval()
     model.net.sample_rate = sample_rate  # Hack, part 2
 
-    def window_kwargs(version: Version):
+    def window_kwargs(version: _Version):
         if version.major == 1:
             return dict(
                 window_start=100_000,  # Start of the plotting window, in samples
@@ -1487,7 +1512,7 @@ def train(
     )
     return TrainOutput(
         model=model,
-        metadata=metadata.TrainingMetadata(
+        metadata=_metadata.TrainingMetadata(
             settings=settings_metadata,
             data=data_metadata,
             validation_esr=validation_esr,
@@ -1495,7 +1520,7 @@ def train(
     )
 
 
-class DataInputValidation(BaseModel):
+class DataInputValidation(_BaseModel):
     passed: bool
 
 
@@ -1512,49 +1537,49 @@ def validate_input(input_path) -> DataInputValidation:
         return DataInputValidation(passed=False)
 
 
-class _PyTorchDataSplitValidation(BaseModel):
+class _PyTorchDataSplitValidation(_BaseModel):
     """
     :param msg: On exception, catch and assign. Otherwise None
     """
 
     passed: bool
-    msg: Optional[str]
+    msg: _Optional[str]
 
 
-class _PyTorchDataValidation(BaseModel):
+class _PyTorchDataValidation(_BaseModel):
     passed: bool
     train: _PyTorchDataSplitValidation  # cf Split.TRAIN
     validation: _PyTorchDataSplitValidation  # Split.VALIDATION
 
 
-class _SampleRateValidation(BaseModel):
+class _SampleRateValidation(_BaseModel):
     passed: bool
     input: int
     output: int
 
 
-class _LengthValidation(BaseModel):
+class _LengthValidation(_BaseModel):
     passed: bool
     delta_seconds: float
 
 
-class DataValidationOutput(BaseModel):
+class DataValidationOutput(_BaseModel):
     passed: bool
     passed_critical: bool
     sample_rate: _SampleRateValidation
     length: _LengthValidation
     input_version: str
-    latency: metadata.Latency
-    checks: metadata.DataChecks
+    latency: _metadata.Latency
+    checks: _metadata.DataChecks
     pytorch: _PyTorchDataValidation
 
 
 def _check_audio_sample_rates(
-    input_path: Path,
-    output_path: Path,
+    input_path: _Path,
+    output_path: _Path,
 ) -> _SampleRateValidation:
-    _, x_info = wav_to_np(input_path, info=True)
-    _, y_info = wav_to_np(output_path, info=True)
+    _, x_info = _wav_to_np(input_path, info=True)
+    _, y_info = _wav_to_np(output_path, info=True)
 
     return _SampleRateValidation(
         passed=x_info.rate == y_info.rate,
@@ -1564,10 +1589,10 @@ def _check_audio_sample_rates(
 
 
 def _check_audio_lengths(
-    input_path: Path,
-    output_path: Path,
-    max_under_seconds: Optional[float] = 0.0,
-    max_over_seconds: Optional[float] = 1.0,
+    input_path: _Path,
+    output_path: _Path,
+    max_under_seconds: _Optional[float] = 0.0,
+    max_over_seconds: _Optional[float] = 1.0,
 ) -> _LengthValidation:
     """
     Check that the input and output have the right lengths compared to each
@@ -1584,8 +1609,8 @@ def _check_audio_lengths(
         value of 1.0 means that the output can't be more than a second longer
         than the input.
     """
-    x, x_info = wav_to_np(input_path, info=True)
-    y, y_info = wav_to_np(output_path, info=True)
+    x, x_info = _wav_to_np(input_path, info=True)
+    y, y_info = _wav_to_np(output_path, info=True)
 
     length_input = len(x) / x_info.rate
     length_output = len(y) / y_info.rate
@@ -1601,9 +1626,9 @@ def _check_audio_lengths(
 
 
 def validate_data(
-    input_path: Path,
-    output_path: Path,
-    user_latency: Optional[int],
+    input_path: _Path,
+    output_path: _Path,
+    user_latency: _Optional[int],
     num_output_samples_per_datum: int = _NY_DEFAULT,
 ):
     """
@@ -1660,14 +1685,14 @@ def validate_data(
     # be unlikely to make a difference. Still, would be nice to fix.
     data_config["common"]["nx"] = 4096
 
-    pytorch_data_split_validation_dict: Dict[str, _PyTorchDataSplitValidation] = {}
-    for split in Split:
+    pytorch_data_split_validation_dict: _Dict[str, _PyTorchDataSplitValidation] = {}
+    for split in _Split:
         try:
-            init_dataset(data_config, split)
+            _init_dataset(data_config, split)
             pytorch_data_split_validation_dict[split.value] = (
                 _PyTorchDataSplitValidation(passed=True, msg=None)
             )
-        except DataError as e:
+        except _DataError as e:
             pytorch_data_split_validation_dict[split.value] = (
                 _PyTorchDataSplitValidation(passed=False, msg=str(e))
             )

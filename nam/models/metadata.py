@@ -6,14 +6,14 @@
 Metadata about models
 """
 
-from enum import Enum
-from typing import Optional
+from enum import Enum as _Enum
+from typing import Optional as _Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel as _BaseModel
 
 
 # Note: if you change this enum, you need to update the options in easy_colab.ipynb!
-class GearType(Enum):
+class GearType(_Enum):
     AMP = "amp"
     PEDAL = "pedal"
     PEDAL_AMP = "pedal_amp"
@@ -24,7 +24,7 @@ class GearType(Enum):
 
 
 # Note: if you change this enum, you need to update the options in easy_colab.ipynb!
-class ToneType(Enum):
+class ToneType(_Enum):
     CLEAN = "clean"
     OVERDRIVE = "overdrive"
     CRUNCH = "crunch"
@@ -32,7 +32,7 @@ class ToneType(Enum):
     FUZZ = "fuzz"
 
 
-class Date(BaseModel):
+class Date(_BaseModel):
     year: int
     month: int
     day: int
@@ -41,7 +41,7 @@ class Date(BaseModel):
     second: int
 
 
-class UserMetadata(BaseModel):
+class UserMetadata(_BaseModel):
     """
     Metadata that users provide for a NAM model
 
@@ -57,11 +57,11 @@ class UserMetadata(BaseModel):
         the model.
     """
 
-    name: Optional[str] = None
-    modeled_by: Optional[str] = None
-    gear_type: Optional[GearType] = None
-    gear_make: Optional[str] = None
-    gear_model: Optional[str] = None
-    tone_type: Optional[ToneType] = None
-    input_level_dbu: Optional[float] = None
-    output_level_dbu: Optional[float] = None
+    name: _Optional[str] = None
+    modeled_by: _Optional[str] = None
+    gear_type: _Optional[GearType] = None
+    gear_make: _Optional[str] = None
+    gear_model: _Optional[str] = None
+    tone_type: _Optional[ToneType] = None
+    input_level_dbu: _Optional[float] = None
+    output_level_dbu: _Optional[float] = None

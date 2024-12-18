@@ -8,20 +8,20 @@ Recurrent models (LSTM)
 TODO batch_first=False (I get it...)
 """
 
-import abc
-import json
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Optional, Tuple
+import abc as _abc
+import json as _json
+from pathlib import Path as _Path
+from tempfile import TemporaryDirectory as _TemporaryDirectory
+from typing import Optional as Optional, Tuple as _Tuple
 
-import numpy as np
-import torch
-import torch.nn as nn
+import numpy as _np
+import torch as _torch
+import torch.nn as _nn
 
-from .base import BaseNet
+from .base import BaseNet as _BaseNet
 
 
-class _L(nn.LSTM):
+class _L(_nn.LSTM):
     """
     Tweaks to PyTorch LSTM module
     * Up the remembering
@@ -47,24 +47,24 @@ class _L(nn.LSTM):
 # DH: Hidden state dimension
 # [0]: hidden (L,DH)
 # [1]: cell (L,DH)
-_LSTMHiddenType = torch.Tensor
-_LSTMCellType = torch.Tensor
-_LSTMHiddenCellType = Tuple[_LSTMHiddenType, _LSTMCellType]
+_LSTMHiddenType = _torch.Tensor
+_LSTMCellType = _torch.Tensor
+_LSTMHiddenCellType = _Tuple[_LSTMHiddenType, _LSTMCellType]
 
 
 # TODO get this somewhere more core-ish
-class _ExportsWeights(abc.ABC):
-    @abc.abstractmethod
-    def export_weights(self) -> np.ndarray:
+class _ExportsWeights(_abc.ABC):
+    @_abc.abstractmethod
+    def export_weights(self) -> _np.ndarray:
         """
         :return: a 1D array of weights
         """
         pass
 
 
-class _Linear(nn.Linear, _ExportsWeights):
+class _Linear(_nn.Linear, _ExportsWeights):
     def export_weights(self):
-        return np.concatenate(
+        return _np.concatenate(
             [
                 self.weight.data.detach().cpu().numpy().flatten(),
                 self.bias.data.detach().cpu().numpy().flatten(),
@@ -72,7 +72,7 @@ class _Linear(nn.Linear, _ExportsWeights):
         )
 
 
-class LSTM(BaseNet):
+class LSTM(_BaseNet):
     """
     ABC for recurrent architectures
     """
@@ -105,16 +105,16 @@ class LSTM(BaseNet):
         self._head = self._init_head(hidden_size)
         self._train_burn_in = train_burn_in
         self._train_truncate = train_truncate
-        self._initial_cell = nn.Parameter(
-            torch.zeros((lstm_kwargs.get("num_layers", 1), hidden_size))
+        self._initial_cell = _nn.Parameter(
+            _torch.zeros((lstm_kwargs.get("num_layers", 1), hidden_size))
         )
-        self._initial_hidden = nn.Parameter(
-            torch.zeros((lstm_kwargs.get("num_layers", 1), hidden_size))
+        self._initial_hidden = _nn.Parameter(
+            _torch.zeros((lstm_kwargs.get("num_layers", 1), hidden_size))
         )
         self._get_initial_state_burn_in = 48_000
 
     @property
-    def input_device(self) -> torch.device:
+    def input_device(self) -> _torch.device:
         """
         What device does the input need to be on?
         """
@@ -129,12 +129,12 @@ class LSTM(BaseNet):
         # I should simplify this...
         return True
 
-    def export_cpp_header(self, filename: Path):
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            LSTM.export(self, Path(tmpdir))  # Hacky...need to work w/ CatLSTM
-            with open(Path(tmpdir, "model.nam"), "r") as fp:
-                _c = json.load(fp)
+    def export_cpp_header(self, filename: _Path):
+        with _TemporaryDirectory() as tmpdir:
+            tmpdir = _Path(tmpdir)
+            LSTM.export(self, _Path(tmpdir))  # Hacky...need to work w/ CatLSTM
+            with open(_Path(tmpdir, "model.nam"), "r") as fp:
+                _c = _json.load(fp)
             version = _c["version"]
             config = _c["config"]
             s_parametric = self._export_cpp_header_parametric(config.get("parametric"))
@@ -159,7 +159,7 @@ class LSTM(BaseNet):
                     )
                 )
 
-    def _apply_head(self, features: torch.Tensor) -> torch.Tensor:
+    def _apply_head(self, features: _torch.Tensor) -> _torch.Tensor:
         """
         :param features: (B,S,DH)
         :return: (B,S)
@@ -167,8 +167,8 @@ class LSTM(BaseNet):
         return self._head(features)[:, :, 0]
 
     def _forward(
-        self, x: torch.Tensor, initial_state: Optional[_LSTMHiddenCellType] = None
-    ) -> torch.Tensor:
+        self, x: _torch.Tensor, initial_state: Optional[_LSTMHiddenCellType] = None
+    ) -> _torch.Tensor:
         """
         :param x: (B,L) or (B,L,D)
         :return: (B,L)
@@ -183,7 +183,7 @@ class LSTM(BaseNet):
                     x[:, i : i + BLOCK_SIZE, :], hidden_state
                 )
                 outputs.append(out)
-            return torch.cat(outputs, dim=1), hidden_state  # assert batch_first
+            return _torch.cat(outputs, dim=1), hidden_state  # assert batch_first
 
         last_hidden_state = (
             self._initial_state(len(x)) if initial_state is None else initial_state
@@ -208,12 +208,12 @@ class LSTM(BaseNet):
                     x[:, i : i + self._train_truncate, :], last_hidden_state
                 )
                 output_features_list.append(last_output_features)
-            output_features = torch.cat(output_features_list, dim=1)
+            output_features = _torch.cat(output_features_list, dim=1)
         return self._apply_head(output_features)
 
     def _export_cell_weights(
-        self, i: int, hidden_state: torch.Tensor, cell_state: torch.Tensor
-    ) -> np.ndarray:
+        self, i: int, hidden_state: _torch.Tensor, cell_state: _torch.Tensor
+    ) -> _np.ndarray:
         """
         * weight matrix (xh -> ifco)
         * bias vector
@@ -222,7 +222,7 @@ class LSTM(BaseNet):
         """
 
         tensors = [
-            torch.cat(
+            _torch.cat(
                 [
                     getattr(self._core, f"weight_ih_l{i}").data,
                     getattr(self._core, f"weight_hh_l{i}").data,
@@ -234,7 +234,7 @@ class LSTM(BaseNet):
             hidden_state,
             cell_state,
         ]
-        return np.concatenate([z.detach().cpu().numpy().flatten() for z in tensors])
+        return _np.concatenate([z.detach().cpu().numpy().flatten() for z in tensors])
 
     def _export_config(self):
         return {
@@ -259,7 +259,7 @@ class LSTM(BaseNet):
         * Head weights
         * Head bias
         """
-        return np.concatenate(
+        return _np.concatenate(
             [
                 self._export_cell_weights(i, h, c)
                 for i, (h, c) in enumerate(zip(*self._get_initial_state()))
@@ -279,7 +279,7 @@ class LSTM(BaseNet):
         :return: (L,DH), (L,DH)
         """
         inputs = (
-            torch.zeros((1, self._get_initial_state_burn_in, 1))
+            _torch.zeros((1, self._get_initial_state_burn_in, 1))
             if inputs is None
             else inputs
         ).to(self.input_device)
@@ -298,7 +298,7 @@ class LSTM(BaseNet):
             (self._initial_hidden, self._initial_cell)
             if n is None
             else (
-                torch.tile(self._initial_hidden[:, None], (1, n, 1)),
-                torch.tile(self._initial_cell[:, None], (1, n, 1)),
+                _torch.tile(self._initial_hidden[:, None], (1, n, 1)),
+                _torch.tile(self._initial_cell[:, None], (1, n, 1)),
             )
         )

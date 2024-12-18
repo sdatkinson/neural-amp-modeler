@@ -10,16 +10,16 @@ Usage:
 >>> run()
 """
 
-import abc
-import re
-import requests
-import tkinter as tk
-import subprocess
-import sys
-import webbrowser
-from dataclasses import dataclass
-from enum import Enum
-from functools import partial
+import abc as _abc
+import re as _re
+import requests as _requests
+import tkinter as _tk
+import subprocess as _subprocess
+import sys as _sys
+import webbrowser as _webbrowser
+from dataclasses import dataclass as _dataclass
+from enum import Enum as _Enum
+from functools import partial as _partial
 
 try:  # Not supported in Colab
     from idlelib.tooltip import Hovertip
@@ -34,26 +34,43 @@ except ModuleNotFoundError:
             pass
 
 
-from pathlib import Path
-from tkinter import filedialog
-from typing import Any, Callable, Dict, NamedTuple, Optional, Sequence
+from pathlib import Path as _Path
+from tkinter import filedialog as _filedialog
+from typing import (
+    Any as _Any,
+    Callable as _Callable,
+    Dict as _Dict,
+    NamedTuple as _NamedTuple,
+    Optional as _Optional,
+    Sequence as _Sequence,
+)
 
 try:  # 3rd-party and 1st-party imports
-    import torch
+    import torch as _torch
 
     from nam import __version__
-    from nam.data import Split
-    from nam.train import core
-    from nam.train.gui._resources import settings
-    from nam.models.metadata import GearType, UserMetadata, ToneType
+    from nam.data import Split as _Split
+    from nam.train import core as _core
+    from nam.train.gui._resources import settings as _settings
+    from nam.models.metadata import (
+        GearType as _GearType,
+        UserMetadata as _UserMetadata,
+        ToneType as _ToneType,
+    )
 
     # Ok private access here--this is technically allowed access
-    from nam.train import metadata
-    from nam.train._names import INPUT_BASENAMES, LATEST_VERSION
-    from nam.train._version import Version, get_current_version
+    from nam.train import metadata as _metadata
+    from nam.train._names import (
+        INPUT_BASENAMES as _INPUT_BASENAMES,
+        LATEST_VERSION as _LATEST_VERSION,
+    )
+    from nam.train._version import (
+        Version as _Version,
+        get_current_version as _get_current_version,
+    )
 
     _install_is_valid = True
-    _HAVE_ACCELERATOR = torch.cuda.is_available() or torch.backends.mps.is_available()
+    _HAVE_ACCELERATOR = _torch.cuda.is_available() or _torch.backends.mps.is_available()
 except ImportError:
     _install_is_valid = False
     _HAVE_ACCELERATOR = False
@@ -81,13 +98,13 @@ _METADATA_RIGHT_WIDTH = 60
 
 
 def _is_mac() -> bool:
-    return sys.platform == "darwin"
+    return _sys.platform == "darwin"
 
 
 _SYSTEM_TEXT_COLOR = "systemTextColor" if _is_mac() else "black"
 
 
-@dataclass
+@_dataclass
 class AdvancedOptions(object):
     """
     :param architecture: Which architecture to use.
@@ -99,14 +116,14 @@ class AdvancedOptions(object):
         stop.
     """
 
-    architecture: core.Architecture
+    architecture: _core.Architecture
     num_epochs: int
-    latency: Optional[int]
+    latency: _Optional[int]
     ignore_checks: bool
-    threshold_esr: Optional[float]
+    threshold_esr: _Optional[float]
 
 
-class _PathType(Enum):
+class _PathType(_Enum):
     FILE = "file"
     DIRECTORY = "directory"
     MULTIFILE = "multifile"
@@ -119,42 +136,42 @@ class _PathButton(object):
 
     def __init__(
         self,
-        frame: tk.Frame,
+        frame: _tk.Frame,
         button_text: str,
         info_str: str,
         path_type: _PathType,
-        path_key: settings.PathKey,
-        hooks: Optional[Sequence[Callable[[], None]]] = None,
+        path_key: _settings.PathKey,
+        hooks: _Optional[_Sequence[_Callable[[], None]]] = None,
         color_when_not_set: str = "#EF0000",  # Darker red
         color_when_set: str = _SYSTEM_TEXT_COLOR,
-        default: Optional[Path] = None,
+        default: _Optional[_Path] = None,
     ):
         """
         :param hooks: Callables run at the end of setting the value.
         """
         self._button_text = button_text
         self._info_str = info_str
-        self._path: Optional[Path] = default
+        self._path: _Optional[_Path] = default
         self._path_type = path_type
         self._path_key = path_key
         self._frame = frame
         self._widgets = {}
-        self._widgets["button"] = tk.Button(
+        self._widgets["button"] = _tk.Button(
             self._frame,
             text=button_text,
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=self._set_val,
         )
-        self._widgets["button"].pack(side=tk.LEFT)
-        self._widgets["label"] = tk.Label(
+        self._widgets["button"].pack(side=_tk.LEFT)
+        self._widgets["label"] = _tk.Label(
             self._frame,
             width=_TEXT_WIDTH,
             height=_BUTTON_HEIGHT,
             bg=None,
             anchor="w",
         )
-        self._widgets["label"].pack(side=tk.LEFT)
+        self._widgets["label"].pack(side=_tk.LEFT)
         self._hooks = hooks
         self._color_when_not_set = color_when_not_set
         self._color_when_set = color_when_set
@@ -173,7 +190,7 @@ class _PathButton(object):
             )
 
     @property
-    def val(self) -> Optional[Path]:
+    def val(self) -> _Optional[_Path]:
         return self._path
 
     def _set_text(self):
@@ -189,7 +206,7 @@ class _PathButton(object):
             ] = f"{self._button_text.capitalize()} set to {val}"
 
     def _set_val(self):
-        last_path = settings.get_last_path(self._path_key)
+        last_path = _settings.get_last_path(self._path_key)
         if last_path is None:
             initial_dir = None
         elif not last_path.is_dir():
@@ -197,15 +214,15 @@ class _PathButton(object):
         else:
             initial_dir = last_path
         result = {
-            _PathType.FILE: filedialog.askopenfilename,
-            _PathType.DIRECTORY: filedialog.askdirectory,
-            _PathType.MULTIFILE: filedialog.askopenfilenames,
+            _PathType.FILE: _filedialog.askopenfilename,
+            _PathType.DIRECTORY: _filedialog.askdirectory,
+            _PathType.MULTIFILE: _filedialog.askopenfilenames,
         }[self._path_type](initialdir=str(initial_dir))
         if result != "":
             self._path = result
-            settings.set_last_path(
+            _settings.set_last_path(
                 self._path_key,
-                Path(result[0] if self._path_type == _PathType.MULTIFILE else result),
+                _Path(result[0] if self._path_type == _PathType.MULTIFILE else result),
             )
         self._set_text()
 
@@ -218,14 +235,14 @@ class _InputPathButton(_PathButton):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Download the training file!
-        self._widgets["button_download_input"] = tk.Button(
+        self._widgets["button_download_input"] = _tk.Button(
             self._frame,
             text="Download input file",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=self._download_input_file,
         )
-        self._widgets["button_download_input"].pack(side=tk.RIGHT)
+        self._widgets["button_download_input"].pack(side=_tk.RIGHT)
 
     @classmethod
     def _download_input_file(cls):
@@ -237,20 +254,20 @@ class _InputPathButton(_PathButton):
             "v1.wav": "",
         }
         # Pick the most recent file.
-        for input_basename in INPUT_BASENAMES:
+        for input_basename in _INPUT_BASENAMES:
             name = input_basename.name
             url = file_urls.get(name)
             if url:
-                if name != LATEST_VERSION.name:
+                if name != _LATEST_VERSION.name:
                     print(
                         f"WARNING: File {name} is out of date. "
                         "This needs to be updated!"
                     )
-                webbrowser.open(url)
+                _webbrowser.open(url)
                 return
 
 
-class _CheckboxKeys(Enum):
+class _CheckboxKeys(_Enum):
     """
     Keys for checkboxes
     """
@@ -259,13 +276,13 @@ class _CheckboxKeys(Enum):
     SAVE_PLOT = "save_plot"
 
 
-class _TopLevelWithOk(tk.Toplevel):
+class _TopLevelWithOk(_tk.Toplevel):
     """
     Toplevel with an Ok button (provide yourself!)
     """
 
     def __init__(
-        self, on_ok: Callable[[None], None], resume_main: Callable[[None], None]
+        self, on_ok: _Callable[[None], None], resume_main: _Callable[[None], None]
     ):
         """
         :param on_ok: What to do when "Ok" button is pressed
@@ -281,17 +298,17 @@ class _TopLevelWithOk(tk.Toplevel):
         super().destroy()
 
 
-class _TopLevelWithYesNo(tk.Toplevel):
+class _TopLevelWithYesNo(_tk.Toplevel):
     """
     Toplevel holding functions for yes/no buttons to close
     """
 
     def __init__(
         self,
-        on_yes: Callable[[None], None],
-        on_no: Callable[[None], None],
-        on_close: Optional[Callable[[None], None]],
-        resume_main: Callable[[None], None],
+        on_yes: _Callable[[None], None],
+        on_no: _Callable[[None], None],
+        on_close: _Optional[_Callable[[None], None]],
+        resume_main: _Callable[[None], None],
     ):
         """
         :param on_yes: What to do when "Yes" button is pressed.
@@ -321,13 +338,13 @@ class _OkModal(object):
     Message and OK button
     """
 
-    def __init__(self, resume_main, msg: str, label_kwargs: Optional[dict] = None):
+    def __init__(self, resume_main, msg: str, label_kwargs: _Optional[dict] = None):
         label_kwargs = {} if label_kwargs is None else label_kwargs
 
         self._root = _TopLevelWithOk((lambda: None), resume_main)
-        self._text = tk.Label(self._root, text=msg, **label_kwargs)
+        self._text = _tk.Label(self._root, text=msg, **label_kwargs)
         self._text.pack()
-        self._ok = tk.Button(
+        self._ok = _tk.Button(
             self._root,
             text="Ok",
             width=_BUTTON_WIDTH,
@@ -344,38 +361,38 @@ class _YesNoModal(object):
 
     def __init__(
         self,
-        on_yes: Callable[[None], None],
-        on_no: Callable[[None], None],
+        on_yes: _Callable[[None], None],
+        on_no: _Callable[[None], None],
         resume_main,
         msg: str,
-        on_close: Optional[Callable[[None], None]] = None,
-        label_kwargs: Optional[dict] = None,
+        on_close: _Optional[_Callable[[None], None]] = None,
+        label_kwargs: _Optional[dict] = None,
     ):
         label_kwargs = {} if label_kwargs is None else label_kwargs
         self._root = _TopLevelWithYesNo(on_yes, on_no, on_close, resume_main)
-        self._text = tk.Label(self._root, text=msg, **label_kwargs)
+        self._text = _tk.Label(self._root, text=msg, **label_kwargs)
         self._text.pack()
-        self._buttons_frame = tk.Frame(self._root)
+        self._buttons_frame = _tk.Frame(self._root)
         self._buttons_frame.pack()
-        self._yes = tk.Button(
+        self._yes = _tk.Button(
             self._buttons_frame,
             text="Yes",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=lambda: self._root.destroy(pressed_yes=True),
         )
-        self._yes.pack(side=tk.LEFT)
-        self._no = tk.Button(
+        self._yes.pack(side=_tk.LEFT)
+        self._no = _tk.Button(
             self._buttons_frame,
             text="No",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=lambda: self._root.destroy(pressed_no=True),
         )
-        self._no.pack(side=tk.RIGHT)
+        self._no.pack(side=_tk.RIGHT)
 
 
-class _GUIWidgets(Enum):
+class _GUIWidgets(_Enum):
     INPUT_PATH = "input_path"
     OUTPUT_PATH = "output_path"
     TRAINING_DESTINATION = "training_destination"
@@ -385,57 +402,57 @@ class _GUIWidgets(Enum):
     UPDATE = "update"
 
 
-@dataclass
+@_dataclass
 class Checkbox(object):
-    variable: tk.BooleanVar
-    check_button: tk.Checkbutton
+    variable: _tk.BooleanVar
+    check_button: _tk.Checkbutton
 
 
 class GUI(object):
     def __init__(self):
-        self._root = tk.Tk()
+        self._root = _tk.Tk()
         self._root.title(f"NAM Trainer - v{__version__}")
         self._widgets = {}
 
         # Buttons for paths:
-        self._frame_input = tk.Frame(self._root)
+        self._frame_input = _tk.Frame(self._root)
         self._frame_input.pack(anchor="w")
         self._widgets[_GUIWidgets.INPUT_PATH] = _InputPathButton(
             self._frame_input,
             "Input Audio",
-            f"Select input (DI) file (e.g. {LATEST_VERSION.name})",
+            f"Select input (DI) file (e.g. {_LATEST_VERSION.name})",
             _PathType.FILE,
-            settings.PathKey.INPUT_FILE,
+            _settings.PathKey.INPUT_FILE,
             hooks=[self._check_button_states],
         )
 
-        self._frame_output_path = tk.Frame(self._root)
+        self._frame_output_path = _tk.Frame(self._root)
         self._frame_output_path.pack(anchor="w")
         self._widgets[_GUIWidgets.OUTPUT_PATH] = _PathButton(
             self._frame_output_path,
             "Output Audio",
             "Select output (reamped) file - (Choose MULTIPLE FILES to enable BATCH TRAINING)",
             _PathType.MULTIFILE,
-            settings.PathKey.OUTPUT_FILE,
+            _settings.PathKey.OUTPUT_FILE,
             hooks=[self._check_button_states],
         )
 
-        self._frame_train_destination = tk.Frame(self._root)
+        self._frame_train_destination = _tk.Frame(self._root)
         self._frame_train_destination.pack(anchor="w")
         self._widgets[_GUIWidgets.TRAINING_DESTINATION] = _PathButton(
             self._frame_train_destination,
             "Train Destination",
             "Select training output directory",
             _PathType.DIRECTORY,
-            settings.PathKey.TRAINING_DESTINATION,
+            _settings.PathKey.TRAINING_DESTINATION,
             hooks=[self._check_button_states],
         )
 
         # Metadata
-        self.user_metadata = UserMetadata()
-        self._frame_metadata = tk.Frame(self._root)
+        self.user_metadata = _UserMetadata()
+        self._frame_metadata = _tk.Frame(self._root)
         self._frame_metadata.pack(anchor="w")
-        self._widgets["metadata"] = tk.Button(
+        self._widgets["metadata"] = _tk.Button(
             self._frame_metadata,
             text="Metadata...",
             width=_BUTTON_WIDTH,
@@ -449,16 +466,16 @@ class GUI(object):
         self._get_additional_options_frame()
 
         # Last frames: avdanced options & train in the SE corner:
-        self._frame_advanced_options = tk.Frame(self._root)
-        self._frame_train = tk.Frame(self._root)
-        self._frame_update = tk.Frame(self._root)
+        self._frame_advanced_options = _tk.Frame(self._root)
+        self._frame_train = _tk.Frame(self._root)
+        self._frame_update = _tk.Frame(self._root)
         # Pack must be in reverse order
-        self._frame_update.pack(side=tk.BOTTOM, anchor="e")
-        self._frame_train.pack(side=tk.BOTTOM, anchor="e")
-        self._frame_advanced_options.pack(side=tk.BOTTOM, anchor="e")
+        self._frame_update.pack(side=_tk.BOTTOM, anchor="e")
+        self._frame_train.pack(side=_tk.BOTTOM, anchor="e")
+        self._frame_advanced_options.pack(side=_tk.BOTTOM, anchor="e")
 
         # Advanced options for training
-        default_architecture = core.Architecture.STANDARD
+        default_architecture = _core.Architecture.STANDARD
         self.advanced_options = AdvancedOptions(
             default_architecture,
             _DEFAULT_NUM_EPOCHS,
@@ -468,7 +485,7 @@ class GUI(object):
         )
         # Window to edit them:
 
-        self._widgets[_GUIWidgets.ADVANCED_OPTIONS] = tk.Button(
+        self._widgets[_GUIWidgets.ADVANCED_OPTIONS] = _tk.Button(
             self._frame_advanced_options,
             text="Advanced options...",
             width=_BUTTON_WIDTH,
@@ -479,7 +496,7 @@ class GUI(object):
 
         # Train button
 
-        self._widgets[_GUIWidgets.TRAIN] = tk.Button(
+        self._widgets[_GUIWidgets.TRAIN] = _tk.Button(
             self._frame_train,
             text="Train",
             width=_BUTTON_WIDTH,
@@ -492,7 +509,7 @@ class GUI(object):
 
         self._check_button_states()
 
-    def core_train_kwargs(self) -> Dict[str, Any]:
+    def core_train_kwargs(self) -> _Dict[str, _Any]:
         """
         Get any additional kwargs to provide to `core.train`
         """
@@ -528,29 +545,29 @@ class GUI(object):
                 self._widgets[_GUIWidgets.TRAINING_DESTINATION],
             )
         ):
-            self._widgets[_GUIWidgets.TRAIN]["state"] = tk.DISABLED
+            self._widgets[_GUIWidgets.TRAIN]["state"] = _tk.DISABLED
             return
-        self._widgets[_GUIWidgets.TRAIN]["state"] = tk.NORMAL
+        self._widgets[_GUIWidgets.TRAIN]["state"] = _tk.NORMAL
 
     def _get_additional_options_frame(self):
         # Checkboxes
         # TODO get these definitions into __init__()
-        self._frame_checkboxes = tk.Frame(self._root)
-        self._frame_checkboxes.pack(side=tk.LEFT)
+        self._frame_checkboxes = _tk.Frame(self._root)
+        self._frame_checkboxes.pack(side=_tk.LEFT)
         row = 1
 
         def make_checkbox(
             key: _CheckboxKeys, text: str, default_value: bool
         ) -> Checkbox:
-            variable = tk.BooleanVar()
+            variable = _tk.BooleanVar()
             variable.set(default_value)
-            check_button = tk.Checkbutton(
+            check_button = _tk.Checkbutton(
                 self._frame_checkboxes, text=text, variable=variable
             )
             self._checkboxes[key] = Checkbox(variable, check_button)
             self._widgets[key] = check_button  # For tracking in set-all-widgets ops
 
-        self._checkboxes: Dict[_CheckboxKeys, Checkbox] = dict()
+        self._checkboxes: _Dict[_CheckboxKeys, Checkbox] = dict()
         make_checkbox(
             _CheckboxKeys.SILENT_TRAINING,
             "Silent run (suggested for batch training)",
@@ -568,7 +585,7 @@ class GUI(object):
         self._root.mainloop()
 
     def _disable(self):
-        self._set_all_widget_states_to(tk.DISABLED)
+        self._set_all_widget_states_to(_tk.DISABLED)
 
     def _open_advanced_options(self):
         """
@@ -584,15 +601,15 @@ class GUI(object):
 
         self._wait_while_func(lambda resume: UserMetadataGUI(resume, self))
 
-    def _pack_update_button(self, version_from: Version, version_to: Version):
+    def _pack_update_button(self, version_from: _Version, version_to: _Version):
         """
         Pack a button that a user can click to update
         """
 
         def update_nam():
-            result = subprocess.run(
+            result = _subprocess.run(
                 [
-                    f"{sys.executable}",
+                    f"{_sys.executable}",
                     "-m",
                     "pip",
                     "install",
@@ -611,7 +628,7 @@ class GUI(object):
                     "Update failed! See logs.",
                 )
 
-        self._widgets[_GUIWidgets.UPDATE] = tk.Button(
+        self._widgets[_GUIWidgets.UPDATE] = _tk.Button(
             self._frame_update,
             text=f"Update ({str(version_from)} -> {str(version_to)})",
             width=_BUTTON_WIDTH,
@@ -621,18 +638,18 @@ class GUI(object):
         self._widgets[_GUIWidgets.UPDATE].pack()
 
     def _pack_update_button_if_update_is_available(self):
-        class UpdateInfo(NamedTuple):
+        class UpdateInfo(_NamedTuple):
             available: bool
-            current_version: Version
-            new_version: Optional[Version]
+            current_version: _Version
+            new_version: _Optional[_Version]
 
         def get_info() -> UpdateInfo:
             # TODO error handling
             url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
-            current_version = get_current_version()
+            current_version = _get_current_version()
             try:
-                response = requests.get(url)
-            except requests.exceptions.ConnectionError:
+                response = _requests.get(url)
+            except _requests.exceptions.ConnectionError:
                 print("WARNING: Failed to reach the server to check for updates")
                 return UpdateInfo(
                     available=False, current_version=current_version, new_version=None
@@ -651,7 +668,7 @@ class GUI(object):
                         if not tag.startswith("v"):
                             print(f"Found invalid version {tag}")
                         else:
-                            this_version = Version.from_string(tag[1:])
+                            this_version = _Version.from_string(tag[1:])
                             if latest_version is None or this_version > latest_version:
                                 latest_version = this_version
                 else:
@@ -672,7 +689,7 @@ class GUI(object):
             )
 
     def _resume(self):
-        self._set_all_widget_states_to(tk.NORMAL)
+        self._set_all_widget_states_to(_tk.NORMAL)
         self._check_button_states()
 
     def _set_all_widget_states_to(self, state):
@@ -700,12 +717,12 @@ class GUI(object):
         # Run it
         for file in file_list:
             print(f"Now training {file}")
-            basename = re.sub(r"\.wav$", "", file.split("/")[-1])
+            basename = _re.sub(r"\.wav$", "", file.split("/")[-1])
             user_metadata = (
-                self.user_metadata if self.user_metadata_flag else UserMetadata()
+                self.user_metadata if self.user_metadata_flag else _UserMetadata()
             )
 
-            train_output = core.train(
+            train_output = _core.train(
                 input_path,
                 file,
                 self._widgets[_GUIWidgets.TRAINING_DESTINATION].val,
@@ -735,7 +752,7 @@ class GUI(object):
                 basename=basename,
                 user_metadata=user_metadata,
                 other_metadata={
-                    metadata.TRAINING_KEY: train_output.metadata.model_dump()
+                    _metadata.TRAINING_KEY: train_output.metadata.model_dump()
                 },
             )
             print("Done!")
@@ -745,7 +762,7 @@ class GUI(object):
         self.user_metadata_flag = False
 
     def _validate_all_data(
-        self, input_path: Path, output_paths: Sequence[Path]
+        self, input_path: _Path, output_paths: _Sequence[_Path]
     ) -> bool:
         """
         Validate all the data.
@@ -757,14 +774,14 @@ class GUI(object):
         """
 
         def make_message_for_file(
-            output_path: str, validation_output: core.DataValidationOutput
+            output_path: str, validation_output: _core.DataValidationOutput
         ) -> str:
             """
             State the file and explain what's wrong with it.
             """
             # TODO put this closer to what it looks at, i.e. core.DataValidationOutput
             msg = (
-                f"\t{Path(output_path).name}:\n"  # They all have the same directory so
+                f"\t{_Path(output_path).name}:\n"  # They all have the same directory so
             )
             if not validation_output.sample_rate.passed:
                 msg += (
@@ -798,14 +815,14 @@ class GUI(object):
                 msg += "\t\t* A data check failed (TODO in more detail).\n"
             if not validation_output.pytorch.passed:
                 msg += "\t\t* PyTorch data set errors:\n"
-                for split in Split:
+                for split in _Split:
                     split_validation = getattr(validation_output.pytorch, split.value)
                     if not split_validation.passed:
                         msg += f"   * {split.value:10s}: {split_validation.msg}\n"
             return msg
 
         # Validate input
-        input_validation = core.validate_input(input_path)
+        input_validation = _core.validate_input(input_path)
         if not input_validation.passed:
             self._wait_while_func(
                 (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
@@ -816,7 +833,7 @@ class GUI(object):
 
         user_latency = self.advanced_options.latency
         file_validation_outputs = {
-            output_path: core.validate_data(
+            output_path: _core.validate_data(
                 input_path,
                 output_path,
                 user_latency,
@@ -920,12 +937,12 @@ def _rstripped_str(val):
     return str(val).rstrip()
 
 
-class _SettingWidget(abc.ABC):
+class _SettingWidget(_abc.ABC):
     """
     A widget for the user to interact with to set something
     """
 
-    @abc.abstractmethod
+    @_abc.abstractmethod
     def get(self):
         pass
 
@@ -936,7 +953,11 @@ class LabeledOptionMenu(_SettingWidget):
     """
 
     def __init__(
-        self, frame: tk.Frame, label: str, choices: Enum, default: Optional[Enum] = None
+        self,
+        frame: _tk.Frame,
+        label: str,
+        choices: _Enum,
+        default: _Optional[_Enum] = None,
     ):
         """
         :param command: Called to propagate option selection. Is provided with the
@@ -946,7 +967,7 @@ class LabeledOptionMenu(_SettingWidget):
         self._choices = choices
         height = _BUTTON_HEIGHT
         bg = None
-        self._label = tk.Label(
+        self._label = _tk.Label(
             frame,
             width=_ADVANCED_OPTIONS_LEFT_WIDTH,
             height=height,
@@ -954,26 +975,26 @@ class LabeledOptionMenu(_SettingWidget):
             anchor="w",
             text=label,
         )
-        self._label.pack(side=tk.LEFT)
+        self._label.pack(side=_tk.LEFT)
 
-        frame_menu = tk.Frame(frame)
-        frame_menu.pack(side=tk.RIGHT)
+        frame_menu = _tk.Frame(frame)
+        frame_menu.pack(side=_tk.RIGHT)
 
         self._selected_value = None
         default = (list(choices)[0] if default is None else default).value
-        self._menu = tk.OptionMenu(
+        self._menu = _tk.OptionMenu(
             frame_menu,
-            tk.StringVar(master=frame, value=default, name=label),
+            _tk.StringVar(master=frame, value=default, name=label),
             # default,
             *[choice.value for choice in choices],  #  if choice.value!=default],
             command=self._set,
         )
         self._menu.config(width=_ADVANCED_OPTIONS_RIGHT_WIDTH)
-        self._menu.pack(side=tk.RIGHT)
+        self._menu.pack(side=_tk.RIGHT)
         # Initialize
         self._set(default)
 
-    def get(self) -> Enum:
+    def get(self) -> _Enum:
         return self._selected_value
 
     def _set(self, val: str):
@@ -992,12 +1013,12 @@ class _Hovertip(Hovertip):
 
     def showcontents(self):
         # Override
-        label = tk.Label(
+        label = _tk.Label(
             self.tipwindow,
             text=self.text,
-            justify=tk.LEFT,
+            justify=_tk.LEFT,
             background="#ffffe0",
-            relief=tk.SOLID,
+            relief=_tk.SOLID,
             borderwidth=1,
             fg="black",
         )
@@ -1011,7 +1032,7 @@ class LabeledText(_SettingWidget):
 
     def __init__(
         self,
-        frame: tk.Frame,
+        frame: _tk.Frame,
         label: str,
         default=None,
         type=None,
@@ -1028,7 +1049,7 @@ class LabeledText(_SettingWidget):
         self._frame = frame
         label_height = 2
         text_height = 1
-        self._label = tk.Label(
+        self._label = _tk.Label(
             frame,
             width=left_width,
             height=label_height,
@@ -1036,15 +1057,15 @@ class LabeledText(_SettingWidget):
             anchor="e",
             text=label,
         )
-        self._label.pack(side=tk.LEFT)
+        self._label.pack(side=_tk.LEFT)
 
-        self._text = tk.Text(
+        self._text = _tk.Text(
             frame,
             width=right_width,
             height=text_height,
             bg=None,
         )
-        self._text.pack(side=tk.RIGHT)
+        self._text.pack(side=_tk.RIGHT)
 
         self._type = (lambda x: x) if type is None else type
 
@@ -1052,10 +1073,10 @@ class LabeledText(_SettingWidget):
             self._text.insert("1.0", str(default))
 
         # You can assign a tooltip for the label if you'd like.
-        self.label_tooltip: Optional[_Hovertip] = None
+        self.label_tooltip: _Optional[_Hovertip] = None
 
     @property
-    def label(self) -> tk.Label:
+    def label(self) -> _tk.Label:
         return self._label
 
     def get(self):
@@ -1064,7 +1085,7 @@ class LabeledText(_SettingWidget):
         May throw a tk.TclError indicating something went wrong getting the value.
         """
         # "1.0" means Line 1, character zero (wat)
-        return self._type(self._text.get("1.0", tk.END))
+        return self._type(self._text.get("1.0", _tk.END))
 
 
 class AdvancedOptionsGUI(object):
@@ -1080,9 +1101,9 @@ class AdvancedOptionsGUI(object):
         self.pack()
 
         # "Ok": apply and destroy
-        self._frame_ok = tk.Frame(self._root)
+        self._frame_ok = _tk.Frame(self._root)
         self._frame_ok.pack()
-        self._button_ok = tk.Button(
+        self._button_ok = _tk.Button(
             self._frame_ok,
             text="Ok",
             width=_BUTTON_WIDTH,
@@ -1113,17 +1134,17 @@ class AdvancedOptionsGUI(object):
         # easier to work with.
 
         # Architecture: radio buttons
-        self._frame_architecture = tk.Frame(self._root)
+        self._frame_architecture = _tk.Frame(self._root)
         self._frame_architecture.pack()
         self._architecture = LabeledOptionMenu(
             self._frame_architecture,
             "Architecture",
-            core.Architecture,
+            _core.Architecture,
             default=self._parent.advanced_options.architecture,
         )
 
         # Number of epochs: text box
-        self._frame_epochs = tk.Frame(self._root)
+        self._frame_epochs = _tk.Frame(self._root)
         self._frame_epochs.pack()
 
         self._num_epochs = LabeledText(
@@ -1134,7 +1155,7 @@ class AdvancedOptionsGUI(object):
         )
 
         # Delay: text box
-        self._frame_latency = tk.Frame(self._root)
+        self._frame_latency = _tk.Frame(self._root)
         self._frame_latency.pack()
 
         self._latency = LabeledText(
@@ -1145,7 +1166,7 @@ class AdvancedOptionsGUI(object):
         )
 
         # Threshold ESR
-        self._frame_threshold_esr = tk.Frame(self._root)
+        self._frame_threshold_esr = _tk.Frame(self._root)
         self._frame_threshold_esr.pack()
         self._threshold_esr = LabeledText(
             self._frame_threshold_esr,
@@ -1168,9 +1189,9 @@ class UserMetadataGUI(object):
         self.pack()
 
         # "Ok": apply and destroy
-        self._frame_ok = tk.Frame(self._root)
+        self._frame_ok = _tk.Frame(self._root)
         self._frame_ok.pack()
-        self._button_ok = tk.Button(
+        self._button_ok = _tk.Button(
             self._frame_ok,
             text="Ok",
             width=_BUTTON_WIDTH,
@@ -1210,7 +1231,7 @@ class UserMetadataGUI(object):
         # TODO things that are `_SettingWidget`s are named carefully, need to make this
         # easier to work with.
 
-        LabeledText_ = partial(
+        LabeledText_ = _partial(
             LabeledText,
             left_width=_METADATA_LEFT_WIDTH,
             right_width=_METADATA_RIGHT_WIDTH,
@@ -1218,7 +1239,7 @@ class UserMetadataGUI(object):
         parent = self._parent
 
         # Name
-        self._frame_name = tk.Frame(self._root)
+        self._frame_name = _tk.Frame(self._root)
         self._frame_name.pack()
         self._name = LabeledText_(
             self._frame_name,
@@ -1227,7 +1248,7 @@ class UserMetadataGUI(object):
             type=_rstripped_str,
         )
         # Modeled by
-        self._frame_modeled_by = tk.Frame(self._root)
+        self._frame_modeled_by = _tk.Frame(self._root)
         self._frame_modeled_by.pack()
         self._modeled_by = LabeledText_(
             self._frame_modeled_by,
@@ -1236,7 +1257,7 @@ class UserMetadataGUI(object):
             type=_rstripped_str,
         )
         # Gear make
-        self._frame_gear_make = tk.Frame(self._root)
+        self._frame_gear_make = _tk.Frame(self._root)
         self._frame_gear_make.pack()
         self._gear_make = LabeledText_(
             self._frame_gear_make,
@@ -1245,7 +1266,7 @@ class UserMetadataGUI(object):
             type=_rstripped_str,
         )
         # Gear model
-        self._frame_gear_model = tk.Frame(self._root)
+        self._frame_gear_model = _tk.Frame(self._root)
         self._frame_gear_model.pack()
         self._gear_model = LabeledText_(
             self._frame_gear_model,
@@ -1254,7 +1275,7 @@ class UserMetadataGUI(object):
             type=_rstripped_str,
         )
         # Calibration: input & output dBu
-        self._frame_input_dbu = tk.Frame(self._root)
+        self._frame_input_dbu = _tk.Frame(self._root)
         self._frame_input_dbu.pack()
         self._input_level_dbu = LabeledText_(
             self._frame_input_dbu,
@@ -1272,7 +1293,7 @@ class UserMetadataGUI(object):
                 "Record the value here."
             ),
         )
-        self._frame_output_dbu = tk.Frame(self._root)
+        self._frame_output_dbu = _tk.Frame(self._root)
         self._frame_output_dbu.pack()
         self._output_level_dbu = LabeledText_(
             self._frame_output_dbu,
@@ -1293,36 +1314,36 @@ class UserMetadataGUI(object):
             ),
         )
         # Gear type
-        self._frame_gear_type = tk.Frame(self._root)
+        self._frame_gear_type = _tk.Frame(self._root)
         self._frame_gear_type.pack()
         self._gear_type = LabeledOptionMenu(
             self._frame_gear_type,
             "Gear type",
-            GearType,
+            _GearType,
             default=parent.user_metadata.gear_type,
         )
         # Tone type
-        self._frame_tone_type = tk.Frame(self._root)
+        self._frame_tone_type = _tk.Frame(self._root)
         self._frame_tone_type.pack()
         self._tone_type = LabeledOptionMenu(
             self._frame_tone_type,
             "Tone type",
-            ToneType,
+            _ToneType,
             default=parent.user_metadata.tone_type,
         )
 
 
 def _install_error():
-    window = tk.Tk()
+    window = _tk.Tk()
     window.title("ERROR")
-    label = tk.Label(
+    label = _tk.Label(
         window,
         width=45,
         height=2,
         text="The NAM training software has not been installed correctly.",
     )
     label.pack()
-    button = tk.Button(window, width=10, height=2, text="Quit", command=window.destroy)
+    button = _tk.Button(window, width=10, height=2, text="Quit", command=window.destroy)
     button.pack()
     window.mainloop()
 

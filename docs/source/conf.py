@@ -12,8 +12,8 @@ copyright = "2024 Steven Atkinson"
 author = "Steven Atkinson"
 
 # TODO update this automatically from nam.__version__!
-release = "0.11"
-version = "0.11.1"
+release = "0.12"
+version = "0.12.0"
 
 # -- General configuration
 

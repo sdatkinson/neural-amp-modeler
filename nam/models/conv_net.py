@@ -2,28 +2,37 @@
 # Created Date: Saturday February 5th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import json
-import math
-from enum import Enum
-from functools import partial
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Optional, Sequence, Tuple, Union
+import json as _json
+import math as _math
+from enum import Enum as _Enum
+from functools import partial as _partial
+from pathlib import Path as _Path
+from tempfile import TemporaryDirectory as _TemporaryDirectory
+from typing import (
+    Optional as _Optional,
+    Sequence as _Sequence,
+    Tuple as _Tuple,
+    Union as _Union,
+)
 
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import numpy as _np
+import torch as _torch
+import torch.nn as _nn
+import torch.nn.functional as _F
 
 
 from .. import __version__
-from ..data import wav_to_tensor
-from ._activations import get_activation
-from .base import BaseNet
-from ._names import ACTIVATION_NAME, BATCHNORM_NAME, CONV_NAME
+from ..data import wav_to_tensor as _wav_to_tensor
+from ._activations import get_activation as _get_activation
+from .base import BaseNet as _BaseNet
+from ._names import (
+    ACTIVATION_NAME as _ACTIVATION_NAME,
+    BATCHNORM_NAME as _BATCHNORM_NAME,
+    CONV_NAME as _CONV_NAME,
+)
 
 
-class TrainStrategy(Enum):
+class TrainStrategy(_Enum):
     STRIDE = "stride"
     DILATE = "dilate"
 
@@ -31,7 +40,7 @@ class TrainStrategy(Enum):
 default_train_strategy = TrainStrategy.DILATE
 
 
-class _Functional(nn.Module):
+class _Functional(_nn.Module):
     """
     Define a layer by a function w/ no params
     """
@@ -44,37 +53,37 @@ class _Functional(nn.Module):
         return self._op(*args, **kwargs)
 
 
-class _IR(nn.Module):
-    def __init__(self, filename: Union[str, Path]):
+class _IR(_nn.Module):
+    def __init__(self, filename: _Union[str, _Path]):
         super().__init__()
-        self.register_buffer("_weight", reversed(wav_to_tensor(filename))[None, None])
+        self.register_buffer("_weight", reversed(_wav_to_tensor(filename))[None, None])
 
     @property
     def length(self) -> int:
         return self._weight.shape[-1]
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: _torch.Tensor) -> _torch.Tensor:
         """
         :param x: (N,D)
         :return: (N,D-length+1)
         """
-        return F.conv1d(x[:, None], self._weight)[:, 0]
+        return _F.conv1d(x[:, None], self._weight)[:, 0]
 
 
 def _conv_net(
     channels: int = 32,
-    dilations: Sequence[int] = None,
+    dilations: _Sequence[int] = None,
     batchnorm: bool = False,
     activation: str = "Tanh",
-) -> nn.Sequential:
+) -> _nn.Sequential:
     def block(cin, cout, dilation):
-        net = nn.Sequential()
+        net = _nn.Sequential()
         net.add_module(
-            CONV_NAME, nn.Conv1d(cin, cout, 2, dilation=dilation, bias=not batchnorm)
+            _CONV_NAME, _nn.Conv1d(cin, cout, 2, dilation=dilation, bias=not batchnorm)
         )
         if batchnorm:
-            net.add_module(BATCHNORM_NAME, nn.BatchNorm1d(cout))
-        net.add_module(ACTIVATION_NAME, get_activation(activation))
+            net.add_module(_BATCHNORM_NAME, _nn.BatchNorm1d(cout))
+        net.add_module(_ACTIVATION_NAME, _get_activation(activation))
         return net
 
     def check_and_expand(n, x):
@@ -86,19 +95,19 @@ def _conv_net(
 
     dilations = [1, 2, 4, 8] if dilations is None else dilations
     receptive_field = sum(dilations) + 1
-    net = nn.Sequential()
-    net.add_module("expand", _Functional(partial(check_and_expand, receptive_field)))
+    net = _nn.Sequential()
+    net.add_module("expand", _Functional(_partial(check_and_expand, receptive_field)))
     cin = 1
     cout = channels
     for i, dilation in enumerate(dilations):
         net.add_module(f"block_{i}", block(cin, cout, dilation))
         cin = cout
-    net.add_module("head", nn.Conv1d(channels, 1, 1))
-    net.add_module("flatten", nn.Flatten())
+    net.add_module("head", _nn.Conv1d(channels, 1, 1))
+    net.add_module("flatten", _nn.Flatten())
     return net
 
 
-class ConvNet(BaseNet):
+class ConvNet(_BaseNet):
     """
     A straightforward convolutional neural network.
 
@@ -109,8 +118,8 @@ class ConvNet(BaseNet):
         self,
         *args,
         train_strategy: TrainStrategy = default_train_strategy,
-        ir: Optional[_IR] = None,
-        sample_rate: Optional[float] = None,
+        ir: _Optional[_IR] = None,
+        sample_rate: _Optional[float] = None,
         **kwargs,
     ):
         super().__init__(sample_rate=sample_rate)
@@ -149,12 +158,12 @@ class ConvNet(BaseNet):
     @property
     def _activation(self):
         return (
-            self._net._modules["block_0"]._modules[ACTIVATION_NAME].__class__.__name__
+            self._net._modules["block_0"]._modules[_ACTIVATION_NAME].__class__.__name__
         )
 
     @property
     def _channels(self) -> int:
-        return self._net._modules["block_0"]._modules[CONV_NAME].weight.shape[0]
+        return self._net._modules["block_0"]._modules[_CONV_NAME].weight.shape[0]
 
     @property
     def _num_layers(self) -> int:
@@ -162,14 +171,14 @@ class ConvNet(BaseNet):
 
     @property
     def _batchnorm(self) -> bool:
-        return BATCHNORM_NAME in self._net._modules["block_0"]._modules
+        return _BATCHNORM_NAME in self._net._modules["block_0"]._modules
 
-    def export_cpp_header(self, filename: Path):
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self.export(Path(tmpdir))
-            with open(Path(tmpdir, "config.json"), "r") as fp:
-                _c = json.load(fp)
+    def export_cpp_header(self, filename: _Path):
+        with _TemporaryDirectory() as tmpdir:
+            tmpdir = _Path(tmpdir)
+            self.export(_Path(tmpdir))
+            with open(_Path(tmpdir, "config.json"), "r") as fp:
+                _c = _json.load(fp)
             version = _c["version"]
             config = _c["config"]
             with open(filename, "w") as f:
@@ -187,7 +196,10 @@ class ConvNet(BaseNet):
                         f"const std::string ACTIVATION = \"{config['activation']}\";\n",
                         "std::vector<float> PARAMS{"
                         + ",".join(
-                            [f"{w:.16f}" for w in np.load(Path(tmpdir, "weights.npy"))]
+                            [
+                                f"{w:.16f}"
+                                for w in _np.load(_Path(tmpdir, "weights.npy"))
+                            ]
                         )
                         + "};\n",
                     )
@@ -201,11 +213,11 @@ class ConvNet(BaseNet):
             "activation": self._activation,
         }
 
-    def _export_input_output(self, x=None) -> Tuple[np.ndarray, np.ndarray]:
+    def _export_input_output(self, x=None) -> _Tuple[_np.ndarray, _np.ndarray]:
         """
         :return: (L,), (L,)
         """
-        with torch.no_grad():
+        with _torch.no_grad():
             training = self.training
             self.eval()
             x = self._export_input_signal() if x is None else x
@@ -222,18 +234,18 @@ class ConvNet(BaseNet):
             raise RuntimeError(
                 "Cannot export model's input and output without a sample rate."
             )
-        return torch.cat(
+        return _torch.cat(
             [
-                torch.zeros((rate,)),
+                _torch.zeros((rate,)),
                 0.5
-                * torch.sin(
-                    2.0 * math.pi * 220.0 * torch.linspace(0.0, 1.0, rate + 1)[:-1]
+                * _torch.sin(
+                    2.0 * _math.pi * 220.0 * _torch.linspace(0.0, 1.0, rate + 1)[:-1]
                 ),
-                torch.zeros((rate,)),
+                _torch.zeros((rate,)),
             ]
         )
 
-    def _export_weights(self) -> np.ndarray:
+    def _export_weights(self) -> _np.ndarray:
         """
         weights are serialized to weights.npy in the following order:
         * (expand: no params)
@@ -256,21 +268,21 @@ class ConvNet(BaseNet):
         for i in range(self._num_layers):
             block_name = f"block_{i}"
             block = self._net._modules[block_name]
-            conv = block._modules[CONV_NAME]
+            conv = block._modules[_CONV_NAME]
             params.append(conv.weight.flatten())
             if conv.bias is not None:
                 params.append(conv.bias.flatten())
             if self._batchnorm:
-                bn = block._modules[BATCHNORM_NAME]
+                bn = block._modules[_BATCHNORM_NAME]
                 params.append(bn.running_mean.flatten())
                 params.append(bn.running_var.flatten())
                 params.append(bn.weight.flatten())
                 params.append(bn.bias.flatten())
-                params.append(torch.Tensor([bn.eps]).to(bn.weight.device))
+                params.append(_torch.Tensor([bn.eps]).to(bn.weight.device))
         head = self._net._modules["head"]
         params.append(head.weight.flatten())
         params.append(head.bias.flatten())
-        params = torch.cat(params).detach().cpu().numpy()
+        params = _torch.cat(params).detach().cpu().numpy()
         return params
 
     def _forward(self, x):
@@ -279,13 +291,13 @@ class ConvNet(BaseNet):
             y = self._ir(y)
         return y
 
-    def _get_dilations(self) -> Tuple[int]:
+    def _get_dilations(self) -> _Tuple[int]:
         return tuple(
-            self._net._modules[f"block_{i}"]._modules[CONV_NAME].dilation[0]
+            self._net._modules[f"block_{i}"]._modules[_CONV_NAME].dilation[0]
             for i in range(self._num_blocks)
         )
 
-    def _get_num_blocks(self, net: nn.Sequential):
+    def _get_num_blocks(self, net: _nn.Sequential):
         i = 0
         while True:
             if f"block_{i}" not in net._modules:

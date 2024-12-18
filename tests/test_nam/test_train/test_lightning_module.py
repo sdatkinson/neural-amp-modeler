@@ -48,7 +48,7 @@ def test_mrstft_loss_cpu_fallback(mocker):
             raise RuntimeError("Trigger fallback")
         return _torch.tensor(1.0)
 
-    mocker.patch("nam.train.lightning_module.multi_resolution_stft_loss", mocked_loss)
+    mocker.patch("nam.train.lightning_module._multi_resolution_stft_loss", mocked_loss)
 
     batch_size = 3
     sequence_length = 4096

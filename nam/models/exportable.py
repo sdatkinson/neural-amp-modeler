@@ -2,32 +2,39 @@
 # Created Date: Tuesday February 8th 2022
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import abc
-import json
-import logging
-from datetime import datetime
-from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+import abc as _abc
+import json as _json
+import logging as _logging
+from datetime import datetime as _datetime
+from enum import Enum as _Enum
+from pathlib import Path as _Path
+from typing import (
+    Any as _Any,
+    Dict as _Dict,
+    Optional as _Optional,
+    Sequence as _Sequence,
+    Tuple as _Tuple,
+    Union as _Union,
+)
 
-import numpy as np
+import numpy as _np
 
-from .metadata import Date, UserMetadata
+from .metadata import Date as _Date, UserMetadata as _UserMetadata
 
-logger = logging.getLogger(__name__)
+logger = _logging.getLogger(__name__)
 
 # Model version is independent from package version as of package version 0.5.2 so that
 # the API of the package can iterate at a different pace from that of the model files.
 _MODEL_VERSION = "0.5.4"
 
 
-def _cast_enums(d: Dict[Any, Any]) -> Dict[Any, Any]:
+def _cast_enums(d: _Dict[_Any, _Any]) -> _Dict[_Any, _Any]:
     """
     Casts enum-type keys to their values
     """
     out = {}
     for key, val in d.items():
-        if isinstance(val, Enum):
+        if isinstance(val, _Enum):
             val = val.value
         if isinstance(val, dict):
             val = _cast_enums(val)
@@ -35,7 +42,7 @@ def _cast_enums(d: Dict[Any, Any]) -> Dict[Any, Any]:
     return out
 
 
-class Exportable(abc.ABC):
+class Exportable(_abc.ABC):
     """
     Interface for my custon export format for use in the plugin.
     """
@@ -44,11 +51,11 @@ class Exportable(abc.ABC):
 
     def export(
         self,
-        outdir: Path,
+        outdir: _Path,
         include_snapshot: bool = False,
         basename: str = "model",
-        user_metadata: Optional[UserMetadata] = None,
-        other_metadata: Optional[dict] = None,
+        user_metadata: _Optional[_UserMetadata] = None,
+        other_metadata: _Optional[dict] = None,
     ):
         """
         Interface for exporting.
@@ -81,29 +88,29 @@ class Exportable(abc.ABC):
 
         training = self.training
         self.eval()
-        with open(Path(outdir, f"{basename}{self.FILE_EXTENSION}"), "w") as fp:
-            json.dump(model_dict, fp)
+        with open(_Path(outdir, f"{basename}{self.FILE_EXTENSION}"), "w") as fp:
+            _json.dump(model_dict, fp)
         if include_snapshot:
             x, y = self._export_input_output()
-            x_path = Path(outdir, "test_inputs.npy")
-            y_path = Path(outdir, "test_outputs.npy")
+            x_path = _Path(outdir, "test_inputs.npy")
+            y_path = _Path(outdir, "test_outputs.npy")
             logger.debug(f"Saving snapshot input to {x_path}")
-            np.save(x_path, x)
+            _np.save(x_path, x)
             logger.debug(f"Saving snapshot output to {y_path}")
-            np.save(y_path, y)
+            _np.save(y_path, y)
 
         # And resume training state
         self.train(training)
 
-    @abc.abstractmethod
-    def export_cpp_header(self, filename: Path):
+    @_abc.abstractmethod
+    def export_cpp_header(self, filename: _Path):
         """
         Export a .h file to compile into the plugin with the weights written right out
         as text
         """
         pass
 
-    def export_onnx(self, filename: Path):
+    def export_onnx(self, filename: _Path):
         """
         Export model in format for ONNX Runtime
         """
@@ -112,7 +119,7 @@ class Exportable(abc.ABC):
             f"{self.__class__.__name__}"
         )
 
-    def import_weights(self, weights: Sequence[float]):
+    def import_weights(self, weights: _Sequence[float]):
         """
         Inverse of `._export_weights()
         """
@@ -121,7 +128,7 @@ class Exportable(abc.ABC):
             "implemented yet."
         )
 
-    @abc.abstractmethod
+    @_abc.abstractmethod
     def _export_config(self):
         """
         Creates the JSON of the model's archtecture hyperparameters (number of layers,
@@ -131,8 +138,8 @@ class Exportable(abc.ABC):
         """
         pass
 
-    @abc.abstractmethod
-    def _export_input_output(self) -> Tuple[np.ndarray, np.ndarray]:
+    @_abc.abstractmethod
+    def _export_input_output(self) -> _Tuple[_np.ndarray, _np.ndarray]:
         """
         Create an input and corresponding output signal to verify its behavior.
 
@@ -141,8 +148,8 @@ class Exportable(abc.ABC):
         """
         pass
 
-    @abc.abstractmethod
-    def _export_weights(self) -> np.ndarray:
+    @_abc.abstractmethod
+    def _export_weights(self) -> _np.ndarray:
         """
         Flatten the weights out to a 1D array
         """
@@ -157,13 +164,13 @@ class Exportable(abc.ABC):
             "weights": self._export_weights().tolist(),
         }
 
-    def _get_non_user_metadata(self) -> Dict[str, Union[str, int, float]]:
+    def _get_non_user_metadata(self) -> _Dict[str, _Union[str, int, float]]:
         """
         Get any metadata that's non-user-provided (date, loudness, gain)
         """
-        t = datetime.now()
+        t = _datetime.now()
         return {
-            "date": Date(
+            "date": _Date(
                 year=t.year,
                 month=t.month,
                 day=t.day,

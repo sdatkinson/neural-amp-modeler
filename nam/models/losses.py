@@ -6,13 +6,13 @@
 Loss functions
 """
 
-from typing import Optional
+from typing import Optional as _Optional
 
-import torch
-from auraloss.freq import MultiResolutionSTFTLoss
+import torch as _torch
+from auraloss.freq import MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss
 
 
-def apply_pre_emphasis_filter(x: torch.Tensor, coef: float) -> torch.Tensor:
+def apply_pre_emphasis_filter(x: _torch.Tensor, coef: float) -> _torch.Tensor:
     """
     Apply first-order pre-emphsis filter
 
@@ -24,7 +24,7 @@ def apply_pre_emphasis_filter(x: torch.Tensor, coef: float) -> torch.Tensor:
     return x[..., 1:] - coef * x[..., :-1]
 
 
-def esr(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+def esr(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
     """
     ESR of (a batch of) predictions & targets
 
@@ -42,18 +42,18 @@ def esr(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         raise ValueError(
             f"Expect 2D targets (batch_size, num_samples). Got {targets.shape}"
         )
-    return torch.mean(
-        torch.mean(torch.square(preds - targets), dim=1)
-        / torch.mean(torch.square(targets), dim=1)
+    return _torch.mean(
+        _torch.mean(_torch.square(preds - targets), dim=1)
+        / _torch.mean(_torch.square(targets), dim=1)
     )
 
 
 def multi_resolution_stft_loss(
-    preds: torch.Tensor,
-    targets: torch.Tensor,
-    loss_func: Optional[MultiResolutionSTFTLoss] = None,
-    device: Optional[torch.device] = None,
-) -> torch.Tensor:
+    preds: _torch.Tensor,
+    targets: _torch.Tensor,
+    loss_func: _Optional[_MultiResolutionSTFTLoss] = None,
+    device: _Optional[_torch.device] = None,
+) -> _torch.Tensor:
     """
     Experimental Multi Resolution Short Time Fourier Transform Loss using auraloss implementation.
     B: Batch size
@@ -66,13 +66,13 @@ def multi_resolution_stft_loss(
     :param device: If provided, send the preds and targets to the provided device.
     :return: ()
     """
-    loss_func = MultiResolutionSTFTLoss() if loss_func is None else loss_func
+    loss_func = _MultiResolutionSTFTLoss() if loss_func is None else loss_func
     if device is not None:
         preds, targets = [z.to(device) for z in (preds, targets)]
     return loss_func(preds, targets)
 
 
-def mse_fft(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+def mse_fft(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
     """
     Fourier loss
 
@@ -80,7 +80,7 @@ def mse_fft(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     :param targets: Same as preds
     :return: ()
     """
-    fp = torch.fft.fft(preds)
-    ft = torch.fft.fft(targets)
+    fp = _torch.fft.fft(preds)
+    ft = _torch.fft.fft(targets)
     e = fp - ft
-    return torch.mean(torch.square(e.abs()))
+    return _torch.mean(_torch.square(e.abs()))
