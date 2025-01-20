@@ -2,7 +2,7 @@
 # Created Date: Saturday February 13th 2021
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-name: nam-test2
+name: nam
 channels:
   - conda-forge # pytest-mock
   - pytorch
