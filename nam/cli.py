@@ -153,3 +153,83 @@ def nam_full():
         learning_config = _json.load(fp)
     
     _nam_full(data_config, model_config, learning_config, outdir, args.no_show)
+
+
+import os
+import importlib
+from pathlib import Path
+from typing import Set
+
+class ModuleLoader:
+    """Safe module loader with security checks"""
+    
+    ALLOWED_EXTENSIONS_DIR = ".neural-amp-modeler/extensions"
+    ALLOWED_MODULE_PREFIXES = {'nam_', 'neural_amp_'}  # Add your allowed prefixes
+    
+    @staticmethod
+    def get_extensions_path() -> Path:
+        """Get validated extensions directory path"""
+        home_env = "HOMEPATH" if os.name == "nt" else "HOME"
+        home_path = os.environ.get(home_env)
+        if not home_path:
+            raise ValueError("Home directory not found")
+            
+        extensions_path = Path(home_path) / ModuleLoader.ALLOWED_EXTENSIONS_DIR
+        return validate_path(str(extensions_path))
+    
+    @classmethod
+    def is_safe_module(cls, name: str) -> bool:
+        """
+        Verify if module name is safe to import
+        """
+        if not name or not isinstance(name, str):
+            return False
+            
+        # Check for path traversal attempts
+        if '/' in name or '\\' in name or '..' in name:
+            return False
+            
+        # Check if module has allowed prefix
+        return any(name.startswith(prefix) for prefix in cls.ALLOWED_MODULE_PREFIXES)
+    
+    @classmethod
+    def load_extensions(cls) -> None:
+        """
+        Safely load extensions from validated path
+        """
+        try:
+            extensions_path = cls.get_extensions_path()
+            if not extensions_path.is_dir():
+                return
+                
+            # Add extensions path to Python path if needed
+            path_added = False
+            if str(extensions_path) not in sys.path:
+                sys.path.append(str(extensions_path))
+                path_added = True
+            
+            # Load allowed modules
+            for item in extensions_path.iterdir():
+                if item.name in {"__pycache__", ".DS_Store"} or item.name.endswith(".py"):
+                    continue
+                    
+                if cls.is_safe_module(item.name):
+                    try:
+                        importlib.import_module(item.name)
+                        print(f"Successfully loaded extension: {item.name}")
+                    except Exception as e:
+                        print(f"Failed to load extension {item.name}: {e}")
+                else:
+                    print(f"Skipped unauthorized module: {item.name}")
+            
+            # Clean up sys.path
+            if path_added:
+                sys.path.remove(str(extensions_path))
+                
+        except Exception as e:
+            print(f"Error loading extensions: {e}")
+
+# Use the secure loader
+def _apply_extensions():
+    """Apply extensions with security measures"""
+    ModuleLoader.load_extensions()
