@@ -1,0 +1,79 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches:
+      - Infra
+  workflow_dispatch:
+      
+  pull_request:
+    branches:
+      - none
+
+env:
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+jobs:
+  snyk-security-scan:
+    name: "Snyk Full Repo Security Scan"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
+      - name: Authenticate with Snyk
+        run: snyk auth $SNYK_TOKEN
+
+      - name: Run Snyk Code Scan (SAST)
+        run: |
+          echo "🔍 Running Snyk Code Security Scan..."
+          snyk code test --severity-threshold=medium | tee snyk-code-results.txt || true
+
+      - name: Run Snyk Open Source Dependency Scan (SCA)
+        run: |
+          echo "🔍 Running Snyk Dependency Security Scan..."
+          snyk test --all-projects --severity-threshold=medium | tee snyk-dependency-results.txt || true
+
+      - name: Run Snyk Infrastructure as Code (IaC) Scan
+        run: |
+          echo "🔍 Running Snyk IaC Security Scan..."
+          snyk iac test --severity-threshold=medium | tee snyk-iac-results.txt || true
+
+      - name: Run Snyk Container Scan (if Dockerfile exists)
+        run: |
+          if [ -f "Dockerfile" ]; then
+            echo "🔍 Running Snyk Container Security Scan..."
+            snyk container test --file=Dockerfile --severity-threshold=medium | tee snyk-container-results.txt || true
+          else
+            echo "⚠️ No Dockerfile found, skipping container scan."
+          fi
+
+      - name: Compute Final Security Score
+        run: |
+          echo "📊 Calculating Security Score..."
+          
+          # Count vulnerabilities across all reports
+          TOTAL_CRITICAL=$(grep -i "Critical" snyk-*.txt | wc -l)
+          TOTAL_HIGH=$(grep -i "High" snyk-*.txt | wc -l)
+          TOTAL_MEDIUM=$(grep -i "Medium" snyk-*.txt | wc -l)
+          TOTAL_LOW=$(grep -i "Low" snyk-*.txt | wc -l)
+
+          # Compute final score (Simple Formula: 100 - Weighted Vulnerabilities)
+          SECURITY_SCORE=$((100 - (TOTAL_CRITICAL * 3) - (TOTAL_HIGH * 2) - (TOTAL_MEDIUM * 1) - (TOTAL_LOW * 0.5)))
+          SECURITY_SCORE=$(( SECURITY_SCORE < 0 ? 0 : SECURITY_SCORE )) # Ensure it doesn't go below 0
+
+          echo "------------------------------------"
+          echo "🔴 Critical: $TOTAL_CRITICAL"
+          echo "🟠 High: $TOTAL_HIGH"
+          echo "🟡 Medium: $TOTAL_MEDIUM"
+          echo "🟢 Low: $TOTAL_LOW"
+          echo "📊 Final Security Score: $SECURITY_SCORE / 100"
+          echo "------------------------------------"
+
+          # Fail workflow if score is too low
+          if [ "$SECURITY_SCORE" -lt 50 ]; then
+            echo "❌ Security Score is too low! Failing the workflow."
+          fi
