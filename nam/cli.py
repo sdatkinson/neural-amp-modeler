@@ -28,50 +28,70 @@ _ensure_graceful_shutdowns()
 # This must happen ASAP but not before the graceful shutdown hack
 def _apply_extensions():
     """
-    Find and apply extensions to NAM
+    Find and apply extensions to NAM with security measures
     """
-
-    def removesuffix(s: str, suffix: str) -> str:
-        # Remove once 3.8 is dropped
-        if len(suffix) == 0:
-            return s
-        return s[: -len(suffix)] if s.endswith(suffix) else s
-
     import importlib
     import os
     import sys
+    import re
 
-    # DRY: Make sure this matches the test!
-    home_path = os.environ["HOMEPATH"] if os.name == "nt" else os.environ["HOME"]
+    # Define allowed module pattern
+    ALLOWED_MODULE_PATTERN = re.compile(r'^[a-zA-Z0-9_]+$')
+    
+    # Validate module name
+    def is_safe_module_name(name: str) -> bool:
+        """
+        Validate module name:
+        - Must match allowed pattern
+        - Must not be a system module
+        - Must not contain path traversal attempts
+        """
+        if not ALLOWED_MODULE_PATTERN.match(name):
+            return False
+        if name in sys.modules:
+            return False
+        if '..' in name or '/' in name or '\\' in name:
+            return False
+        return True
+
+    # Get extensions path securely
+    home_path = os.environ.get("HOMEPATH" if os.name == "nt" else "HOME", "")
+    if not home_path:
+        print("WARNING: Home path not found, skipping extensions")
+        return
+        
     extensions_path = os.path.join(home_path, ".neural-amp-modeler", "extensions")
     if not os.path.exists(extensions_path):
         return
     if not os.path.isdir(extensions_path):
-        print(
-            f"WARNING: non-directory object found at expected extensions path {extensions_path}; skip"
-        )
+        print(f"WARNING: non-directory object found at expected extensions path {extensions_path}; skip")
+        return
+
     print("Applying extensions...")
+    extensions_path_not_in_sys_path = False
     if extensions_path not in sys.path:
         sys.path.append(extensions_path)
         extensions_path_not_in_sys_path = True
-    else:
-        extensions_path_not_in_sys_path = False
+
     for name in os.listdir(extensions_path):
-        if name in {"__pycache__", ".DS_Store"}:
+        if name in {"__pycache__", ".DS_Store"} or name.endswith(".py"):
             continue
+            
+        if not is_safe_module_name(name):
+            print(f"  {name} [SKIPPED] Invalid module name")
+            continue
+            
         try:
-            importlib.import_module(removesuffix(name, ".py"))  # Runs it
+            importlib.import_module(name)
             print(f"  {name} [SUCCESS]")
         except Exception as e:
             print(f"  {name} [FAILED]")
             print(e)
+
+    # Clean up sys.path
     if extensions_path_not_in_sys_path:
-        for i, p in enumerate(sys.path):
-            if p == extensions_path:
-                sys.path = sys.path[:i] + sys.path[i + 1 :]
-                break
-        else:
-            raise RuntimeError("Failed to remove extensions path from sys.path?")
+        sys.path.remove(extensions_path)
+    
     print("Done!")
 
 
