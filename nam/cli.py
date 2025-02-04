@@ -80,10 +80,24 @@ _apply_extensions()
 import json as _json
 from argparse import ArgumentParser as _ArgumentParser
 from pathlib import Path as _Path
+import os
 
 from nam.train.full import main as _nam_full
 from nam.train.gui import run as _nam_gui  # noqa F401 Used as an entry point
 from nam.util import timestamp as _timestamp
+
+
+def validate_path(path_str: str) -> _Path:
+    """verified path"""
+    try:
+        # transform to absolute path
+        abs_path = os.path.abspath(path_str)
+        # ensure path is within allowed directory
+        if not abs_path.startswith(os.getcwd()):
+            raise ValueError("path must be within allowed directory")
+        return _Path(abs_path)
+    except Exception as e:
+        raise ValueError(f"invalid path: {str(e)}")
 
 
 def nam_full():
@@ -96,12 +110,7 @@ def nam_full():
 
     args = parser.parse_args()
 
-    def ensure_outdir(outdir: str) -> _Path:
-        outdir = _Path(outdir, _timestamp())
-        outdir.mkdir(parents=True, exist_ok=False)
-        return outdir
-
-    outdir = ensure_outdir(args.outdir)
+    outdir = validate_path(args.outdir)
     # Read
     with open(args.data_config_path, "r") as fp:
         data_config = _json.load(fp)
