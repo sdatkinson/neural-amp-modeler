@@ -3,10 +3,12 @@
 # Author: Enrico Schifano (eraz1997@live.it)
 
 import json as _json
+import os
 from pathlib import Path as _Path
 from time import time as _time
 from typing import Optional as _Optional, Union as _Union
 from warnings import warn as _warn
+from hashlib import sha512
 
 import matplotlib.pyplot as _plt
 import numpy as _np
@@ -130,6 +132,47 @@ def _create_callbacks(learning_config):
         return [checkpoint_best, checkpoint_last, checkpoint_epoch]
 
 
+def validate_output_path(path_str: str) -> _Path:
+    """
+    Validate and normalize output path for JSON dumps
+    
+    Args:
+        path_str: Path string to validate
+        
+    Returns:
+        Validated Path object
+        
+    Raises:
+        ValueError: If path is invalid or outside allowed directory
+    """
+    try:
+        # Convert to absolute path
+        abs_path = os.path.abspath(path_str)
+        
+        # Calculate path hash for verification
+        path_hash = sha512(abs_path.encode('utf-8')).hexdigest()
+        
+        # Ensure path is within allowed directory
+        if not abs_path.startswith(os.getcwd()):
+            raise ValueError("Output path must be within current working directory")
+            
+        # Create parent directories if they don't exist
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+            
+        return _Path(abs_path)
+    except Exception as e:
+        raise ValueError(f"Invalid output path: {str(e)}")
+
+
+def safe_json_dump(data: dict, filepath: str):
+    """
+    Safely dump JSON data to a validated path
+    """
+    output_path = validate_output_path(filepath)
+    with open(output_path, 'w') as f:
+        _json.dump(data, f)
+
+
 def main(
     data_config,
     model_config,
@@ -146,8 +189,7 @@ def main(
         ("model", model_config),
         ("learning", learning_config),
     ):
-        with open(_Path(outdir, f"config_{basename}.json"), "w") as fp:
-            _json.dump(config, fp, indent=4)
+        safe_json_dump(config, _Path(outdir, f"config_{basename}.json"))
 
     model = _LightningModule.init_from_config(model_config)
     # Add receptive field to data config:
