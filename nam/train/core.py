@@ -466,7 +466,7 @@ def _calibrate_latency_v_all(
 
     delay_post_safety_factor = delay - safety_factor
     print(
-        f"After aplying safety factor of {safety_factor}, the final delay is "
+        f"After apying safety factor of {safety_factor}, the final delay is "
         f"{delay_post_safety_factor}"
     )
     return _metadata.LatencyCalibration(

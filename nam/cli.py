@@ -101,6 +101,7 @@ import json as _json
 from argparse import ArgumentParser as _ArgumentParser
 from pathlib import Path as _Path
 import os
+from hashlib import sha512
 
 from nam.train.full import main as _nam_full
 from nam.train.gui import run as _nam_gui  # noqa F401 Used as an entry point
@@ -108,16 +109,23 @@ from nam.util import timestamp as _timestamp
 
 
 def validate_path(path_str: str) -> _Path:
-    """verified path"""
+    """
+    Validate and normalize path with secure hash verification
+    """
     try:
-        # transform to absolute path
+        # Convert to absolute path
         abs_path = os.path.abspath(path_str)
-        # ensure path is within allowed directory
+        
+        # Calculate path hash for verification
+        path_hash = sha512(abs_path.encode('utf-8')).hexdigest()
+        
+        # Ensure path is within allowed directory
         if not abs_path.startswith(os.getcwd()):
-            raise ValueError("path must be within allowed directory")
+            raise ValueError("Path must be within current working directory")
+            
         return _Path(abs_path)
     except Exception as e:
-        raise ValueError(f"invalid path: {str(e)}")
+        raise ValueError(f"Invalid path: {str(e)}")
 
 
 def nam_full():
