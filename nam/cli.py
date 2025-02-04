@@ -110,12 +110,18 @@ def nam_full():
 
     args = parser.parse_args()
 
+    # Validate all paths
     outdir = validate_path(args.outdir)
-    # Read
-    with open(args.data_config_path, "r") as fp:
+    data_config_path = validate_path(args.data_config_path)
+    model_config_path = validate_path(args.model_config_path)
+    learning_config_path = validate_path(args.learning_config_path)
+
+    # Read configs with validated paths
+    with open(data_config_path, "r") as fp:
         data_config = _json.load(fp)
-    with open(args.model_config_path, "r") as fp:
+    with open(model_config_path, "r") as fp:
         model_config = _json.load(fp)
-    with open(args.learning_config_path, "r") as fp:
+    with open(learning_config_path, "r") as fp:
         learning_config = _json.load(fp)
+    
     _nam_full(data_config, model_config, learning_config, outdir, args.no_show)
