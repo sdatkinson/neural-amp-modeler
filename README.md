@@ -2,9 +2,13 @@
 
 **Total Issues:** 10 (all currently open)
 
+
 ## Severity Breakdown
 - **Medium:** 6  
-- **Low:** 4  
+- **Low:** 4
+
+## Final result:
+<img width="1280" alt="Screenshot 2025-02-05 at 12 06 28 PM" src="https://github.com/user-attachments/assets/24a502b6-b387-4a46-85ce-b2027a715248" />
 
 ## Vulnerability Types
 1. **Path Traversal (7 occurrences)**
