@@ -1,0 +1,23 @@
+name: Snyk Auto-fix
+on:
+  schedule:
+    - cron: "0 3 * * *" # 每天凌晨3點執行
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Run Snyk to fix vulnerabilities
+        uses: snyk/actions/python@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --auto-fix
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v3
+        with:
+          title: "fix: security vulnerabilities"
+          branch: fix/security-updates

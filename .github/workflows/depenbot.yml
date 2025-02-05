@@ -1,0 +1,19 @@
+name: Dependabot
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  dependabot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Dependabot
+        uses: dependabot/setup-python@v4
+        with:
+          package-ecosystem: pip
+          directory: /
+          interval: daily
+          open-pull-requests-limit: 10
+          labels: dependencies, security

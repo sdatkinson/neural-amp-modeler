@@ -1,0 +1,27 @@
+default:
+  image: python:3.9
+
+stages:
+  - test
+  - security
+  - deploy
+
+security_scan:
+  stage: security
+  script:
+    - pip install safety bandit
+    - safety check
+    - bandit -r ./
+  artifacts:
+    reports:
+      junit: security-report.xml
+
+dependency_scan:
+  stage: security
+  script:
+    - pip install pip-audit
+    - pip-audit
+
+sast:
+  stage: security
+  extends: .sast
