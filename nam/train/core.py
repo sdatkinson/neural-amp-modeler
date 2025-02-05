@@ -110,7 +110,7 @@ def _detect_input_version(input_path) -> _Tuple[_Version, bool]:
             Hashes = _Tuple[Hash, Hash]
 
             def _hash(x: _np.ndarray) -> str:
-                return _hashlib.md5(x).hexdigest()
+                return _hashlib.sha256(x).hexdigest()
 
             def assign_hashes_v1(path) -> Hashes:
                 # Use this to create recognized hashes for new files
