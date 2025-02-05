@@ -30,7 +30,7 @@ def _apply_extensions():
     """
     Find and apply extensions to NAM with security measures
     """
-    import importlib
+    from importlib.util import find_spec, module_from_spec, spec_from_file_location
     import os
     import sys
     import re
@@ -82,7 +82,9 @@ def _apply_extensions():
             continue
             
         try:
-            importlib.import_module(name)
+            spec = spec_from_file_location(name, os.path.join(extensions_path, name))
+            module = module_from_spec(spec)
+            spec.loader.exec_module(module)
             print(f"  {name} [SUCCESS]")
         except Exception as e:
             print(f"  {name} [FAILED]")
@@ -100,6 +102,7 @@ _apply_extensions()
 import json as _json
 from argparse import ArgumentParser as _ArgumentParser
 from pathlib import Path as _Path
+from werkzeug.security import safe_join
 import os
 from hashlib import sha512
 
@@ -114,7 +117,7 @@ def validate_path(path_str: str) -> _Path:
     """
     try:
         # Convert to absolute path
-        abs_path = os.path.abspath(path_str)
+        abs_path = safe_join(os.getcwd(), path_str)
         
         # Calculate path hash for verification
         path_hash = sha512(abs_path.encode('utf-8')).hexdigest()
@@ -155,7 +158,6 @@ def nam_full():
     _nam_full(data_config, model_config, learning_config, outdir, args.no_show)
 
 
-import os
 import importlib
 from pathlib import Path
 from typing import Set
@@ -215,7 +217,7 @@ class ModuleLoader:
                     
                 if cls.is_safe_module(item.name):
                     try:
-                        importlib.import_module(item.name)
+                        safe_import_module(item.name)
                         print(f"Successfully loaded extension: {item.name}")
                     except Exception as e:
                         print(f"Failed to load extension {item.name}: {e}")
