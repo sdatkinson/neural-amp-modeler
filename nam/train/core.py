@@ -76,7 +76,7 @@ def _detect_input_version(input_path) -> _Tuple[_Version, bool]:
     def detect_strong(input_path) -> _Optional[_Version]:
         def assign_hash(path):
             # Use this to create hashes for new files
-            md5 = _hashlib.md5()
+            sha256 = _hashlib.sha256()
             buffer_size = 65536
             with open(path, "rb") as f:
                 while True:
@@ -84,7 +84,7 @@ def _detect_input_version(input_path) -> _Tuple[_Version, bool]:
                     if not data:
                         break
                     md5.update(data)
-            file_hash = md5.hexdigest()
+            file_hash = sha256.hexdigest()
             return file_hash
 
         file_hash = assign_hash(input_path)

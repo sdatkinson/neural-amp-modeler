@@ -5,6 +5,7 @@
 import importlib
 import os
 from pathlib import Path
+from werkzeug.security import safe_join
 
 import pytest
 
@@ -21,7 +22,7 @@ def test_extensions():
         i = 0
         while True:
             basename = f"test_extension_{i}.py"
-            path = Path(extensions_path, basename)
+            path = safe_join(extensions_path, basename)
             if not path.exists():
                 return path
             else:
