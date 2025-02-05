@@ -1,0 +1,6 @@
+{
+  "recommendations": [
+    "snyk-security.snyk-vulnerability-scanner",
+    "snyk-security.snyk-vulnerability-scanner-preview"
+  ]
+}
