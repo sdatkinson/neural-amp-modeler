@@ -6,6 +6,7 @@ import pytest as _pytest
 
 import nam as _nam
 
+
 def test_has_version():
     assert hasattr(_nam, "__version__")
 
