@@ -33,3 +33,13 @@ To update an existing installation:
 .. code-block:: console
 
    pip install --upgrade neural-amp-modeler
+
+Local development installation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you're interested in developing this package, there are Anaconda environment
+definitions included in the ``environments/`` directory. Use the one that's
+appropriate for the platform you're developing on. The
+``.github/workflows/python-pckage.yml`` is also helpful if you want to be sure
+that you're testing your developments in the same way that contributions will be
+automatically tested (via GitHub Actions).
