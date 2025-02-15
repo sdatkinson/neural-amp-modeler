@@ -20,7 +20,7 @@ class IncomparableVersionError(ValueError):
 
 
 class Version:
-    def __init__(self, major: int, minor: int, patch: int, dev: _Optional[int] = None):
+    def __init__(self, major: int, minor: int, patch: int, dev: _Optional[str] = None):
         self.major = major
         self.minor = minor
         self.patch = patch
@@ -29,6 +29,26 @@ class Version:
 
     @classmethod
     def from_string(cls, s: str):
+        def special_case(s: str) -> _Optional[dict]:
+            """
+            Regretful hacks
+            """
+            # It seems like the git repo isn't accessible to setuptools_scm's version
+            # guesser, so it comes up with this during install:
+            if s == "0.1.dev1":
+                # This will be fine.
+                return {
+                    "major": 0,
+                    "minor": 1,
+                    "patch": 0,
+                    "dev": "dev1"
+                }
+            return None
+        
+        if special_case(s) is not None:
+            return cls(**special_case(s))
+
+        # Typical
         parts = s.split(".")
         if len(parts) == 3:  # e.g. "0.7.1"
             dev = None
