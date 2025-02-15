@@ -44,6 +44,7 @@ homepage = "https://github.com/sdatkinson/"
 [project.scripts]
 nam = "nam.cli:nam_gui"
 nam-full = "nam.cli:nam_full"
+nam-hello-world = "nam.cli:nam_hello_world"
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
