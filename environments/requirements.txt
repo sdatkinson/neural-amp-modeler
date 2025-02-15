@@ -3,12 +3,12 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 auraloss==0.3.0  # 0.4.0 changes API for MRSTFT loss
-black
-flake8
+# black
+# flake8
 matplotlib
 numpy<2
 pip
-pre-commit
+# pre-commit
 pydantic>=2.0.0
 pytest
 pytest-mock

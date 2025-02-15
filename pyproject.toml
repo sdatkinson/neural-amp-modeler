@@ -14,12 +14,16 @@ requires-python = ">=3.8"
 dependencies = [
     "auraloss==0.3.0",
     "matplotlib",
+    "numpy<2",
     "pydantic>=2.0.0",
     "pytorch_lightning",
     "scipy",
     "sounddevice",
     "tensorboard",
     "torch",
+    # `transformers` is not required, but if you have it, it needs to be recent
+    # enough so I'm adding it.
+    "transformers>=4",
     "tqdm",
     "wavio>=0.0.5",
 ]
