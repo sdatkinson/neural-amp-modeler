@@ -36,7 +36,10 @@ class Version:
             dev = parts[3]
         else:
             raise ValueError(f"Invalid version string {s}")
-        major, minor, patch = [int(x) for x in parts[:3]]
+        try:
+            major, minor, patch = [int(x) for x in parts[:3]]
+        except ValueError as e:
+            raise ValueError(f"Failed to parse version from string '{s}':\n{e}")
         return cls(major=major, minor=minor, patch=patch, dev=dev)
 
     def __eq__(self, other) -> bool:
