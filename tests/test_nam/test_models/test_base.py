@@ -31,8 +31,6 @@ class MockBaseNet(base.BaseNet):
     def receptive_field(self) -> int:
         return 1
 
-    def export_cpp_header(self, filename: Path):
-        pass
 
     def _export_config(self):
         pass

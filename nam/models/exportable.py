@@ -102,14 +102,6 @@ class Exportable(_abc.ABC):
         # And resume training state
         self.train(training)
 
-    @_abc.abstractmethod
-    def export_cpp_header(self, filename: _Path):
-        """
-        Export a .h file to compile into the plugin with the weights written right out
-        as text
-        """
-        pass
-
     def export_onnx(self, filename: _Path):
         """
         Export model in format for ONNX Runtime

@@ -173,38 +173,6 @@ class ConvNet(_BaseNet):
     def _batchnorm(self) -> bool:
         return _BATCHNORM_NAME in self._net._modules["block_0"]._modules
 
-    def export_cpp_header(self, filename: _Path):
-        with _TemporaryDirectory() as tmpdir:
-            tmpdir = _Path(tmpdir)
-            self.export(_Path(tmpdir))
-            with open(_Path(tmpdir, "config.json"), "r") as fp:
-                _c = _json.load(fp)
-            version = _c["version"]
-            config = _c["config"]
-            with open(filename, "w") as f:
-                f.writelines(
-                    (
-                        "#pragma once\n",
-                        "// Automatically-generated model file\n",
-                        "#include <vector>\n",
-                        f'#define PYTHON_MODEL_VERSION "{version}"\n',
-                        f"const int CHANNELS = {config['channels']};\n",
-                        f"const bool BATCHNORM = {'true' if config['batchnorm'] else 'false'};\n",
-                        "std::vector<int> DILATIONS{"
-                        + ",".join([str(d) for d in config["dilations"]])
-                        + "};\n",
-                        f"const std::string ACTIVATION = \"{config['activation']}\";\n",
-                        "std::vector<float> PARAMS{"
-                        + ",".join(
-                            [
-                                f"{w:.16f}"
-                                for w in _np.load(_Path(tmpdir, "weights.npy"))
-                            ]
-                        )
-                        + "};\n",
-                    )
-                )
-
     def _export_config(self):
         return {
             "channels": self._channels,

@@ -129,36 +129,6 @@ class LSTM(_BaseNet):
         # I should simplify this...
         return True
 
-    def export_cpp_header(self, filename: _Path):
-        with _TemporaryDirectory() as tmpdir:
-            tmpdir = _Path(tmpdir)
-            LSTM.export(self, _Path(tmpdir))  # Hacky...need to work w/ CatLSTM
-            with open(_Path(tmpdir, "model.nam"), "r") as fp:
-                _c = _json.load(fp)
-            version = _c["version"]
-            config = _c["config"]
-            s_parametric = self._export_cpp_header_parametric(config.get("parametric"))
-            with open(filename, "w") as f:
-                f.writelines(
-                    (
-                        "#pragma once\n",
-                        "// Automatically-generated model file\n",
-                        "#include <vector>\n",
-                        '#include "json.hpp"\n',
-                        '#include "lstm.h"\n',
-                        f'#define PYTHON_MODEL_VERSION "{version}"\n',
-                        f'const int NUM_LAYERS = {config["num_layers"]};\n',
-                        f'const int INPUT_SIZE = {config["input_size"]};\n',
-                        f'const int HIDDEN_SIZE = {config["hidden_size"]};\n',
-                    )
-                    + s_parametric
-                    + (
-                        "std::vector<float> PARAMS{"
-                        + ", ".join([f"{w:.16f}f" for w in _c["weights"]])
-                        + "};\n",
-                    )
-                )
-
     def _apply_head(self, features: _torch.Tensor) -> _torch.Tensor:
         """
         :param features: (B,S,DH)
@@ -242,13 +212,6 @@ class LSTM(_BaseNet):
             "hidden_size": self._core.hidden_size,
             "num_layers": self._core.num_layers,
         }
-
-    def _export_cpp_header_parametric(self, config):
-        # TODO refactor to merge w/ WaveNet implementation
-        if config is not None:
-            raise ValueError("Got non-None parametric config")
-        return ("nlohmann::json PARAMETRIC {};\n",)
-
     def _export_weights(self):
         """
         * Loop over cells:

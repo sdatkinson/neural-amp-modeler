@@ -200,9 +200,6 @@ class TestExportable(object):
             def forward(self, x: torch.Tensor):
                 return self._scale * x + self._bias
 
-            def export_cpp_header(self, filename: Path):
-                pass
-
             def _export_config(self):
                 return {}
 
