@@ -27,9 +27,6 @@ class Linear(_BaseNet):
     def receptive_field(self) -> int:
         return self._net.weight.shape[2]
 
-    def export_cpp_header(self):
-        raise NotImplementedError()
-
     @property
     def _bias(self) -> bool:
         return self._net.bias is not None
