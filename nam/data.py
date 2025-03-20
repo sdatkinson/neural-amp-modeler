@@ -376,6 +376,10 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         return single_pairs // self._ny
 
     @property
+    def nx(self) -> int:
+        return self._nx
+
+    @property
     def ny(self) -> int:
         return self._ny
 
@@ -695,6 +699,14 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
             )
 
 
+class ConcatDatasetValidationError(ValueError):
+    """
+    Error raised when a ConcatDataset fails validation
+    """
+
+    pass
+
+
 class ConcatDataset(AbstractDataset, _InitializableFromConfig):
     def __init__(self, datasets: _Sequence[Dataset], flatten=True):
         if flatten:
@@ -716,6 +728,21 @@ class ConcatDataset(AbstractDataset, _InitializableFromConfig):
     @property
     def datasets(self):
         return self._datasets
+
+    @property
+    def nx(self) -> int:
+        # Validated at initialization
+        return self.datasets[0].nx
+
+    @property
+    def ny(self) -> int:
+        # Validated at initialization
+        return self.datasets[0].ny
+
+    @property
+    def sample_rate(self) -> _Optional[float]:
+        # This is validated to be consistent across datasets during initialization
+        return self.datasets[0].sample_rate
 
     @classmethod
     def parse_config(cls, config):
@@ -767,14 +794,20 @@ class ConcatDataset(AbstractDataset, _InitializableFromConfig):
 
     @classmethod
     def _validate_datasets(cls, datasets: _Sequence[Dataset]):
+        # Ensure that a couple attrs are consistent across the sub-datasets.
         Reference = _namedtuple("Reference", ("index", "val"))
-        ref_keys, ref_ny = None, None
+        references = {name: None for name in ("nx", "ny", "sample_rate")}
         for i, d in enumerate(datasets):
-            ref_ny = Reference(i, d.ny) if ref_ny is None else ref_ny
-            if d.ny != ref_ny.val:
-                raise ValueError(
-                    f"Mismatch between ny of datasets {ref_ny.index} ({ref_ny.val}) and {i} ({d.ny})"
-                )
+            for name in references.keys():
+                this_val = getattr(d, name)
+                if references[name] is None:
+                    references[name] = Reference(i, this_val)
+
+                if this_val != references[name].val:
+                    raise ConcatDatasetValidationError(
+                        f"Mismatch between {name} of datasets {references[name].index} "
+                        f"({references[name].val}) and {i} ({this_val})"
+                    )
 
 
 _dataset_init_registry = {"dataset": Dataset.init_from_config}

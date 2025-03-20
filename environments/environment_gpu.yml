@@ -17,14 +17,14 @@ dependencies:
   - numpy<2
   - pip
   - pre-commit
-  - pydantic>=2.0.0
+  - pydantic>=2
   - pytest
   - pytest-mock
-  - pytorch
+  - pytorch::pytorch
   # If your GPU isn't being detected, you may need a different version.
   # You're going to need to look at Table 3 here: 
   # https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions
-  - pytorch-cuda=12.1  # GPU
+  - pytorch::pytorch-cuda=12.1  # GPU
   - scipy
   - semver
   - tensorboard

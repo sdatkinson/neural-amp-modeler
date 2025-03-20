@@ -385,6 +385,38 @@ class TestWav(object):
         assert info.sampwidth == sample_width
 
 
+class TestConcatDataset(object):
+    @pytest.mark.parametrize("attrname", ("nx", "ny", "sample_rate"))
+    def test_valiation_sample_rate_fail(self, attrname: str):
+        """
+        Assert failed validation for datasets with different nx, ny, sample rates
+        """
+        nx, ny, sample_rate = 1, 2, 48_000.0
+
+        n1 = 16
+        ds1_kwargs = dict(
+            x=torch.zeros((n1,)),
+            y=torch.zeros((n1,)),
+            nx=nx,
+            ny=ny,
+            sample_rate=sample_rate,
+        )
+        ds1 = data.Dataset(**ds1_kwargs)
+        n2 = 7
+        ds2_kwargs = dict(
+            x=torch.zeros((n2,)),
+            y=torch.zeros((n2,)),
+            nx=nx,
+            ny=ny,
+            sample_rate=sample_rate,
+        )
+        # Cause the error by moving the named attr:
+        ds2_kwargs[attrname] += 1
+        ds2 = data.Dataset(**ds2_kwargs)
+        with pytest.raises(data.ConcatDatasetValidationError):
+            data.ConcatDataset([ds1, ds2])
+
+
 def test_audio_mismatch_shapes_in_order():
     """
     https://github.com/sdatkinson/neural-amp-modeler/issues/257
