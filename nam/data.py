@@ -717,6 +717,11 @@ class ConcatDataset(AbstractDataset, _InitializableFromConfig):
     def datasets(self):
         return self._datasets
 
+    @property
+    def sample_rate(self) -> _Optional[float]:
+        # HACK
+        return self.datasets[0].sample_rate
+
     @classmethod
     def parse_config(cls, config):
         init = _dataset_init_registry[config.get("type", "dataset")]
