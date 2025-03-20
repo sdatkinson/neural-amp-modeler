@@ -82,8 +82,24 @@ from argparse import ArgumentParser as _ArgumentParser
 from pathlib import Path as _Path
 
 from nam.train.full import main as _nam_full
-from nam.train.gui import run as _nam_gui  # noqa F401 Used as an entry point
+from nam.train.gui import run as nam_gui  # noqa F401 Used as an entry point
 from nam.util import timestamp as _timestamp
+
+
+def nam_hello_world():
+    """
+    This is a minimal CLI entry point that's meant to be used to ensure that NAM
+    was installed successfully
+    """
+    from nam import __version__
+    msg = f"""
+    Neural Amp Modeler
+
+    by Steven Atkinson
+
+    Version {__version__}
+    """
+    print(msg)
 
 
 def nam_full():
