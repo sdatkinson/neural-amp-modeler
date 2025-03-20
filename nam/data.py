@@ -18,7 +18,6 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 import numpy as np
 import torch
 import wavio
-from scipy.interpolate import interp1d
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm
 
@@ -185,6 +184,10 @@ def _interpolate_delay(
     """
     NOTE: This breaks the gradient tape!
     """
+    raise NotImplementedError(
+        "Non-integer delay is broken and will be removed in v0.12.\n"
+        "See https://github.com/sdatkinson/NAMTrainerColab/issues/11"
+    )
     if delay == 0.0:
         return x
     t_in = np.arange(len(x))
