@@ -19,13 +19,14 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Ensures the full history is available
+          fetch-tags: true  # Ensures tags are fetched
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v3
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Fetch all tags
-        run: git fetch --tags
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
