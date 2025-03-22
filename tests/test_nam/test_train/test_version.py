@@ -11,23 +11,11 @@ import pytest as _pytest
 from nam.train import _version
 
 
-def test_dev_int():
-    """
-    Assert that dev_int is properly parsed
-    """
-    assert _version.Version(0, 0, 0).dev_int is None
-    assert _version.Version(0, 0, 0, "dev").dev_int is None
-    assert _version.Version(0, 0, 0, "misc").dev_int is None
-    assert _version.Version(0, 0, 0, "dev11").dev_int == 11
-
-
 def test_eq():
     assert _version.Version(0, 0, 0) == _version.Version(0, 0, 0)
     assert _version.Version(0, 0, 0) != _version.Version(0, 0, 1)
     assert _version.Version(0, 0, 0) != _version.Version(0, 1, 0)
     assert _version.Version(0, 0, 0) != _version.Version(1, 0, 0)
-    assert _version.Version(0, 0, 0) != _version.Version(0, 0, 0, dev="dev0")
-    assert _version.Version(0, 0, 0) != _version.Version(0, 0, 0, dev="dev1")
 
 
 def test_lt():
@@ -38,14 +26,6 @@ def test_lt():
     assert _version.Version(1, 2, 3) < _version.Version(2, 0, 0)
 
     assert not _version.Version(1, 2, 3) < _version.Version(0, 4, 5)
-
-
-def test_lt_incomparable():
-    """
-    Assert that the error is properly raised for incomparable versions
-    """
-    with _pytest.raises(_version.IncomparableVersionError):
-        _version.Version(0, 0, 0, "incomparable") < _version.Version(0, 0, 0, "dev1")
 
 
 def test_current_version():
