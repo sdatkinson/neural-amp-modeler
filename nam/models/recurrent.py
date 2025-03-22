@@ -212,6 +212,7 @@ class LSTM(_BaseNet):
             "hidden_size": self._core.hidden_size,
             "num_layers": self._core.num_layers,
         }
+
     def _export_weights(self):
         """
         * Loop over cells:

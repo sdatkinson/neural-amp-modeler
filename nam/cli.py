@@ -92,6 +92,7 @@ def nam_hello_world():
     was installed successfully
     """
     from nam import __version__
+
     msg = f"""
     Neural Amp Modeler
 
