@@ -54,8 +54,6 @@ class Version:
             dev = parts[-1]
         elif 'dev' not in parts[-1]:  # e.g. "0.7.1"
             dev = None
-        #elif len(parts) == 4:  # e.g. "0.7.1.dev7"
-        #    dev = parts[3]
         else:
             raise ValueError(f"Invalid version string {s}")
         try:
