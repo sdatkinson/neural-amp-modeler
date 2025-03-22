@@ -26,7 +26,6 @@ from typing import (
 import numpy as _np
 import torch as _torch
 import wavio as _wavio
-from scipy.interpolate import interp1d as _interp1d
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm as _tqdm
 
@@ -176,37 +175,6 @@ class AbstractDataset(_Dataset, _abc.ABC):
         pass
 
 
-class _DelayInterpolationMethod(_Enum):
-    """
-    :param LINEAR: Linear interpolation
-    :param CUBIC: Cubic spline interpolation
-    """
-
-    # Note: these match scipy.interpolate.interp1d kwarg "kind"
-    LINEAR = "linear"
-    CUBIC = "cubic"
-
-
-def _interpolate_delay(
-    x: _torch.Tensor, delay: float, method: _DelayInterpolationMethod
-) -> _np.ndarray:
-    """
-    NOTE: This breaks the gradient tape!
-    """
-    if delay == 0.0:
-        return x
-    t_in = _np.arange(len(x))
-    n_out = len(x) - int(_np.ceil(_np.abs(delay)))
-    if delay > 0:
-        t_out = _np.arange(n_out) + delay
-    elif delay < 0:
-        t_out = _np.arange(len(x) - n_out, len(x)) - _np.abs(delay)
-
-    return _torch.Tensor(
-        _interp1d(t_in, x.detach().cpu().numpy(), kind=method.value)(t_out)
-    )
-
-
 class XYError(ValueError, DataError):
     """
     Exceptions related to invalid x and y provided for data sets
@@ -268,9 +236,6 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         start_seconds: _Optional[_Union[int, float]] = None,
         stop_seconds: _Optional[_Union[int, float]] = None,
         delay: _Optional[_Union[int, float]] = None,
-        delay_interpolation_method: _Union[
-            str, _DelayInterpolationMethod
-        ] = _DelayInterpolationMethod.CUBIC,
         y_scale: float = 1.0,
         x_path: _Optional[_Union[str, _Path]] = None,
         y_path: _Optional[_Union[str, _Path]] = None,
@@ -305,8 +270,7 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
             the end of the audio. Requires providing `sample_rate`.
         :param delay: In samples. Positive means we get rid of the start of x, end of y
             (i.e. we are correcting for an alignment error in which y is delayed behind
-            x). If a non-integer delay is provided, then y is interpolated, with
-            the extra sample removed.
+            x). Only integer delays are supported.
         :param y_scale: Multiplies the output signal by a factor (e.g. if the data are
             too quiet).
         :param input_gain: In dB. If the input signal wasn't fed to the amp at unity
@@ -335,17 +299,13 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
             stop_seconds,
             self.sample_rate,
         )
-        if not isinstance(delay_interpolation_method, _DelayInterpolationMethod):
-            delay_interpolation_method = _DelayInterpolationMethod(
-                delay_interpolation_method
-            )
         if require_input_pre_silence is not None:
             self._validate_preceding_silence(
                 x, start, require_input_pre_silence, self.sample_rate
             )
         x, y = [z[start:stop] for z in (x, y)]
         if delay is not None and delay != 0:
-            x, y = self._apply_delay(x, y, delay, delay_interpolation_method)
+            x, y = self._apply_delay(x, y, delay)
         x_scale = 10.0 ** (input_gain / 20.0)
         x = x * x_scale
         y = y * y_scale
@@ -477,15 +437,12 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         x: _torch.Tensor,
         y: _torch.Tensor,
         delay: _Union[int, float],
-        method: _DelayInterpolationMethod,
     ) -> _Tuple[_torch.Tensor, _torch.Tensor]:
         # Check for floats that could be treated like ints (simpler algorithm)
         if isinstance(delay, float) and int(delay) == delay:
             delay = int(delay)
         if isinstance(delay, int):
             return cls._apply_delay_int(x, y, delay)
-        elif isinstance(delay, float):
-            return cls._apply_delay_float(x, y, delay, method)
         else:
             raise TypeError(type(delay))
 
@@ -499,22 +456,6 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         elif delay < 0:
             x = x[-delay:]
             y = y[:delay]
-        return x, y
-
-    @classmethod
-    def _apply_delay_float(
-        cls,
-        x: _torch.Tensor,
-        y: _torch.Tensor,
-        delay: float,
-        method: _DelayInterpolationMethod,
-    ) -> _Tuple[_torch.Tensor, _torch.Tensor]:
-        n_out = len(y) - int(_np.ceil(_np.abs(delay)))
-        if delay > 0:
-            x = x[:n_out]
-        elif delay < 0:
-            x = x[-n_out:]
-        y = _interpolate_delay(y, delay, method)
         return x, y
 
     @classmethod
