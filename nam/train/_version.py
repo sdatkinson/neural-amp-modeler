@@ -50,14 +50,17 @@ class Version:
 
         # Typical
         parts = s.split(".")
-        if len(parts) == 3:  # e.g. "0.7.1"
+        if 'dev' in parts[-1]:  # e.g. "0.7.1"
+            dev = parts[-1]
+        elif 'dev' not in parts[-1]:  # e.g. "0.7.1"
             dev = None
-        elif len(parts) == 4:  # e.g. "0.7.1.dev7"
-            dev = parts[3]
+        #elif len(parts) == 4:  # e.g. "0.7.1.dev7"
+        #    dev = parts[3]
         else:
             raise ValueError(f"Invalid version string {s}")
         try:
-            major, minor, patch = [int(x) for x in parts[:3]]
+            f_dgt = lambda x: ''.join([ch for ch in x if ch.isdigit()])
+            major, minor, patch = [int(f_dgt(x)) for x in parts[:3]]
         except ValueError as e:
             raise ValueError(f"Failed to parse version from string '{s}':\n{e}")
         return cls(major=major, minor=minor, patch=patch, dev=dev)
