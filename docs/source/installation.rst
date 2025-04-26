@@ -20,7 +20,7 @@ GPU-compatible version of PyTorch first. For the recommended installation
 commands, please refer to the official PyTorch website:
 https://pytorch.org/get-started/locally/
 
-Finally, install NAM using pip:
+Install NAM using pip:
 
 .. code-block:: console
 
