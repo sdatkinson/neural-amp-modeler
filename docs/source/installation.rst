@@ -16,7 +16,7 @@ Step 2: Install NAM
 Now that we have Miniconda, we can install NAM using it.
 
 (Windows / Linux users) If your computer has an nVIDIA GPU, you should install a
-GPU-compatible version of PyTorch first. 
+GPU-compatible version of PyTorch first.
 `The PyTorch website <https://pytorch.org/get-started/locally/>`_ will always
 have the most up-to-date guidance for this. Currently, this is the command:
 
