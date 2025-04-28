@@ -21,6 +21,8 @@ dependencies:
   - pydantic
   - pytest
   - pytest-mock
+  # Performance note:
+  # https://github.com/sdatkinson/neural-amp-modeler/issues/505
   - semver
   - tensorboard
   - tqdm
@@ -33,3 +35,5 @@ dependencies:
       - wavio >=0.0.5
       - -e ..
       - torch
+      - torchvision
+      - torchaudio
