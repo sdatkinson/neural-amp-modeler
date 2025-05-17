@@ -8,8 +8,8 @@ steps)
 """
 
 import abc as _abc
+import importlib as _importlib
 import math as _math
-import pkg_resources as _pkg_resources
 from typing import (
     Any as _Any,
     Dict as _Dict,
@@ -58,9 +58,7 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
     @classmethod
     def _metadata_loudness_x(cls) -> _torch.Tensor:
         return _wav_to_tensor(
-            _pkg_resources.resource_filename(
-                "nam", "models/_resources/loudness_input.wav"
-            )
+            _importlib.resources.files("nam").joinpath("models/_resources/loudness_input.wav")
         )
 
     @property
