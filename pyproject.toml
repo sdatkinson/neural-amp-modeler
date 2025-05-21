@@ -17,7 +17,6 @@ dependencies = [
     "numpy<2",
     "pydantic>=2.0.0",
     "pytorch_lightning",
-    "scipy",
     "sounddevice",
     "tensorboard",
     "torch",

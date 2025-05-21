@@ -8,6 +8,7 @@ name: nam
 channels:
   - conda-forge # pytest-mock
   - pytorch
+  - defaults
 dependencies:
   - python>=3.9
   - black
@@ -24,7 +25,6 @@ dependencies:
   # Performance note:
   # https://github.com/sdatkinson/neural-amp-modeler/issues/505
   - pytorch
-  - scipy
   - semver
   - tensorboard
   - tqdm

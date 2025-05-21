@@ -7,6 +7,7 @@ channels:
   - conda-forge # pytest-mock
   - pytorch
   - nvidia  # GPU
+  - defaults
 dependencies:
   - python>=3.9
   - black
@@ -25,7 +26,6 @@ dependencies:
   # You're going to need to look at Table 3 here: 
   # https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions
   - pytorch::pytorch-cuda=12.1  # GPU
-  - scipy
   - semver
   - tensorboard
   - tqdm

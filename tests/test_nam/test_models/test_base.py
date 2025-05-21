@@ -31,7 +31,6 @@ class MockBaseNet(base.BaseNet):
     def receptive_field(self) -> int:
         return 1
 
-
     def _export_config(self):
         pass
 
