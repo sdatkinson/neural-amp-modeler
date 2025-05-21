@@ -378,6 +378,13 @@ def _calibrate_latency_v_all(
     ) -> _metadata.LatencyCalibrationWarnings:
         # Warnings associated with any single delay:
 
+        if len(delays) == 0:
+            return _metadata.LatencyCalibrationWarnings(
+                matches_lookahead=False,
+                disagreement_too_high=False,
+                not_detected=True,
+            )
+
         # "Lookahead warning": if the delay is equal to the lookahead, then it's
         # probably an error.
         lookahead_warnings = [i for i, d in enumerate(delays, 1) if d == -lookahead]
@@ -402,6 +409,7 @@ def _calibrate_latency_v_all(
         return _metadata.LatencyCalibrationWarnings(
             matches_lookahead=matches_lookahead,
             disagreement_too_high=max_disagreement_too_high,
+            not_detected=False,
         )
 
     lookahead = 1_000
@@ -456,27 +464,28 @@ def _calibrate_latency_v_all(
         _plt.legend()
         _plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
         _plt.show()
-        raise RuntimeError(msg)
+        delays = []
+        recommended = None
+
     else:
-        j = triggered[0]
-        delay = j + start_looking - i_rel
+        delay = triggered[0] + start_looking - i_rel
+        delays = [delay]
+        recommended = delay - safety_factor
+        print(f"Delay based on average is {delay}")
+        print(
+            f"After aplying safety factor of {safety_factor}, the final delay is "
+            f"{recommended}"
+        )
 
-    print(f"Delay based on average is {delay}")
-    warnings = report_any_latency_warnings([delay])
+    warnings = report_any_latency_warnings(delays)
 
-    delay_post_safety_factor = delay - safety_factor
-    print(
-        f"After aplying safety factor of {safety_factor}, the final delay is "
-        f"{delay_post_safety_factor}"
-    )
     return _metadata.LatencyCalibration(
         algorithm_version=1,
-        delays=[delay],
+        delays=delays,
         safety_factor=safety_factor,
-        recommended=delay_post_safety_factor,
+        recommended=recommended,
         warnings=warnings,
     )
-
 
 _calibrate_latency_v1 = _partial(_calibrate_latency_v_all, _V1_DATA_INFO)
 _calibrate_latency_v2 = _partial(_calibrate_latency_v_all, _V2_DATA_INFO)
@@ -562,11 +571,8 @@ def _analyze_latency(
     if user_latency is not None:
         print(f"Delay is specified as {user_latency}")
     calibration_output = calibrate(_wav_to_np(output_path))
-    latency = (
-        user_latency if user_latency is not None else calibration_output.recommended
-    )
-    if not silent:
-        plot(latency, input_path, output_path)
+    if not silent and calibration_output.recommended is not None:
+        plot(calibration_output.recommended, input_path, output_path)
 
     return _metadata.Latency(manual=user_latency, calibration=calibration_output)
 
@@ -1306,13 +1312,26 @@ class TrainOutput(_NamedTuple):
 
 
 def _get_final_latency(latency_analysis: _metadata.Latency) -> int:
-    if latency_analysis.manual is not None:
-        latency = latency_analysis.manual
-        print(f"Latency provided as {latency_analysis.manual}; override calibration")
-    else:
-        latency = latency_analysis.calibration.recommended
-        print(f"Set latency to recommended {latency_analysis.calibration.recommended}")
-    return latency
+    user = latency_analysis.manual
+    analyzed = latency_analysis.calibration.recommended
+
+    if user is not None:
+        if analyzed is not None:
+            if user == analyzed:
+                print(f"The user latency is same as the analyzed latency ({user}).")
+            else:
+                print(f"The user latency is different from the analyzed latency ({user} vs {analyzed}).")
+                print(f"Override the analyzed latency with the user latency.")
+        else:
+            print(f"Cannot automatically analyze the latency. Use the user latency ({user}).")
+
+        return user
+
+    if analyzed is not None:
+        print(f"Cannot use the user latency. Use the analyzed latency ({analyzed}).")
+        return analyzed
+
+    raise ValueError("No latency provided and cannot automatically analyze the latency.")
 
 
 def train(
