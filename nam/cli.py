@@ -92,6 +92,7 @@ def nam_hello_world():
     was installed successfully
     """
     from nam import __version__
+
     msg = f"""
     Neural Amp Modeler
 
@@ -109,6 +110,9 @@ def nam_full():
     parser.add_argument("learning_config_path", type=str)
     parser.add_argument("outdir")
     parser.add_argument("--no-show", action="store_true", help="Don't show plots")
+    parser.add_argument(
+        "--no-plots", action="store_true", help="Don't create the plots at all"
+    )
 
     args = parser.parse_args()
 
@@ -125,4 +129,11 @@ def nam_full():
         model_config = _json.load(fp)
     with open(args.learning_config_path, "r") as fp:
         learning_config = _json.load(fp)
-    _nam_full(data_config, model_config, learning_config, outdir, args.no_show)
+    _nam_full(
+        data_config,
+        model_config,
+        learning_config,
+        outdir,
+        args.no_show,
+        make_plots=not args.no_plots,
+    )
