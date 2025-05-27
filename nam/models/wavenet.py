@@ -327,6 +327,8 @@ class _WaveNet(_nn.Module):
         return weights.detach().cpu().numpy()
 
     def import_weights(self, weights: _torch.Tensor):
+        if self._head is not None:
+            raise NotImplementedError("Head importing isn't implemented yet.")
         i = 0
         for layer in self._layers:
             i = layer.import_weights(weights, i)
