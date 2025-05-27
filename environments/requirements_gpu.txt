@@ -1,0 +1,26 @@
+# File: requirements_gpu.txt
+# Created Date: Tuesday May 27th 2025
+# Author: Steven Atkinson (steven@atkinson.mn)
+
+auraloss==0.3.0
+black
+flake8
+h5py
+jupyter
+matplotlib
+numpy<2
+pydantic
+pytest
+pytest-mock
+pytorch_lightning
+semver
+sounddevice
+tensorboard
+# Performance note:
+# https://github.com/sdatkinson/neural-amp-modeler/issues/505
+# Or some other cuda version than 12.8. See https://pytorch.org/get-started/locally/
+-i https://download.pytorch.org/whl/cu128
+torch
+tqdm
+transformers>=4
+wavio>=0.0.5

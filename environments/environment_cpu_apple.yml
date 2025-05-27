@@ -6,33 +6,11 @@
 
 name: nam
 channels:
-  - conda-forge # pytest-mock
-  - pytorch
   - defaults
 dependencies:
   - python>=3.9
-  - black
-  - flake8
-  - h5py
-  - jupyter
-  - matplotlib
-  - numpy<2
   - pip
-  - pre-commit
-  - pydantic
-  - pytest
-  - pytest-mock
-  # Performance note:
-  # https://github.com/sdatkinson/neural-amp-modeler/issues/505
-  - pytorch
-  - semver
-  - tensorboard
-  - tqdm
   - wheel
   - pip:
-      - auraloss==0.3.0
-      - pytorch_lightning
-      - sounddevice
-      - transformers>=4  # See requirements.txt
-      - wavio >=0.0.5
+      - -r ./requirements_cpu_apple.txt
       - -e ..
