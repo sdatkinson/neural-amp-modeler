@@ -1,6 +1,8 @@
-# File: requirements_cpu_apple.txt
+# File: requirements.txt
 # Created Date: Tuesday May 27th 2025
 # Author: Steven Atkinson (steven@atkinson.mn)
+
+# Use after requirements_gpu.txt on CUDA-capable system
 
 auraloss==0.3.0
 black

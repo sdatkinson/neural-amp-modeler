@@ -13,5 +13,6 @@ dependencies:
   - pip
   - wheel
   - pip:
-      - -r ./requirements_gpu.txt
+      - -r ./requirements_gpu.txt  # FIXME this doesn't work. -i inside breaks
+      - -r ./requirements.txt
       - -e ..

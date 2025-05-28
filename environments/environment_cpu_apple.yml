@@ -12,5 +12,5 @@ dependencies:
   - pip
   - wheel
   - pip:
-      - -r ./requirements_cpu_apple.txt
+      - -r ./requirements.txt
       - -e ..
