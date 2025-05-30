@@ -1339,6 +1339,8 @@ def train(
     fast_dev_run: _Union[bool, int] = False,
 ) -> _Optional[TrainOutput]:
     """
+    :param input_path: Full path to input file
+    :param output_path: Full path to output file
     :param lr_decay: =1-gamma for Exponential learning rate decay.
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
     :param fast_dev_run: One-step training, used for tests.

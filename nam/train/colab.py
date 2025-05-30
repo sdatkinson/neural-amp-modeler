@@ -64,7 +64,7 @@ def _check_for_files() -> str:
             f"Didn't find NAM's input audio file. Please upload {_LATEST_VERSION.name}"
         )
     if input_version != _PROTEUS_VERSION:
-        print(f"Found {input_basename}, version {input_version}")
+        print(f"Found {input_basename}, presumed version {input_version}")
     else:
         print(f"Found Proteus input {input_basename}.")
     
