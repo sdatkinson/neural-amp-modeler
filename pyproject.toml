@@ -14,7 +14,7 @@ requires-python = ">=3.8"
 dependencies = [
     "auraloss==0.3.0",
     "matplotlib",
-    "numpy<2",
+    "numpy",
     "pydantic>=2.0.0",
     "pytorch_lightning",
     "sounddevice",
@@ -32,7 +32,7 @@ dynamic = ["version"]
 # Optional features
 transformers-compat = [
     "transformers>=4",  # Issue-294
-    "numpy<2",  # For older PyTorch versions; user must know when to include
+    "numpy",  # NB: Older PyTorch versions require numpy<2
 ]
 
 test = [
