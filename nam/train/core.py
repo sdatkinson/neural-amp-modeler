@@ -1319,9 +1319,7 @@ def train(
     input_path: str,
     output_path: str,
     train_path: str,
-    input_version: _Optional[_Version] = None,  # Deprecate?
     epochs=100,
-    delay: _Optional[int] = None,
     latency: _Optional[int] = None,
     model_type: str = "WaveNet",
     architecture: _Union[Architecture, str] = Architecture.STANDARD,
@@ -1341,20 +1339,12 @@ def train(
     fast_dev_run: _Union[bool, int] = False,
 ) -> _Optional[TrainOutput]:
     """
+    :param input_path: Full path to input file
+    :param output_path: Full path to output file
     :param lr_decay: =1-gamma for Exponential learning rate decay.
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
     :param fast_dev_run: One-step training, used for tests.
     """
-
-    def parse_user_latency(
-        delay: _Optional[int], latency: _Optional[int]
-    ) -> _Optional[int]:
-        if delay is not None:
-            if latency is not None:
-                raise ValueError("Both delay and latency are provided; use latency!")
-            print("WARNING: use of `delay` is deprecated; use `latency` instead")
-            return delay
-        return latency
 
     if seed is not None:
         _torch.manual_seed(seed)
@@ -1378,10 +1368,9 @@ def train(
             "in your DAW and ensure that they are the same length."
         )
 
-    if input_version is None:
-        input_version, strong_match = _detect_input_version(input_path)
+    input_version, strong_match = _detect_input_version(input_path)
 
-    user_latency = parse_user_latency(delay, latency)
+    user_latency = latency
     latency_analysis = _analyze_latency(
         user_latency, input_version, input_path, output_path, silent=silent
     )
