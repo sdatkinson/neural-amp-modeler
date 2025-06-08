@@ -11,8 +11,13 @@ import torch as _torch
 from .base import BaseNet as _BaseNet
 from .wavenet import WaveNet as _WaveNet
 
+
 def _init_wavenet(config) -> _WaveNet:
-    return _WaveNet(layers_configs=config["layers"], head_config=config["head"], head_scale=config["head_scale"])
+    return _WaveNet(
+        layers_configs=config["layers"],
+        head_config=config["head"],
+        head_scale=config["head_scale"],
+    )
 
 
 def init_from_nam(config) -> _BaseNet:
@@ -24,8 +29,6 @@ def init_from_nam(config) -> _BaseNet:
     ...     config = json.load(fp)
     ...     model = init_from_nam(config)
     """
-    model = {
-        "WaveNet": _init_wavenet
-    }[config["architecture"]](config["config"])
+    model = {"WaveNet": _init_wavenet}[config["architecture"]](config["config"])
     model.import_weights(_torch.Tensor(config["weights"]))
     return model

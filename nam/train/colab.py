@@ -67,13 +67,13 @@ def _check_for_files() -> str:
         print(f"Found {input_basename}, presumed version {input_version}")
     else:
         print(f"Found Proteus input {input_basename}.")
-    
+
     # We found the input. Now check for the output and we'll be good.
     if not _Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
         )
-    
+
     return input_basename
 
 

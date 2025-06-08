@@ -66,9 +66,26 @@ def multi_resolution_stft_loss(
     :param device: If provided, send the preds and targets to the provided device.
     :return: ()
     """
+
+    def ensure_shape(z: _torch.Tensor) -> _torch.Tensor:
+        """
+        Required for auraloss v0.4
+
+        :param z: (L,) or (B,L)
+        :return: (B,C,L)
+        """
+        if z.ndim == 1:
+            return z[None, None, :]
+        elif z.ndim == 2:
+            return z[:, None, :]
+        else:
+            assert z.ndim == 3, f"Expected 1D or 2D tensor. Got {z.shape}"
+            return z
+
     loss_func = _MultiResolutionSTFTLoss() if loss_func is None else loss_func
     if device is not None:
         preds, targets = [z.to(device) for z in (preds, targets)]
+    preds, targets = [ensure_shape(z) for z in (preds, targets)]
     return loss_func(preds, targets)
 
 
