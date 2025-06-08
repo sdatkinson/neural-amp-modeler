@@ -9,7 +9,17 @@ Initialize models from .nam files
 import torch as _torch
 
 from .base import BaseNet as _BaseNet
+from .linear import Linear as _Linear
+from .recurrent import LSTM as _LSTM
 from .wavenet import WaveNet as _WaveNet
+
+
+def _init_linear(config) -> _Linear:
+    return _Linear(**config)
+
+
+def _init_lstm(config) -> _LSTM:
+    return _LSTM(**config)
 
 
 def _init_wavenet(config) -> _WaveNet:
@@ -29,6 +39,8 @@ def init_from_nam(config) -> _BaseNet:
     ...     config = json.load(fp)
     ...     model = init_from_nam(config)
     """
-    model = {"WaveNet": _init_wavenet}[config["architecture"]](config["config"])
+    model = {"Linear": _init_linear, "WaveNet": _init_wavenet, "LSTM": _init_lstm}[
+        config["architecture"]
+    ](config["config"])
     model.import_weights(_torch.Tensor(config["weights"]))
     return model

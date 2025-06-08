@@ -11,10 +11,11 @@ import torch as _torch
 import torch.nn as _nn
 
 from .._version import __version__
+from ._abc import ImportsWeights as _ImportsWeights
 from .base import BaseNet as _BaseNet
 
 
-class Linear(_BaseNet):
+class Linear(_BaseNet, _ImportsWeights):
     def __init__(self, receptive_field: int, *args, bias: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self._net = _nn.Conv1d(1, 1, receptive_field, bias=bias)
@@ -26,6 +27,19 @@ class Linear(_BaseNet):
     @property
     def receptive_field(self) -> int:
         return self._net.weight.shape[2]
+
+    def import_weights(self, weights):
+        self._net.weight.data = (
+            _torch.Tensor([w for w in weights[: self._net.weight.numel()]])
+            .reshape(self._net.weight.shape)
+            .to(self._net.weight.device)
+        )
+        if self._bias:
+            self._net.bias.data = (
+                _torch.Tensor([w for w in weights[self._net.weight.numel() :]])
+                .reshape(self._net.bias.shape)
+                .to(self._net.bias.device)
+            )
 
     @property
     def _bias(self) -> bool:
