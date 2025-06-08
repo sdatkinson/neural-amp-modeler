@@ -12,7 +12,7 @@ readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.8"
 dependencies = [
-    "auraloss==0.4",
+    "auraloss @ git+https://github.com/Atkinson-Advanced-Modeling/auraloss.git@4c45a90",
     "matplotlib",
     "numpy",
     "pydantic>=2.0.0",
