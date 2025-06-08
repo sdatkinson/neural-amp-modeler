@@ -58,7 +58,9 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
     @classmethod
     def _metadata_loudness_x(cls) -> _torch.Tensor:
         return _wav_to_tensor(
-            _importlib.resources.files("nam").joinpath("models/_resources/loudness_input.wav")
+            _importlib.resources.files("nam").joinpath(
+                "models/_resources/loudness_input.wav"
+            )
         )
 
     @property
