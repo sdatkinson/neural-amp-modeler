@@ -14,19 +14,20 @@ from .recurrent import LSTM as _LSTM
 from .wavenet import WaveNet as _WaveNet
 
 
-def _init_linear(config) -> _Linear:
-    return _Linear(**config)
+def _init_linear(config, sample_rate: float) -> _Linear:
+    return _Linear(sample_rate=sample_rate, **config)
 
 
-def _init_lstm(config) -> _LSTM:
-    return _LSTM(**config)
+def _init_lstm(config, sample_rate: float) -> _LSTM:
+    return _LSTM(sample_rate=sample_rate, **config)
 
 
-def _init_wavenet(config) -> _WaveNet:
+def _init_wavenet(config, sample_rate: float) -> _WaveNet:
     return _WaveNet(
         layers_configs=config["layers"],
         head_config=config["head"],
         head_scale=config["head_scale"],
+        sample_rate=sample_rate,
     )
 
 
@@ -41,6 +42,6 @@ def init_from_nam(config) -> _BaseNet:
     """
     model = {"Linear": _init_linear, "WaveNet": _init_wavenet, "LSTM": _init_lstm}[
         config["architecture"]
-    ](config["config"])
+    ](config=config["config"], sample_rate=config["sample_rate"])
     model.import_weights(_torch.Tensor(config["weights"]))
     return model
