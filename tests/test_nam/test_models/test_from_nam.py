@@ -128,17 +128,18 @@ def _compare_lstm_configs(
                     },
                 ],
                 "head_scale": 0.02,
+                "sample_rate": 48000
             },
             _default_comparison,
         ),
         # LSTM
         (
             _MockLSTM,
-            {"input_size": 1, "hidden_size": 3, "num_layers": 2},
+            {"input_size": 1, "hidden_size": 3, "num_layers": 2, "sample_rate": 44100},
             _compare_lstm_configs,
         ),
         # Linear (an IR)
-        (_Linear, {"receptive_field": 2, "bias": False}, _default_comparison),
+        (_Linear, {"receptive_field": 2, "bias": False, "sample_rate": 88200}, _default_comparison),
     ),
 )
 def test_load_from_nam(
