@@ -29,7 +29,7 @@ import wavio as _wavio
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm as _tqdm
 
-from ._core import InitializableFromConfig as _InitializableFromConfig
+from ._core import InitializableFromConfig as _InitializableFromConfig, WithTeardown as _WithTeardown
 
 logger = _logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ def np_to_wav(
     )
 
 
-class AbstractDataset(_Dataset, _abc.ABC):
+class AbstractDataset(_Dataset, _abc.ABC, _WithTeardown):
     @_abc.abstractmethod
     def __getitem__(self, idx: int):
         """
