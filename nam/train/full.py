@@ -204,3 +204,7 @@ def main(
         _plot(model, dataset_validation, show=not no_show)
     # Export!
     model.net.export(outdir)
+
+    # Tear down the datasets
+    train_dataloader.dataset.teardown()
+    val_dataloader.dataset.teardown()

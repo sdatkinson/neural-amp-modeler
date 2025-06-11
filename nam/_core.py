@@ -13,3 +13,11 @@ class InitializableFromConfig(object):
     @classmethod
     def parse_config(cls, config):
         return _deepcopy(config)
+    
+
+class WithTeardown(object):
+    def teardown(self):
+        """
+        Implement to take actions to tear down a class instance
+        """
+        pass

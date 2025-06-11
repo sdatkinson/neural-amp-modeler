@@ -35,6 +35,7 @@ from pytorch_lightning.utilities.warnings import (
 from torch.utils.data import DataLoader as _DataLoader
 
 from ..data import (
+    AbstractDataset as _AbstractDataset,
     DataError as _DataError,
     Split as _Split,
     init_dataset as _init_dataset,
@@ -1499,6 +1500,9 @@ def train(
         silent=silent,
         **window_kwargs(input_version),
     )
+    for dl in (train_dataloader, val_dataloader):
+        assert isinstance(dl.dataset, _AbstractDataset)
+        dl.dataset.teardown()
     return TrainOutput(
         model=model,
         metadata=_metadata.TrainingMetadata(
@@ -1677,7 +1681,8 @@ def validate_data(
     pytorch_data_split_validation_dict: _Dict[str, _PyTorchDataSplitValidation] = {}
     for split in _Split:
         try:
-            _init_dataset(data_config, split)
+            ds = _init_dataset(data_config, split)
+            ds.teardown()    
             pytorch_data_split_validation_dict[split.value] = (
                 _PyTorchDataSplitValidation(passed=True, msg=None)
             )
