@@ -1682,7 +1682,7 @@ def validate_data(
     for split in _Split:
         try:
             ds = _init_dataset(data_config, split)
-            ds.teardown()    
+            ds.teardown()
             pytorch_data_split_validation_dict[split.value] = (
                 _PyTorchDataSplitValidation(passed=True, msg=None)
             )

@@ -13,7 +13,7 @@ class InitializableFromConfig(object):
     @classmethod
     def parse_config(cls, config):
         return _deepcopy(config)
-    
+
 
 class WithTeardown(object):
     def teardown(self):
