@@ -128,7 +128,7 @@ def _compare_lstm_configs(
                     },
                 ],
                 "head_scale": 0.02,
-                "sample_rate": 48000
+                "sample_rate": 48000,
             },
             _default_comparison,
         ),
@@ -139,7 +139,11 @@ def _compare_lstm_configs(
             _compare_lstm_configs,
         ),
         # Linear (an IR)
-        (_Linear, {"receptive_field": 2, "bias": False, "sample_rate": 88200}, _default_comparison),
+        (
+            _Linear,
+            {"receptive_field": 2, "bias": False, "sample_rate": 88200},
+            _default_comparison,
+        ),
     ),
 )
 def test_load_from_nam(
