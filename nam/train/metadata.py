@@ -6,7 +6,7 @@
 Information from the simplified trainers that is good to know about.
 """
 
-# This isn't part of ../metadata because it's not necessarily worth knowning about--only
+# This isn't part of ../metadata because it's not necessarily worth knowing about--only
 # if you're using the simplified trainers!
 
 from typing import List as _List, Optional as _Optional
