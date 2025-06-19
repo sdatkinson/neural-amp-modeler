@@ -94,7 +94,7 @@ def wav_to_np(
         and other characteristics of another audio file at the provided location
     :param required_shape: If not `None`, assert that the audio loaded is of shape
         `(num_samples, num_channels)`.
-    :param required_wavinfo: If not `None`, assert that the WAV info of the laoded audio
+    :param required_wavinfo: If not `None`, assert that the WAV info of the loaded audio
         matches that provided.
     :param preroll: Drop this many samples off the front
     :param info: If `True`, also return the WAV info of this file.
@@ -277,7 +277,7 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         :param y_scale: Multiplies the output signal by a factor (e.g. if the data are
             too quiet).
         :param input_gain: In dB. If the input signal wasn't fed to the amp at unity
-            gain, you can indicate the gain here. The data set will multipy the raw
+            gain, you can indicate the gain here. The data set will multiply the raw
             audio file by the specified gain so that the true input signal amplitude
             experienced by the signal chain will be provided as input to the model. If
             you are using a reamping setup, you can estimate this by reamping a

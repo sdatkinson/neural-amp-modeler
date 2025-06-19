@@ -62,7 +62,7 @@ class LossConfig(_InitializableFromConfig):
     """
     :param mrstft_weight: Multi-resolution short-time Fourier transform loss
         coefficient. None means to skip; 2e-4 works pretty well if one wants to use it.
-    :param mask_first: How many of the first samples to ignore when comptuing the loss.
+    :param mask_first: How many of the first samples to ignore when computing the loss.
     :param dc_weight: Weight for the DC loss term. If 0, ignored.
     :params val_loss: Which loss to track for the best model checkpoint.
     :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from

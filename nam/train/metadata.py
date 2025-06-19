@@ -30,7 +30,7 @@ class LatencyCalibrationWarnings(_BaseModel):
     Things that aren't necessarily wrong with the latency calibration but are
     worth looking into.
 
-    :param matches_lookahead: The calibrated latency is as far forard as
+    :param matches_lookahead: The calibrated latency is as far forward as
         possible, i.e. the very first sample we looked at tripped the trigger.
         That's probably not a coincidence but the trigger is too sensitive.
     :param disagreement_too_high: The range of the latency estimates is greater

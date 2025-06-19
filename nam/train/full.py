@@ -154,7 +154,7 @@ def main(
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
         _warn(
-            f"Overriding data nx={data_config['common']['nx']} with model requried {model.net.receptive_field}"
+            f"Overriding data nx={data_config['common']['nx']} with model required {model.net.receptive_field}"
         )
     data_config["common"]["nx"] = model.net.receptive_field
 

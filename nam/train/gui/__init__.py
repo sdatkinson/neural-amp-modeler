@@ -525,7 +525,7 @@ class GUI(object):
         Use a pre-emphasized multi-resolution shot-time Fourier transform loss during
         training.
 
-        This improves agreement in the high frequencies, usually with a minimial loss in
+        This improves agreement in the high frequencies, usually with a minimal loss in
         ESR.
         """
         # Leave this as a public method to anticipate an extension to make it
