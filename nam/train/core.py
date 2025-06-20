@@ -356,7 +356,7 @@ def _warn_lookaheads(indices: _Sequence[int]) -> str:
     return (
         f"WARNING: delays from some blips ({','.join([str(i) for i in indices])}) are "
         "at the minimum value possible. This usually means that something is "
-        "wrong with your data. Check if trianing ends with a poor result!"
+        "wrong with your data. Check if training ends with a poor result!"
     )
 
 
@@ -467,7 +467,7 @@ def _calibrate_latency_v_all(
 
     delay_post_safety_factor = delay - safety_factor
     print(
-        f"After aplying safety factor of {safety_factor}, the final delay is "
+        f"After applying safety factor of {safety_factor}, the final delay is "
         f"{delay_post_safety_factor}"
     )
     return _metadata.LatencyCalibration(
@@ -1298,7 +1298,7 @@ def get_callbacks(
 class TrainOutput(_NamedTuple):
     """
     :param model: The trained model
-    :param simpliifed_trianer_metadata: The metadata summarizing training with the
+    :param simplified_trainer_metadata: The metadata summarizing training with the
         simplified trainer.
     """
 

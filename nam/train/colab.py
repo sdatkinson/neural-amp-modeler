@@ -101,7 +101,7 @@ def run(
 ):
     """
     :param epochs: How many epochs we'll train for.
-    :param delay: How far the output algs the input due to round-trip latency during
+    :param delay: How far the output lags the input due to round-trip latency during
         reamping, in samples.
     :param model_type: The type of model to train.
     :param architecture: The architecture hyperparameters to use
