@@ -1,0 +1,38 @@
+[
+  {
+    "input_path": "data/input_1.wav",
+    "output_path": "data/output_1.wav",
+    "knob_type": "volume",
+    "knob_level": 0.1
+  },
+  {
+    "input_path": "data/input_2.wav",
+    "output_path": "data/output_2.wav",
+    "knob_type": "gain",
+    "knob_level": 0.2
+  },
+  {
+    "input_path": "data/input_3.wav",
+    "output_path": "data/output_3.wav",
+    "knob_type": "bass",
+    "knob_level": 0.3
+  },
+  {
+    "input_path": "data/input_4.wav",
+    "output_path": "data/output_4.wav",
+    "knob_type": "mid",
+    "knob_level": 0.4
+  },
+  {
+    "input_path": "data/input_5.wav",
+    "output_path": "data/output_5.wav",
+    "knob_type": "treble",
+    "knob_level": 0.5
+  },
+  {
+    "input_path": "data/input_6.wav",
+    "output_path": "data/output_6.wav",
+    "knob_type": "presence",
+    "knob_level": 0.6
+  }
+]

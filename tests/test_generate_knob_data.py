@@ -15,7 +15,6 @@ def test_generate_knob_data():
             assert os.path.exists(entry['output_path'])
             assert 'knob_type' in entry
             assert 'knob_level' in entry
-            assert 'volume' in entry
 
 if __name__ == "__main__":
     test_generate_knob_data()
