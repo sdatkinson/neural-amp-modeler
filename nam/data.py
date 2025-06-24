@@ -33,6 +33,7 @@ from ._core import (
     InitializableFromConfig as _InitializableFromConfig,
     WithTeardown as _WithTeardown,
 )
+from .load_knob_data import load_knob_data as _load_knob_data
 
 logger = _logging.getLogger(__name__)
 
@@ -794,3 +795,76 @@ def init_dataset(config, split: Split) -> AbstractDataset:
                 "dataset_configs": [{**common, **c} for c in base_config],
             }
         )
+
+
+class KnobConditionedDataset(AbstractDataset, _InitializableFromConfig):
+    """
+    Dataset that returns (input_audio, conditioning_tensor, target_audio),
+    where conditioning_tensor is [one-hot knob type..., knob_level].
+    """
+    def __init__(self, entries, nx, ny=None, sample_rate=None, knob_types=None):
+        self.entries = entries
+        self.nx = nx
+        self.ny = ny
+        self.sample_rate = sample_rate
+        # Build knob type mapping dynamically if not provided
+        if knob_types is None:
+            knob_types = sorted({e['knob_type'] for e in entries})
+        self.knob_types = knob_types
+        self.knob_type_to_idx = {k: i for i, k in enumerate(self.knob_types)}
+        self._audio_pairs = []
+        for entry in entries:
+            x = wav_to_tensor(entry['input_path'], rate=sample_rate)
+            y = wav_to_tensor(entry['output_path'], rate=sample_rate)
+            self._audio_pairs.append((x, y, entry['knob_type'], entry['knob_level']))
+        # Validate lengths and set ny
+        if self.ny is None:
+            self.ny = min(len(x) for x, _, _, _ in self._audio_pairs) - self.nx + 1
+        # Precompute number of samples per pair
+        self._pair_lengths = [min(len(x), len(y)) for x, y, _, _ in self._audio_pairs]
+        self._total_samples = sum((n - self.nx + 1) // self.ny for n in self._pair_lengths)
+        # Build lookup for __getitem__
+        self._lookup = []
+        for pair_idx, n in enumerate(self._pair_lengths):
+            num = (n - self.nx + 1) // self.ny
+            for i in range(num):
+                self._lookup.append((pair_idx, i))
+
+    def __getitem__(self, idx):
+        pair_idx, seg_idx = self._lookup[idx]
+        x, y, knob_type, knob_level = self._audio_pairs[pair_idx]
+        i = seg_idx * self.ny
+        j = i + self.nx - 1
+        input_audio = x[i : i + self.nx + self.ny - 1]
+        target_audio = y[j : j + self.ny]
+        # Build conditioning tensor
+        one_hot = torch.zeros(len(self.knob_types), dtype=torch.float32)
+        one_hot[self.knob_type_to_idx[knob_type]] = 1.0
+        conditioning = torch.cat([one_hot, torch.tensor([float(knob_level)])])
+        return input_audio, conditioning, target_audio
+
+    def __len__(self):
+        return len(self._lookup)
+
+    @property
+    def sample_rate(self):
+        return self._sample_rate
+
+    @classmethod
+    def parse_config(cls, config):
+        # config should have: json_path, nx, (optional) ny, (optional) sample_rate
+        entries = _load_knob_data(config['json_path'])
+        nx = config['nx']
+        ny = config.get('ny')
+        sample_rate = config.get('sample_rate')
+        knob_types = config.get('knob_types')
+        return {
+            'entries': entries,
+            'nx': nx,
+            'ny': ny,
+            'sample_rate': sample_rate,
+            'knob_types': knob_types,
+        }
+
+# Register the new dataset type
+_dataset_init_registry['knob_conditioned'] = KnobConditionedDataset.init_from_config

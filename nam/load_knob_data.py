@@ -1,22 +1,18 @@
 import json
-from typing import List, Dict, Set
+from typing import List, Dict
 
-def load_knob_data(json_path: str):
+def load_knob_data(json_path: str) -> List[Dict]:
     """
-    Load the JSON config, collect unique knob types and knob levels.
-    Returns:
-        unique_knob_types (set), unique_knob_levels (set)
+    Load the JSON config and return the dataset (list of dicts).
+    Also prints unique knob types and knob levels for user info.
     """
     with open(json_path, 'r') as f:
         dataset: List[Dict] = json.load(f)
-    knob_types: Set[str] = set()
-    knob_levels: Set[float] = set()
-    for entry in dataset:
-        knob_types.add(entry.get('knob_type'))
-        knob_levels.add(entry.get('knob_level'))
+    knob_types = {entry.get('knob_type') for entry in dataset}
+    knob_levels = {entry.get('knob_level') for entry in dataset}
     print(f"Unique knob types: {sorted(knob_types)}")
     print(f"Unique knob levels: {sorted(knob_levels)}")
-    return knob_types, knob_levels
+    return dataset
 
 if __name__ == "__main__":
     import argparse

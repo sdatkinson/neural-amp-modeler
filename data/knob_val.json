@@ -1,0 +1,20 @@
+[
+  {
+    "input_path": "data/input_4.wav",
+    "output_path": "data/output_4.wav",
+    "knob_type": "mid",
+    "knob_level": 0.4
+  },
+  {
+    "input_path": "data/input_5.wav",
+    "output_path": "data/output_5.wav",
+    "knob_type": "presence",
+    "knob_level": 0.5
+  },
+  {
+    "input_path": "data/input_6.wav",
+    "output_path": "data/output_6.wav",
+    "knob_type": "volume",
+    "knob_level": 0.6
+  }
+] 
