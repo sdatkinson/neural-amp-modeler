@@ -1,7 +1,11 @@
 {
   "type": "knob_conditioned",
-  "train": {},
-  "validation": {},
+  "train": {
+    "split": [0, 4]  
+  },
+  "validation": {
+    "split": [4, 6]  
+  },
   "common": {
     "json_path": "data/knob_dataset.json"
   }

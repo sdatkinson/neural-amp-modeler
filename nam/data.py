@@ -802,7 +802,7 @@ class KnobConditionedDataset(AbstractDataset, _InitializableFromConfig):
     Dataset that returns (input_audio, conditioning_tensor, target_audio),
     where conditioning_tensor is [one-hot knob type..., knob_level].
     """
-    def __init__(self, entries, nx, ny=None, sample_rate=None, knob_types=None):
+    def __init__(self, entries, nx, ny=None, sample_rate=None, knob_types=None, split=None):
         self.entries = entries
         self.nx = nx
         self.ny = ny
@@ -812,11 +812,18 @@ class KnobConditionedDataset(AbstractDataset, _InitializableFromConfig):
             knob_types = sorted({e['knob_type'] for e in entries})
         self.knob_types = knob_types
         self.knob_type_to_idx = {k: i for i, k in enumerate(self.knob_types)}
+        
+        # Apply split if provided
+        if split is not None:
+            start_idx, end_idx = split
+            entries = entries[start_idx:end_idx]
+            
         self._audio_pairs = []
         for entry in entries:
             x = wav_to_tensor(entry['input_path'], rate=sample_rate)
             y = wav_to_tensor(entry['output_path'], rate=sample_rate)
             self._audio_pairs.append((x, y, entry['knob_type'], entry['knob_level']))
+        
         # Validate lengths and set ny
         if self.ny is None:
             self.ny = min(len(x) for x, _, _, _ in self._audio_pairs) - self.nx + 1
@@ -861,12 +868,14 @@ class KnobConditionedDataset(AbstractDataset, _InitializableFromConfig):
         ny = config.get('ny')
         sample_rate = config.get('sample_rate')
         knob_types = config.get('knob_types')
+        split = config.get('split')  # Add split parameter
         return {
             'entries': entries,
             'nx': nx,
             'ny': ny,
             'sample_rate': sample_rate,
             'knob_types': knob_types,
+            'split': split,  # Pass split to __init__
         }
 
 # Register the new dataset type

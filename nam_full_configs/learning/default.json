@@ -4,13 +4,16 @@
         "representative of this!"
     ],
     "train_dataloader": {
-        "batch_size": 16,
+        "batch_size": 2,
         "shuffle": true,
         "pin_memory": true,
-        "drop_last": true,
+        "drop_last": false,
         "num_workers": 0
     },
-    "val_dataloader": {},
+    "val_dataloader": {
+        "batch_size": 1,
+        "drop_last": false
+    },
     "trainer": {
         "accelerator": "cpu",
         "devices": 1,
