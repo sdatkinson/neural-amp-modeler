@@ -35,5 +35,4 @@ dependencies:
       - wavio >=0.0.5
       - -e ..
       - torch
-      - torchvision
-      - torchaudio
+
