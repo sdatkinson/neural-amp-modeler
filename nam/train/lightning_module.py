@@ -169,6 +169,8 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         # Keeping it on-device is preferable, but if that fails, then remember to drop
         # it to cpu from then on.
         self._mrstft_device: _Optional[_torch.device] = None
+        # Whether this model is knob conditioned
+        self.is_knob_conditioned = hasattr(net, 'is_knob_conditioned') and net.is_knob_conditioned
 
     @classmethod
     def init_from_config(cls, config):
@@ -247,6 +249,14 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
             return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
 
     def forward(self, *args, **kwargs):
+        # Log the shapes of all positional arguments
+        for i, arg in enumerate(args):
+            if hasattr(arg, 'shape'):
+                logger.debug(f"forward arg[{i}] shape: {arg.shape}")
+        # Log the shapes of all keyword arguments
+        for k, v in kwargs.items():
+            if hasattr(v, 'shape'):
+                logger.debug(f"forward kwarg '{k}' shape: {v.shape}")
         return self.net(*args, **kwargs)  # TODO deprecate--use self.net() instead.
 
     def on_load_checkpoint(self, checkpoint: _Dict[str, _Any]) -> None:
@@ -266,9 +276,32 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
 
         :return: (B,L), (B,L)
         """
-        args, targets = batch[:-1], batch[-1]
-        preds = self(*args, pad_start=False)
+        # Log the batch content and shapes
+        if isinstance(batch, (list, tuple)):
+            for i, item in enumerate(batch):
+                if hasattr(item, 'shape'):
+                    logger.debug(f"_shared_step batch[{i}] shape: {item.shape}")
+        elif hasattr(batch, 'shape'):
+            logger.debug(f"_shared_step batch shape: {batch.shape}")
+        # Existing code
+        if self.is_knob_conditioned:
+            input_audio, conditioning, target_audio = batch
+            logger.debug(f"_shared_step input_audio shape: {input_audio.shape}")
+            logger.debug(f"_shared_step conditioning shape: {conditioning.shape}")
+            logger.debug(f"_shared_step target_audio shape: {target_audio.shape}")
+            preds = self(input_audio, conditioning, pad_start=False)
+            targets = target_audio
+        else:
+            input_audio, target_audio = batch
+            logger.debug(f"_shared_step input_audio shape: {input_audio.shape}")
+            logger.debug(f"_shared_step target_audio shape: {target_audio.shape}")
+            preds = self(input_audio, pad_start=False)
+            targets = target_audio
 
+        # Squeeze channel dimension if present (e.g., WaveNet)
+        if preds.ndim == 3 and preds.shape[1] == 1:
+            preds = preds.squeeze(1)
+            
         # Compute all relevant losses.
         loss_dict = {}  # Mind keys versus validation loss requested...
         # Prediction aka MSE loss

@@ -266,8 +266,8 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
             this point. Negative values are taken from the end of the audio.
         :param start_samples: Clip x and y at this point. Negative values are taken from
             the end of the audio.
-        :param stop: Clip x and y at this point. Negative values are taken from the end
-            of the audio.
+        :param stop: Clip x and y at this point. Negative values are taken from
+            the end of the audio.
         :param start_seconds: Clip x and y at this point. Negative values are taken from
             the end of the audio. Requires providing `sample_rate`.
         :param stop_seconds: Clip x and y at this point. Negative values are taken from
@@ -806,7 +806,7 @@ class KnobConditionedDataset(AbstractDataset, _InitializableFromConfig):
         self.entries = entries
         self.nx = nx
         self.ny = ny
-        self.sample_rate = sample_rate
+        self._sample_rate = sample_rate
         # Build knob type mapping dynamically if not provided
         if knob_types is None:
             knob_types = sorted({e['knob_type'] for e in entries})
@@ -829,6 +829,7 @@ class KnobConditionedDataset(AbstractDataset, _InitializableFromConfig):
             num = (n - self.nx + 1) // self.ny
             for i in range(num):
                 self._lookup.append((pair_idx, i))
+        logger.debug(f"KnobConditionedDataset nx={self.nx}, ny={self.ny}, audio_lengths={[len(x) for x,_,_,_ in self._audio_pairs]}")
 
     def __getitem__(self, idx):
         pair_idx, seg_idx = self._lookup[idx]
@@ -838,9 +839,11 @@ class KnobConditionedDataset(AbstractDataset, _InitializableFromConfig):
         input_audio = x[i : i + self.nx + self.ny - 1]
         target_audio = y[j : j + self.ny]
         # Build conditioning tensor
-        one_hot = torch.zeros(len(self.knob_types), dtype=torch.float32)
+        one_hot = _torch.zeros(len(self.knob_types), dtype=_torch.float32)
         one_hot[self.knob_type_to_idx[knob_type]] = 1.0
-        conditioning = torch.cat([one_hot, torch.tensor([float(knob_level)])])
+        conditioning = _torch.cat([one_hot, _torch.tensor([float(knob_level)])])
+        # Repeat conditioning along the time axis to match input_audio length
+        conditioning = conditioning[:, None].repeat(1, input_audio.shape[0])
         return input_audio, conditioning, target_audio
 
     def __len__(self):

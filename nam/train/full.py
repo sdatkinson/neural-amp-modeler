@@ -25,6 +25,9 @@ from nam.data import (
 from nam.train.lightning_module import LightningModule as _LightningModule
 from nam.util import filter_warnings as _filter_warnings
 
+import logging
+logger = logging.getLogger(__name__)
+
 _torch.manual_seed(0)
 
 
@@ -46,7 +49,6 @@ def _plot(
     window_end: _Optional[int] = None,
 ):
     if isinstance(ds, _ConcatDataset):
-
         def extend_savefig(i, savefig):
             if savefig is None:
                 return None
@@ -66,21 +68,36 @@ def _plot(
             )
         return
     with _torch.no_grad():
-        tx = len(ds.x) / 48_000
-        print(f"Run (t={tx:.2f})")
-        t0 = _time()
-        output = model(ds.x).flatten().cpu().numpy()
-        t1 = _time()
+        # Support for knob conditioning: unpack (input_audio, conditioning, target_audio)
+        if hasattr(ds, "_audio_pairs") or (hasattr(ds, "__getitem__") and len(ds[0]) == 3):
+            # KnobConditionedDataset or similar
+            x, cond, y = ds[0]
+            tx = len(x) / 48_000
+            print(f"Run (t={tx:.2f})")
+            t0 = _time()
+            output = model(x[None], cond[None]).flatten().cpu().numpy()
+            t1 = _time()
+            target = y
+        else:
+            tx = len(ds.x) / 48_000
+            print(f"Run (t={tx:.2f})")
+            t0 = _time()
+            output = model(ds.x).flatten().cpu().numpy()
+            t1 = _time()
+            target = ds.y
         try:
             rt = f"{tx / (t1 - t0):.2f}"
         except ZeroDivisionError as e:
             rt = "???"
         print(f"Took {t1 - t0:.2f} ({rt}x)")
 
+        # Trim output to match target length
+        output = output[:len(target)]
+
     _plt.figure(figsize=(16, 5))
     _plt.plot(output[window_start:window_end], label="Prediction")
-    _plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    nrmse = _rms(_torch.Tensor(output) - ds.y) / _rms(ds.y)
+    _plt.plot(target[window_start:window_end], linestyle="--", label="Target")
+    nrmse = _rms(_torch.Tensor(output) - target) / _rms(target)
     esr = nrmse**2
     _plt.title(f"ESR={esr:.3f}")
     _plt.legend()
@@ -157,6 +174,8 @@ def main(
             f"Overriding data nx={data_config['common']['nx']} with model required {model.net.receptive_field}"
         )
     data_config["common"]["nx"] = model.net.receptive_field
+    logger.debug(f"Set data_config['common']['nx'] = {data_config['common']['nx']}")
+    logger.debug(f"data_config used for dataset creation: {data_config}")
 
     dataset_train = _init_dataset(data_config, _Split.TRAIN)
     dataset_validation = _init_dataset(data_config, _Split.VALIDATION)

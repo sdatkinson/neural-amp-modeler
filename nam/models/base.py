@@ -103,6 +103,11 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
         :param gain: Multiplies input signal
         """
         x = self._metadata_loudness_x().to(self.device)
+        # Ensure x is 3D for knob-conditioned models: [batch, channels, time]
+        if x.ndim == 1:
+            x = x.unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+        elif x.ndim == 2:
+            x = x.unsqueeze(1)  # Add channel dimension
         y = self._at_nominal_settings(gain * x)
         loudness = _torch.sqrt(_torch.mean(_torch.square(y)))
         if db:
@@ -133,8 +138,26 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
         return _np.clip(normalized_gain, 0.0, 1.0)
 
     def _at_nominal_settings(self, x: _torch.Tensor) -> _torch.Tensor:
-        # parametric?...
-        raise NotImplementedError()
+        # For knob-conditioned models, provide a default conditioning tensor
+        if hasattr(self, 'is_knob_conditioned') and self.is_knob_conditioned:
+            # Create a conditioning tensor with nominal settings
+            batch_size = x.shape[0] if x.ndim > 1 else 1
+            
+            if not hasattr(self, 'knob_types') or not self.knob_types:
+                raise RuntimeError("Knob-conditioned model missing knob_types. Please initialize the model with knob information.")
+            
+            # Create conditioning tensor with the same structure as in KnobConditionedDataset
+            num_knobs = len(self.knob_types)
+            cond = _torch.zeros((batch_size, num_knobs + 1, x.shape[-1])).to(x.device)
+            
+            # Set nominal values - use first knob type at 0.5 level as default
+            first_knob_type = self.knob_types[0]
+            knob_idx = self.knob_type_to_idx[first_knob_type]
+            cond[:, knob_idx, :] = 1.0  # One-hot encoding
+            cond[:, -1, :] = 0.5  # Set knob level to middle position
+            
+            return self(x, cond)
+        return self(x)
 
     @_abc.abstractmethod
     def _forward(self, *args) -> _torch.Tensor:
@@ -204,9 +227,6 @@ class BaseNet(_Base):
         if scalar:
             y = y[0]
         return y
-
-    def _at_nominal_settings(self, x: _torch.Tensor) -> _torch.Tensor:
-        return self(x)
 
     def _forward_mps_safe(self, x: _torch.Tensor, **kwargs) -> _torch.Tensor:
         """

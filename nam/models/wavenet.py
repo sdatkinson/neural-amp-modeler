@@ -21,11 +21,14 @@ from typing import (
 import numpy as _np
 import torch as _torch
 import torch.nn as _nn
+import logging
 
 from ._abc import ImportsWeights as _ImportsWeights
 from ._activations import get_activation as _get_activation
 from .base import BaseNet as _BaseNet
 from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
+
+logger = logging.getLogger(__name__)
 
 
 class Conv1d(_nn.Conv1d):
@@ -334,22 +337,28 @@ class _WaveNet(_nn.Module):
         for layer in self._layers:
             i = layer.import_weights(weights, i)
 
-    def forward(self, x: _torch.Tensor) -> _torch.Tensor:
+    def forward(self, x: _torch.Tensor, cond: _torch.Tensor) -> _torch.Tensor:
         """
         :param x: (B,Cx,L)
+        :param cond: (B,Cc,L) or (B,Cc,1) conditioning tensor
         :return: (B,Cy,L-R)
         """
         y, head_input = x, None
         for layer in self._layers:
-            head_input, y = layer(y, x, head_input=head_input)
+            head_input, y = layer(y, cond, head_input=head_input)
         head_input = self._head_scale * head_input
         return head_input if self._head is None else self._head(head_input)
 
 
 class WaveNet(_BaseNet, _ImportsWeights):
-    def __init__(self, *args, sample_rate: _Optional[float] = None, **kwargs):
+    def __init__(self, *args, sample_rate: _Optional[float] = None, knob_types=None, **kwargs):
         super().__init__(sample_rate=sample_rate)
         self._net = _WaveNet(*args, **kwargs)
+        # This model is always knob conditioned since it requires a conditioning tensor
+        self.is_knob_conditioned = True
+        # Store knob information
+        self.knob_types = knob_types
+        self.knob_type_to_idx = {k: i for i, k in enumerate(knob_types)} if knob_types else None
 
     @property
     def pad_start_default(self) -> bool:
@@ -370,9 +379,46 @@ class WaveNet(_BaseNet, _ImportsWeights):
     def _export_weights(self) -> _np.ndarray:
         return self._net.export_weights()
 
-    def _forward(self, x):
+    def _forward(self, x, cond=None, pad_start: _Optional[bool] = None):
+        if cond is None:
+            raise ValueError("WaveNet now requires a conditioning tensor as the second argument.")
+        pad_start = self.pad_start_default if pad_start is None else pad_start
+        scalar = x.ndim == 1
+        if scalar:
+            x = x[None]
+            cond = cond[None]
+        # Ensure x and cond are 3D: [batch, channels, length]
         if x.ndim == 2:
             x = x[:, None, :]
-        y = self._net(x)
-        assert y.shape[1] == 1
-        return y[:, 0, :]
+        if cond.ndim == 2:
+            cond = cond[:, None, :]
+        if pad_start:
+            # Create zeros with same number of dimensions as x
+            zeros_to_pad = _torch.zeros((x.shape[0], x.shape[1], self.receptive_field - 1)).to(x.device)
+            logger.debug(f"Before padding x: x.shape={x.shape}, zeros.shape={zeros_to_pad.shape}")
+            x = _torch.cat(
+                (zeros_to_pad, x),
+                dim=2,  # Concatenate along the time dimension
+            )
+            # For conditioning tensor, maintain its channel dimension
+            cond = _torch.cat(
+                (
+                    _torch.zeros((cond.shape[0], cond.shape[1], self.receptive_field - 1)).to(cond.device),
+                    cond,
+                ),
+                dim=2,
+            )
+        logger.debug(f"WaveNet _forward: x.shape={x.shape}, cond.shape={cond.shape}, receptive_field={self.receptive_field}")
+        if x.shape[2] < self.receptive_field:
+            logger.debug(f"x.shape before receptive field check: {x.shape}")
+            raise ValueError(
+                f"Input has {x.shape[2]} samples, which is too few for this model with "
+                f"receptive field {self.receptive_field}!"
+            )
+        y = self._net(x, cond)
+        if scalar:
+            y = y[0]
+        return y
+
+    def forward(self, x, cond, pad_start: _Optional[bool] = None):
+        return self._forward(x, cond, pad_start=pad_start)

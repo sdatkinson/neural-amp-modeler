@@ -1,0 +1,8 @@
+{
+    "type": "knob_conditioned",
+    "train": {},
+    "validation": {},
+    "common": {
+        "json_path": "data/knob_dataset.json"
+    }
+}
