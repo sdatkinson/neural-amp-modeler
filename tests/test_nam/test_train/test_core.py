@@ -17,6 +17,7 @@ from nam.data import (
     wav_to_tensor,
     _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
 )
+from nam.train import metadata as _metadata
 from nam.train.lightning_module import LightningModule
 from nam.train import core
 from nam.train._version import Version
@@ -322,6 +323,77 @@ def test_get_callbacks():
     assert any(
         isinstance(cb, core._ValidationStopping) for cb in extended_callbacks
     ), "_ValidationStopping should still be present after adding a custom callback."
+
+
+class TestAnalyzeLatency:
+    """
+    Assertions about the behavior of _analyze_latency()
+    """
+
+    @requires_v3_0_0
+    def test_analyze_latency_doesnt_fail_if_user_provides(self):
+        """
+        Assert that the latency analysis succeeds whenever the user provides the
+        latency that should be used, i.e. doesn't fail whenever because automatic
+        detection fails.
+        """
+        with TemporaryDirectory() as tmpdir:
+            input_path = resource_path("v3_0_0.wav")
+            output_path = Path(tmpdir, "output.wav")
+            # This output is silent, so the calibration will fail
+            np_to_wav(np.zeros_like(wav_to_np(input_path)), output_path)
+            analysis = core._analyze_latency(
+                user_latency=100,
+                input_version=Version(3, 0, 0),
+                input_path=input_path,
+                output_path=output_path,
+                silent=True,
+            )
+        assert analysis.manual == 100
+        assert analysis.calibration.recommended is None
+
+    def test_no_fail_if_no_user_and_automatic_calibration_fails(self):
+        """
+        Even if the automatic calibration fails, the function should not raise
+        an exception. That should happen only when getting the final latency.
+        """
+        with TemporaryDirectory() as tmpdir:
+            input_path = resource_path("v3_0_0.wav")
+            output_path = Path(tmpdir, "output.wav")
+            # This output is silent, so the calibration will fail
+            np_to_wav(np.zeros_like(wav_to_np(input_path)), output_path)
+            analysis = core._analyze_latency(
+                user_latency=None,  # No fallback; should fail
+                input_version=Version(3, 0, 0),
+                input_path=input_path,
+                output_path=output_path,
+                silent=True,
+            )
+        assert analysis.manual is None
+        assert analysis.calibration.recommended is None
+
+
+def test_get_final_latency_fails_if_no_user_and_automatic_calibration_fails():
+    """
+    If the automatic and manual calibration aren't available, then the function
+    should raise an exception.
+    """
+    latency_analysis = _metadata.Latency(
+        manual=None,
+        calibration=_metadata.LatencyCalibration(
+            algorithm_version=1,
+            delays=[],
+            safety_factor=1,
+            recommended=None,
+            warnings=_metadata.LatencyCalibrationWarnings(
+                matches_lookahead=False,
+                disagreement_too_high=False,
+                not_detected=True,
+            ),
+        ),
+    )
+    with pytest.raises(core._FinalLatencyError):
+        core._get_final_latency(latency_analysis)
 
 
 if __name__ == "__main__":

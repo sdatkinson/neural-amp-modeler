@@ -548,6 +548,14 @@ _plot_latency_v3 = _partial(_plot_latency_v_all, _V3_DATA_INFO)
 _plot_latency_v4 = _partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
+class _AnalyzeLatencyError(RuntimeError):
+    """
+    Raised when the latency analysis fails.
+    """
+
+    pass
+
+
 def _analyze_latency(
     user_latency: _Optional[int],
     input_version: _Version,
@@ -556,7 +564,9 @@ def _analyze_latency(
     silent: bool = False,
 ) -> _metadata.Latency:
     """
-    :param is_proteus: Forget the version; d
+    Use an automatic algorithm to calibrate the latency of the output audio.
+
+    Return alongside the manual latency that the user provided if applicable.
     """
     if input_version.major == 1:
         calibrate, plot = _calibrate_latency_v1, _plot_latency_v1
@@ -575,7 +585,6 @@ def _analyze_latency(
     calibration_output = calibrate(_wav_to_np(output_path))
     if not silent and calibration_output.recommended is not None:
         plot(calibration_output.recommended, input_path, output_path)
-
     return _metadata.Latency(manual=user_latency, calibration=calibration_output)
 
 
@@ -1313,7 +1322,19 @@ class TrainOutput(_NamedTuple):
     metadata: _metadata.TrainingMetadata
 
 
+class _FinalLatencyError(ValueError):
+    """
+    Raised when the final latency cannot be determined.
+    """
+
+    pass
+
+
 def _get_final_latency(latency_analysis: _metadata.Latency) -> int:
+    """
+    Make a decision based on automatic and manual latency values what will be
+    used for training.
+    """
     user = latency_analysis.manual
     analyzed = latency_analysis.calibration.recommended
 
@@ -1337,7 +1358,7 @@ def _get_final_latency(latency_analysis: _metadata.Latency) -> int:
         print(f"Cannot use the user latency. Use the analyzed latency ({analyzed}).")
         return analyzed
 
-    raise ValueError(
+    raise _FinalLatencyError(
         "No latency provided and cannot automatically analyze the latency."
     )
 
