@@ -354,6 +354,7 @@ class TestAnalyzeLatency:
         assert analysis.manual == 100
         assert analysis.calibration.recommended is None
 
+    @requires_v3_0_0
     def test_no_fail_if_no_user_and_automatic_calibration_fails(self):
         """
         Even if the automatic calibration fails, the function should not raise
