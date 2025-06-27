@@ -35,7 +35,10 @@ class LatencyCalibrationWarnings(_BaseModel):
         That's probably not a coincidence but the trigger is too sensitive.
     :param disagreement_too_high: The range of the latency estimates is greater
         than the max_disagreement_threshold. Indication that something may have
-        gone wrong.
+        gone wrong.\
+    :param not_detected: The impulse responses used for latency calibration were
+        not detected by the algorithm, so latency calibration could not be
+        determined automatically.
     """
 
     matches_lookahead: bool
@@ -44,6 +47,14 @@ class LatencyCalibrationWarnings(_BaseModel):
 
 
 class LatencyCalibration(_BaseModel):
+    """
+    :param recommended: In samples. Positive values mean that the output lags
+        behind the input and should be puleld forward in time. Negative values
+        indicate that the latency is over-compensated (possibly by teh DAW or
+        human error) and the output should be pushed back in time. None if
+        calibration could not be determined automatically due to some error.
+    """
+
     algorithm_version: int
     delays: _List[int]
     safety_factor: int
