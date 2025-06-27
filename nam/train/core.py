@@ -538,6 +538,14 @@ _plot_latency_v3 = _partial(_plot_latency_v_all, _V3_DATA_INFO)
 _plot_latency_v4 = _partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
+class _AnalyzeLatencyError(RuntimeError):
+    """
+    Raised when the latency analysis fails.
+    """
+
+    pass
+
+
 def _analyze_latency(
     user_latency: _Optional[int],
     input_version: _Version,
@@ -566,6 +574,10 @@ def _analyze_latency(
     latency = (
         user_latency if user_latency is not None else calibration_output.recommended
     )
+    if latency is None:
+        raise _AnalyzeLatencyError(
+            "Failed to calibrate latency, and no manual value was given."
+        )
     if not silent:
         plot(latency, input_path, output_path)
 

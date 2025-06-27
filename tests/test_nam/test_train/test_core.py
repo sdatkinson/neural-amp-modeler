@@ -324,5 +324,48 @@ def test_get_callbacks():
     ), "_ValidationStopping should still be present after adding a custom callback."
 
 
+class TestAnalyzeLatency:
+    """
+    Assertions about the behavior of _analyze_latency()
+    """
+
+    @requires_v3_0_0
+    def test_analyze_latency_doesnt_fail_if_user_provides(self):
+        """
+        Assert that the latency analysis succeeds whenever the user provides the
+        latency that should be used, i.e. doesn't fail whenever because automatic
+        detection fails.
+        """
+        with TemporaryDirectory() as tmpdir:
+            input_path = resource_path("v3_0_0.wav")
+            output_path = Path(tmpdir, "output.wav")
+            # This output is silent, so the calibration will fail
+            np_to_wav(np.zeros_like(wav_to_np(input_path)), output_path)
+            analysis = core._analyze_latency(
+                user_latency=100,
+                input_version=Version(3, 0, 0),
+                input_path=input_path,
+                output_path=output_path,
+                silent=True,
+            )
+        assert analysis.manual == 100
+        assert analysis.calibration.recommended is None
+
+    def test_fails_if_no_user_and_automatic_calibration_fails(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = resource_path("v3_0_0.wav")
+            output_path = Path(tmpdir, "output.wav")
+            # This output is silent, so the calibration will fail
+            np_to_wav(np.zeros_like(wav_to_np(input_path)), output_path)
+            with pytest.raises(core._AnalyzeLatencyError):
+                analysis = core._analyze_latency(
+                    user_latency=None,  # No fallback; should fail
+                    input_version=Version(3, 0, 0),
+                    input_path=input_path,
+                    output_path=output_path,
+                    silent=True,
+                )
+
+
 if __name__ == "__main__":
     pytest.main()
