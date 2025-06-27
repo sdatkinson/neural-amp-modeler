@@ -122,7 +122,9 @@ class _TCalibrateDelay(object):
             # the blip section, so `first_blips_start` isn't used.
             x[i + expected_delay] = 1.0
 
-        delay_calibration = self._calibrate_delay(x)
+        delay_calibration = self._calibrate_delay(
+            x, manual_available=False, show_plots=False
+        )
         actual_recommended = delay_calibration.recommended
         assert (
             actual_recommended == expected_delay - core._DELAY_CALIBRATION_SAFETY_FACTOR
@@ -160,7 +162,7 @@ class _TCalibrateDelay(object):
                 sys.stdout = self._stdout
 
         with Capturing() as output:
-            self._calibrate_delay(y)
+            self._calibrate_delay(y, manual_available=False, show_plots=False)
         # `[0]` -- Only look in the first set of blip locations
         # With #485, we average them all together so there's only one index.
         # TODO clean this up.
@@ -368,6 +370,7 @@ class TestAnalyzeLatency:
                 input_path=input_path,
                 output_path=output_path,
                 silent=True,
+                _override_suppress_plots=True,
             )
         assert analysis.manual is None
         assert analysis.calibration.recommended is None

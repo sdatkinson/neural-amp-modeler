@@ -363,9 +363,12 @@ def _warn_lookaheads(indices: _Sequence[int]) -> str:
 def _calibrate_latency_v_all(
     data_info: _DataInfo,
     y,
+    manual_available: bool,
+    show_plots: bool,
     abs_threshold=_DELAY_CALIBRATION_ABS_THRESHOLD,
     rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
     safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
+    _override_suppress_plots: bool = False,
 ) -> _metadata.LatencyCalibration:
     """
     Calibrate the delay in teh input-output pair based on blips.
@@ -445,26 +448,31 @@ def _calibrate_latency_v_all(
             "No response activated the trigger in response to input spikes. "
             "Is something wrong with the reamp?"
         )
-        print(msg)
-        print("SHARE THIS PLOT IF YOU ASK FOR HELP")
-        _plt.figure()
-        _plt.plot(
-            _np.arange(-lookahead, lookback),
-            y_scan_average,
-            color="C0",
-            label="Signal average",
-        )
-        for y_scan in y_scans:
-            _plt.plot(_np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2)
-        _plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
-        _plt.axhline(y=-trigger_threshold, color="k", linestyle="--", label="Threshold")
-        _plt.axhline(y=trigger_threshold, color="k", linestyle="--")
-        _plt.xlim((-lookahead, lookback))
-        _plt.xlabel("Samples")
-        _plt.ylabel("Response")
-        _plt.legend()
-        _plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
-        _plt.show()
+        if (show_plots or not manual_available) and not _override_suppress_plots:
+            print(msg)
+            print("SHARE THIS PLOT IF YOU ASK FOR HELP")
+            _plt.figure()
+            _plt.plot(
+                _np.arange(-lookahead, lookback),
+                y_scan_average,
+                color="C0",
+                label="Signal average",
+            )
+            for y_scan in y_scans:
+                _plt.plot(
+                    _np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2
+                )
+            _plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
+            _plt.axhline(
+                y=-trigger_threshold, color="k", linestyle="--", label="Threshold"
+            )
+            _plt.axhline(y=trigger_threshold, color="k", linestyle="--")
+            _plt.xlim((-lookahead, lookback))
+            _plt.xlabel("Samples")
+            _plt.ylabel("Response")
+            _plt.legend()
+            _plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
+            _plt.show()
         delays = []
         recommended = None
 
@@ -562,6 +570,7 @@ def _analyze_latency(
     input_path: str,
     output_path: str,
     silent: bool = False,
+    _override_suppress_plots: bool = False,
 ) -> _metadata.Latency:
     """
     Use an automatic algorithm to calibrate the latency of the output audio.
@@ -582,7 +591,12 @@ def _analyze_latency(
         )
     if user_latency is not None:
         print(f"Delay is specified as {user_latency}")
-    calibration_output = calibrate(_wav_to_np(output_path))
+    calibration_output = calibrate(
+        _wav_to_np(output_path),
+        manual_available=user_latency is not None,
+        show_plots=not silent,
+        _override_suppress_plots=_override_suppress_plots,
+    )
     if not silent and calibration_output.recommended is not None:
         plot(calibration_output.recommended, input_path, output_path)
     return _metadata.Latency(manual=user_latency, calibration=calibration_output)
