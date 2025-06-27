@@ -40,13 +40,14 @@ class LatencyCalibrationWarnings(_BaseModel):
 
     matches_lookahead: bool
     disagreement_too_high: bool
+    not_detected: bool
 
 
 class LatencyCalibration(_BaseModel):
     algorithm_version: int
     delays: _List[int]
     safety_factor: int
-    recommended: int
+    recommended: _Optional[int]
     warnings: LatencyCalibrationWarnings
 
 
