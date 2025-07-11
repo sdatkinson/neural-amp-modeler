@@ -186,7 +186,7 @@ class AbstractDataset(_Dataset, _abc.ABC, _WithTeardown):
         """
         pass
 
-    def handshake(self, model: "nam.models.base.BaseNet"):
+    def handshake(self, model: "nam.models.base.BaseNet"):  # noqa: F821
         """
         Perform a handshake with the model to ensure that it's compatible.
         Raise a DatasetModelHandshakeError if the handshake fails.

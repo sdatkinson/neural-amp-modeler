@@ -65,7 +65,7 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
     def forward(self, *args, **kwargs) -> _torch.Tensor:
         pass
 
-    def handshake(self, dataset: "nam.data.AbstractDataset"):
+    def handshake(self, dataset: "nam.data.AbstractDataset"):  # noqa: F821
         """
         Perform a handshake with the dataset to ensure that it's compatible.
         Raise a ModelDatasetHandshakeError if the handshake fails.
