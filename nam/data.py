@@ -33,6 +33,7 @@ from ._core import (
     InitializableFromConfig as _InitializableFromConfig,
     WithTeardown as _WithTeardown,
 )
+from ._handshake import HandshakeError as _HandshakeError
 
 logger = _logging.getLogger(__name__)
 
@@ -168,6 +169,14 @@ def np_to_wav(
     )
 
 
+class DatasetModelHandshakeError(_HandshakeError):
+    """
+    Raised if a handshake fails from dataset to model
+    """
+
+    pass
+
+
 class AbstractDataset(_Dataset, _abc.ABC, _WithTeardown):
     @_abc.abstractmethod
     def __getitem__(self, idx: int):
@@ -176,6 +185,18 @@ class AbstractDataset(_Dataset, _abc.ABC, _WithTeardown):
         :return:
         """
         pass
+
+    def handshake(self, model: "nam.models.base.BaseNet"):  # noqa: F821
+        """
+        Perform a handshake with the model to ensure that it's compatible.
+        Raise a DatasetModelHandshakeError if the handshake fails.
+
+        :param model: The model to handshake with.
+        """
+        from nam.models.base import BaseNet
+
+        if not isinstance(model, BaseNet):
+            raise DatasetModelHandshakeError(f"Model is not a NAM: {type(model)}")
 
 
 class XYError(ValueError, DataError):
