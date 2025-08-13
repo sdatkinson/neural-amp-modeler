@@ -27,6 +27,7 @@ import torch as _torch
 import torch.nn as _nn
 
 from .._core import InitializableFromConfig as _InitializableFromConfig
+from ..models.base import BaseNet as _BaseNet
 from ..models.conv_net import ConvNet as _ConvNet
 from ..models.linear import Linear as _Linear
 from ..models.losses import (
@@ -144,7 +145,7 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
 
     def __init__(
         self,
-        net,
+        net: _BaseNet,
         optimizer_config: _Optional[dict] = None,
         scheduler_config: _Optional[dict] = None,
         loss_config: _Optional[LossConfig] = None,
@@ -269,50 +270,7 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         args, targets = batch[:-1], batch[-1]
         preds = self(*args, pad_start=False)
 
-        # Compute all relevant losses.
-        loss_dict = {}  # Mind keys versus validation loss requested...
-        # Prediction aka MSE loss
-        if self._loss_config.fourier:
-            loss_dict["MSE_FFT"] = _LossItem(1.0, _mse_fft(preds, targets))
-        else:
-            loss_dict["MSE"] = _LossItem(1.0, self._mse_loss(preds, targets))
-        # Pre-emphasized MSE
-        if self._loss_config.pre_emph_weight is not None:
-            if (self._loss_config.pre_emph_coef is None) != (
-                self._loss_config.pre_emph_weight is None
-            ):
-                raise ValueError("Invalid pre-emph")
-            loss_dict["Pre-emphasized MSE"] = _LossItem(
-                self._loss_config.pre_emph_weight,
-                self._mse_loss(
-                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_coef
-                ),
-            )
-        # Multi-resolution short-time Fourier transform loss
-        if self._loss_config.mrstft_weight is not None:
-            loss_dict["MRSTFT"] = _LossItem(
-                self._loss_config.mrstft_weight, self._mrstft_loss(preds, targets)
-            )
-        # Pre-emphasized MRSTFT
-        if self._loss_config.pre_emph_mrstft_weight is not None:
-            loss_dict["Pre-emphasized MRSTFT"] = _LossItem(
-                self._loss_config.pre_emph_mrstft_weight,
-                self._mrstft_loss(
-                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_mrstft_coef
-                ),
-            )
-        # DC loss
-        dc_weight = self._loss_config.dc_weight
-        if dc_weight is not None and dc_weight > 0.0:
-            # Denominator could be a bad idea. I'm going to omit it esp since I'm
-            # using mini batches
-            mean_dims = _torch.arange(1, preds.ndim).tolist()
-            dc_loss = _nn.MSELoss()(
-                preds.mean(dim=mean_dims), targets.mean(dim=mean_dims)
-            )
-            loss_dict["DC MSE"] = _LossItem(dc_weight, dc_loss)
-
-        return preds, targets, loss_dict
+        return preds, targets, self._get_loss_dict(preds, targets)
 
     def training_step(self, batch, batch_idx):
         _, _, loss_dict = self._shared_step(batch)
@@ -365,6 +323,54 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         :return: ()
         """
         return _esr(preds, targets)
+
+    def _get_loss_dict(self, preds, targets) -> _Dict[str, _LossItem]:
+        """
+        Compute all of the losses.
+        """
+        # Compute all relevant losses.
+        loss_dict = {}  # Mind keys versus validation loss requested...
+        # Prediction aka MSE loss
+        if self._loss_config.fourier:
+            loss_dict["MSE_FFT"] = _LossItem(1.0, _mse_fft(preds, targets))
+        else:
+            loss_dict["MSE"] = _LossItem(1.0, self._mse_loss(preds, targets))
+        # Pre-emphasized MSE
+        if self._loss_config.pre_emph_weight is not None:
+            if (self._loss_config.pre_emph_coef is None) != (
+                self._loss_config.pre_emph_weight is None
+            ):
+                raise ValueError("Invalid pre-emph")
+            loss_dict["Pre-emphasized MSE"] = _LossItem(
+                self._loss_config.pre_emph_weight,
+                self._mse_loss(
+                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_coef
+                ),
+            )
+        # Multi-resolution short-time Fourier transform loss
+        if self._loss_config.mrstft_weight is not None:
+            loss_dict["MRSTFT"] = _LossItem(
+                self._loss_config.mrstft_weight, self._mrstft_loss(preds, targets)
+            )
+        # Pre-emphasized MRSTFT
+        if self._loss_config.pre_emph_mrstft_weight is not None:
+            loss_dict["Pre-emphasized MRSTFT"] = _LossItem(
+                self._loss_config.pre_emph_mrstft_weight,
+                self._mrstft_loss(
+                    preds, targets, pre_emph_coef=self._loss_config.pre_emph_mrstft_coef
+                ),
+            )
+        # DC loss
+        dc_weight = self._loss_config.dc_weight
+        if dc_weight is not None and dc_weight > 0.0:
+            # Denominator could be a bad idea. I'm going to omit it esp since I'm
+            # using mini batches
+            mean_dims = _torch.arange(1, preds.ndim).tolist()
+            dc_loss = _nn.MSELoss()(
+                preds.mean(dim=mean_dims), targets.mean(dim=mean_dims)
+            )
+            loss_dict["DC MSE"] = _LossItem(dc_weight, dc_loss)
+        return loss_dict
 
     def _mse_loss(self, preds, targets, pre_emph_coef: _Optional[float] = None):
         if pre_emph_coef is not None:
