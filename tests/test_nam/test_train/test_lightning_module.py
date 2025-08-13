@@ -64,5 +64,21 @@ def test_mrstft_loss_cpu_fallback(mocker):
     assert obj._mrstft_device == "cpu"
 
 
+def test_get_loss_dict():
+    obj = _lightning_module.LightningModule(
+        _MockBaseNet(1.0),
+        loss_config=_lightning_module.LossConfig(mrstft_weight=0.0002),
+    )
+    preds = _torch.randn((3, 4096))
+    targets = _torch.randn(preds.shape)
+    loss_dict = obj._get_loss_dict(preds, targets)
+    assert isinstance(loss_dict, dict)
+    # MSE will also be computed by default.
+    assert len(loss_dict) >= 1
+    assert "MRSTFT" in loss_dict
+    assert loss_dict["MRSTFT"].value is not None
+    assert loss_dict["MRSTFT"].weight is not None
+
+
 if __name__ == "__main__":
     _pytest.main()
