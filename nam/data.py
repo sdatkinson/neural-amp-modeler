@@ -29,7 +29,10 @@ import wavio as _wavio
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm as _tqdm
 
-from ._core import InitializableFromConfig as _InitializableFromConfig, WithTeardown as _WithTeardown
+from ._core import (
+    InitializableFromConfig as _InitializableFromConfig,
+    WithTeardown as _WithTeardown,
+)
 
 logger = _logging.getLogger(__name__)
 
