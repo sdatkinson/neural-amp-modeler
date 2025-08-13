@@ -154,7 +154,7 @@ def main(
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
         _warn(
-            f"Overriding data nx={data_config['common']['nx']} with model requried {model.net.receptive_field}"
+            f"Overriding data nx={data_config['common']['nx']} with model required {model.net.receptive_field}"
         )
     data_config["common"]["nx"] = model.net.receptive_field
 
@@ -166,6 +166,13 @@ def main(
             f"{dataset_train.sample_rate}, {dataset_validation.sample_rate}"
         )
     model.net.sample_rate = dataset_train.sample_rate
+
+    # Perform handshakes:
+    dataset_train.handshake(model.net)
+    dataset_validation.handshake(model.net)
+    model.net.handshake(dataset_train)
+    model.net.handshake(dataset_validation)
+
     train_dataloader = _DataLoader(dataset_train, **learning_config["train_dataloader"])
     val_dataloader = _DataLoader(
         dataset_validation, **learning_config["val_dataloader"]
