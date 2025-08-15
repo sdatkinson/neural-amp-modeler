@@ -22,7 +22,7 @@ from nam.data import (
     Split as _Split,
     init_dataset as _init_dataset,
 )
-from nam.train.lightning_module import LightningModule as _LightningModule
+from nam.train import lightning_module as _lightning_module
 from nam.util import filter_warnings as _filter_warnings
 
 _torch.manual_seed(0)
@@ -149,7 +149,7 @@ def main(
         with open(_Path(outdir, f"config_{basename}.json"), "w") as fp:
             _json.dump(config, fp, indent=4)
 
-    model = _LightningModule.init_from_config(model_config)
+    model = _lightning_module.LightningModule.init_from_config(model_config)
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
@@ -193,9 +193,9 @@ def main(
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
     if best_checkpoint != "":
-        model = _LightningModule.load_from_checkpoint(
+        model = _lightning_module.LightningModule.load_from_checkpoint(
             trainer.checkpoint_callback.best_model_path,
-            **_LightningModule.parse_config(model_config),
+            **_lightning_module.LightningModule.parse_config(model_config),
         )
     model.cpu()
     model.eval()

@@ -89,6 +89,13 @@ def multi_resolution_stft_loss(
     return loss_func(preds, targets)
 
 
+def mse(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
+    """
+    MSE loss
+    """
+    return _torch.nn.functional.mse_loss(preds, targets)
+
+
 def mse_fft(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
     """
     Fourier loss

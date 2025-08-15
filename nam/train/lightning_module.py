@@ -13,11 +13,13 @@ For the base *PyTorch* model containing the actual architecture, see `..models.b
 from dataclasses import dataclass as _dataclass
 from enum import Enum as _Enum
 from typing import (
+    Callable as _Callable,
     Any as _Any,
     Dict as _Dict,
     NamedTuple as _NamedTuple,
     Optional as _Optional,
     Tuple as _Tuple,
+    Union as _Union,
 )
 
 import auraloss as _auraloss
@@ -34,10 +36,12 @@ from ..models.losses import (
     apply_pre_emphasis_filter as _apply_pre_emphasis_filter,
     esr as _esr,
     multi_resolution_stft_loss as _multi_resolution_stft_loss,
+    mse as _mse,
     mse_fft as _mse_fft,
 )
 from ..models.recurrent import LSTM as _LSTM
 from ..models.wavenet import WaveNet as _WaveNet
+from ..util import init as _init
 
 logger = _logging.getLogger(__name__)
 
@@ -58,42 +62,109 @@ class ValidationLoss(_Enum):
     ESR = "esr"
 
 
+class _CustomLoss(_NamedTuple):
+    weight: float
+    func: _Callable[[_torch.Tensor, _torch.Tensor], _torch.Tensor]
+
+
 @_dataclass
 class LossConfig(_InitializableFromConfig):
     """
+    :param mse_weight: Weight for the MSE loss term. If None, MSE is not computed.
     :param mrstft_weight: Multi-resolution short-time Fourier transform loss
         coefficient. None means to skip; 2e-4 works pretty well if one wants to use it.
     :param mask_first: How many of the first samples to ignore when computing the loss.
     :param dc_weight: Weight for the DC loss term. If 0, ignored.
-    :params val_loss: Which loss to track for the best model checkpoint.
+    :params val_loss: Which loss to track for the best model checkpoint. If a string is
+        provided, then it must match the name of a custom loss.
     :param pre_emph_coef: Coefficient of 1st-order pre-emphasis filter from
         https://www.mdpi.com/2076-3417/10/3/766. Paper value: 0.95.
     :param pre_
     """
 
+    class ValLossNameError(ValueError):
+        """
+        Error thrown when a validation loss name is invalid.
+        """
+
+        pass
+
+    mse_weight: _Optional[float] = 1.0
     mrstft_weight: _Optional[float] = None
     fourier: bool = False
     mask_first: int = 0
     dc_weight: float = None
-    val_loss: ValidationLoss = ValidationLoss.MSE
+    val_loss: _Union[ValidationLoss, str] = ValidationLoss.MSE
     pre_emph_weight: _Optional[float] = None
     pre_emph_coef: _Optional[float] = None
     pre_emph_mrstft_weight: _Optional[float] = None
     pre_emph_mrstft_coef: _Optional[float] = None
+    custom_losses: _Optional[_Dict[str, _CustomLoss]] = None
 
     @classmethod
     def parse_config(cls, config):
         config = super().parse_config(config)
+
+        def parse_custom_losses(config):
+            def init_custom_loss(
+                name: str, kwargs: _Dict[str, _Any], weight: float
+            ) -> _CustomLoss:
+                func = _init(name, **kwargs)
+                return _CustomLoss(weight, func)
+
+            if "custom_losses" in config:
+                return {
+                    k: init_custom_loss(v["name"], v["kwargs"], v["weight"])
+                    for k, v in config["custom_losses"].items()
+                }
+            else:
+                return None
+
+        def parse_val_loss():
+            # TODO: Pydantic
+            value = config.get("val_loss", "mse")
+            try:
+                return ValidationLoss(value)
+            except ValueError:
+                # Now we need to check if it's a name of a custom loss
+                if value not in custom_losses:
+                    raise cls.ValLossNameError(f"Invalid validation loss: {value}")
+                return value
+
+        def get_mrstft_weight() -> _Optional[float]:
+            key = "mrstft_weight"
+            wrong_key = "mstft_key"  # Backward compatibility
+            if key in config:
+                if "mstft_weight" in config:
+                    raise ValueError(
+                        f"Received loss configuration with both '{key}' and "
+                        f"'{wrong_key}'. Provide only '{key}'."
+                    )
+                return config[key]
+            elif wrong_key in config:
+                logger.warning(
+                    f"Use of '{wrong_key}' is deprecated and will be removed in a future "
+                    f"version. Use '{key}' instead."
+                )
+                return config[wrong_key]
+            else:
+                return None
+
+        custom_losses = parse_custom_losses(config)
+        val_loss = parse_val_loss()
+        mrstft_weight = get_mrstft_weight()
+
         return {
             "fourier": config.get("fourier", False),
             "mask_first": config.get("mask_first", 0),
             "dc_weight": config.get("dc_weight"),
-            "val_loss": ValidationLoss(config.get("val_loss", "mse")),
+            "val_loss": val_loss,
             "pre_emph_coef": config.get("pre_emph_coef"),
             "pre_emph_weight": config.get("pre_emph_weight"),
-            "mrstft_weight": cls._get_mrstft_weight(config),
+            "mrstft_weight": mrstft_weight,
             "pre_emph_mrstft_weight": config.get("pre_emph_mrstft_weight"),
             "pre_emph_mrstft_coef": config.get("pre_emph_mrstft_coef"),
+            "custom_losses": custom_losses,
         }
 
     def apply_mask(self, *args):
@@ -102,26 +173,6 @@ class LossConfig(_InitializableFromConfig):
         :return: (L-M,) or (B, L-M)
         """
         return tuple(a[..., self.mask_first :] for a in args)
-
-    @classmethod
-    def _get_mrstft_weight(cls, config) -> _Optional[float]:
-        key = "mrstft_weight"
-        wrong_key = "mstft_key"  # Backward compatibility
-        if key in config:
-            if "mstft_weight" in config:
-                raise ValueError(
-                    f"Received loss configuration with both '{key}' and "
-                    f"'{wrong_key}'. Provide only '{key}'."
-                )
-            return config[key]
-        elif wrong_key in config:
-            logger.warning(
-                f"Use of '{wrong_key}' is deprecated and will be removed in a future "
-                f"version. Use '{key}' instead."
-            )
-            return config[wrong_key]
-        else:
-            return None
 
 
 class _LossItem(_NamedTuple):
@@ -290,7 +341,11 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
             # Others unsupported...
             # TODO better mapping from Enum to dict keys
             val_loss_type = self._loss_config.val_loss
-            val_loss_key_for_loss_dict = val_loss_type.value.upper()
+            val_loss_key_for_loss_dict = (
+                val_loss_type
+                if isinstance(val_loss_type, str)
+                else val_loss_type.value.upper()
+            )
             if val_loss_key_for_loss_dict in loss_dict:
                 return loss_dict[val_loss_key_for_loss_dict].value
             else:
@@ -330,11 +385,18 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         """
         # Compute all relevant losses.
         loss_dict = {}  # Mind keys versus validation loss requested...
-        # Prediction aka MSE loss
-        if self._loss_config.fourier:
-            loss_dict["MSE_FFT"] = _LossItem(1.0, _mse_fft(preds, targets))
-        else:
-            loss_dict["MSE"] = _LossItem(1.0, self._mse_loss(preds, targets))
+
+        def get_mse_loss():
+            if self._loss_config.mse_weight is None:
+                return
+
+            if self._loss_config.fourier:
+                loss_dict["MSE_FFT"] = _LossItem(1.0, _mse_fft(preds, targets))
+            else:
+                loss_dict["MSE"] = _LossItem(1.0, self._mse_loss(preds, targets))
+
+        get_mse_loss()
+
         # Pre-emphasized MSE
         if self._loss_config.pre_emph_weight is not None:
             if (self._loss_config.pre_emph_coef is None) != (
@@ -370,6 +432,14 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
                 preds.mean(dim=mean_dims), targets.mean(dim=mean_dims)
             )
             loss_dict["DC MSE"] = _LossItem(dc_weight, dc_loss)
+
+        def get_custom_losses():
+            if self._loss_config.custom_losses is None:
+                return
+            for name, loss in self._loss_config.custom_losses.items():
+                loss_dict[name] = _LossItem(loss.weight, loss.func(preds, targets))
+
+        get_custom_losses()
         return loss_dict
 
     def _mse_loss(self, preds, targets, pre_emph_coef: _Optional[float] = None):
@@ -377,7 +447,7 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
             preds, targets = [
                 _apply_pre_emphasis_filter(z, pre_emph_coef) for z in (preds, targets)
             ]
-        return _nn.MSELoss()(preds, targets)
+        return _mse(preds, targets)
 
     def _mrstft_loss(
         self,
