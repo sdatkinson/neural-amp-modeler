@@ -72,7 +72,24 @@ button and everything will finish in about 10 minutes.
 However, there are a lot of options below that you can use to tweak the training
 that are worth getting familiar with.
 
-TODO: explain the options.
+Here are the options explained:
+
+**Training Parameters**:
+* ``epochs``: Number of iterations for training. Higher number of epochs may result in better results, may also lead to *overfitting*.
+* ``architecture``: Determines the model architecure. Options are: "standard" | "light" | "feather" | "nano", defaults to "standard". `standard` is the most complicated model, yet `nano` is the simplest model.
+* ``latency_samples``: How far the output lags the input due to round-trip latency during reamping, in samples. Options are: "auto" | [int value of reamping latency].
+* ``ignore_checks``: Ignores the data quality checks and YOLOs it :)
+
+**User Metadata**:
+* ``use_metadata``: If enabled .nam file includes user metadata.
+* ``name``: Model name 
+* ``modeled_by``: Author name
+* ``gear_make``: Used gear make
+* ``gear_model``: Used gear model
+* ``gear_type``: Used gear tye. Options are "amp" | "pedal" | "pedal_amp" | "amp_cab" | "amp_pedal_cab" | "preamp" | "studio".
+* ``tone_type``: Reamped tone type. Options are "clean" | "overdrive" | "crunch" | "hi_gain" | "fuzz".
+* ``reamp_send_level``: Reamp send calibration level. See the `documentation <https://www.google.com/url?q=https%3A%2F%2Fneural-amp-modeler.readthedocs.io%2Fen%2Fstable%2Ftutorials%2Fcalibration.html>`_ for more information.
+* ``reamp_return_level``: Reamp return calibration level. See the documentation link above.
 
 Downloading your model
 ----------------------
