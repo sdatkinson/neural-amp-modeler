@@ -5,3 +5,6 @@ For playing trained models in real time in a standalone application or plugin, s
 [NeuralAmpModelerPlugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin).
 
 For documentation, check out the [ReadTheDocs](https://neural-amp-modeler.readthedocs.io).
+
+For more information about the NAM ecosystem please check out https://www.neuralampmodeler.com/.
+
