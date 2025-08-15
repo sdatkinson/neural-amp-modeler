@@ -193,9 +193,9 @@ def main(
     # Go to best checkpoint
     best_checkpoint = trainer.checkpoint_callback.best_model_path
     if best_checkpoint != "":
-        model = _LightningModule.load_from_checkpoint(
+        model = _lightning_module.LightningModule.load_from_checkpoint(
             trainer.checkpoint_callback.best_model_path,
-            **_LightningModule.parse_config(model_config),
+            **_lightning_module.LightningModule.parse_config(model_config),
         )
     model.cpu()
     model.eval()
