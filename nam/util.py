@@ -6,8 +6,21 @@
 Helpful utilities
 """
 
+import importlib as _importlib
 import warnings as _warnings
 from datetime import datetime as _datetime
+from typing import Any as _Any
+
+
+def init(name: str, *args, **kwargs) -> _Any:
+    """
+    Extremely-powerful function to use nearly-arbitrary factories.
+    """
+    module_name = ".".join(name.split(".")[:-1])
+    factory_name = name.split(".")[-1]
+    m = _importlib.import_module(module_name)
+    factory = getattr(m, factory_name)
+    return factory(*args, **kwargs)
 
 
 def timestamp() -> str:
