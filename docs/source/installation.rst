@@ -19,8 +19,7 @@ Now that we have Miniconda, we can install NAM using it.
 GPU-compatible version of PyTorch first:
 
 .. code-block:: console
-
-   $ conda install -y pytorch pytorch-cuda=12.1 -c pytorch -c nvidia
+   $ pip install -r requirements-gpu.txt
 
 Finally, install NAM using pip:
 
