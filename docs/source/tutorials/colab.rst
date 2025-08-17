@@ -74,22 +74,23 @@ that are worth getting familiar with.
 
 Here are the options explained:
 
-**Training Parameters**:
-* ``epochs``: Number of iterations for training. Higher number of epochs may result in better results, may also lead to *overfitting*.
-* ``architecture``: Determines the model architecure. Options are: "standard" | "light" | "feather" | "nano", defaults to "standard". `standard` is the most complicated model, yet `nano` is the simplest model.
-* ``latency_samples``: How far the output lags the input due to round-trip latency during reamping, in samples. Options are: "auto" | [int value of reamping latency].
-* ``ignore_checks``: Ignores the data quality checks and YOLOs it :)
+**Training Parameters**
+* ``epochs``: Number of training epochs. NAM uses validation-set checkpointing and automatically restores the best checkpoint from the entire run after training completes.
+* ``architecture``: Selects the network size/complexity (listed in order of decreasing CPU usage and accuracy). Defaults to the standard architecture.
+* ``latency_samples``: How far the output lags the input due to round-trip latency during reamping, in samples. If not ``"auto"``, it must be an integer value for the measured latency.
+* ``ignore_checks``: Skips data-quality checks.
 
-**User Metadata**:
-* ``use_metadata``: If enabled .nam file includes user metadata.
-* ``name``: Model name 
-* ``modeled_by``: Author name
-* ``gear_make``: Used gear make
-* ``gear_model``: Used gear model
-* ``gear_type``: Used gear tye. Options are "amp" | "pedal" | "pedal_amp" | "amp_cab" | "amp_pedal_cab" | "preamp" | "studio".
-* ``tone_type``: Reamped tone type. Options are "clean" | "overdrive" | "crunch" | "hi_gain" | "fuzz".
-* ``reamp_send_level``: Reamp send calibration level. See the `documentation <https://www.google.com/url?q=https%3A%2F%2Fneural-amp-modeler.readthedocs.io%2Fen%2Fstable%2Ftutorials%2Fcalibration.html>`_ for more information.
-* ``reamp_return_level``: Reamp return calibration level. See the documentation link above.
+**User Metadata**
+* ``use_metadata``: If enabled, the ``.nam`` file includes user metadata.
+* ``name``: Model name.
+* ``modeled_by``: Author name.
+* ``gear_make``: Gear manufacturer.
+* ``gear_model``: Gear model.
+* ``gear_type``: Category of the captured gear.
+* ``tone_type``: Category of the reamped tone.
+* ``reamp_send_level``: Reamp send calibration level. See the `documentation <https://neural-amp-modeler.readthedocs.io/en/stable/tutorials/calibration.html>`_ for details.
+* ``reamp_return_level``: Reamp return calibration level. See the same documentation for details.
+
 
 Downloading your model
 ----------------------
