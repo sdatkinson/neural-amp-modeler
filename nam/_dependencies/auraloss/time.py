@@ -26,7 +26,7 @@ class ESRLoss(torch.nn.Module):
 
     def forward(self, input: T, target: T) -> T:
         num = ((target - input) ** 2).sum(dim=-1)
-        denom = (target ** 2).sum(dim=-1) + self.eps
+        denom = (target**2).sum(dim=-1) + self.eps
         losses = num / denom
         losses = apply_reduction(losses, reduction=self.reduction)
         return losses
@@ -54,7 +54,7 @@ class DCLoss(torch.nn.Module):
 
     def forward(self, input: T, target: T) -> T:
         num = (target - input).mean(dim=-1) ** 2
-        denom = (target ** 2).mean(dim=-1) + self.eps
+        denom = (target**2).mean(dim=-1) + self.eps
         losses = num / denom
         losses = apply_reduction(losses, self.reduction)
         return losses
@@ -114,7 +114,7 @@ class SNRLoss(torch.nn.Module):
 
         res = input - target
         losses = 10 * torch.log10(
-            (target ** 2).sum(-1) / ((res ** 2).sum(-1) + self.eps) + self.eps
+            (target**2).sum(-1) / ((res**2).sum(-1) + self.eps) + self.eps
         )
         losses = apply_reduction(losses, self.reduction)
         return -losses
@@ -152,12 +152,12 @@ class SISDRLoss(torch.nn.Module):
             input = input - input_mean
             target = target - target_mean
 
-        alpha = (input * target).sum(-1) / (((target ** 2).sum(-1)) + self.eps)
+        alpha = (input * target).sum(-1) / (((target**2).sum(-1)) + self.eps)
         target = target * alpha.unsqueeze(-1)
         res = input - target
 
         losses = 10 * torch.log10(
-            (target ** 2).sum(-1) / ((res ** 2).sum(-1) + self.eps) + self.eps
+            (target**2).sum(-1) / ((res**2).sum(-1) + self.eps) + self.eps
         )
         losses = apply_reduction(losses, self.reduction)
         return -losses
@@ -195,12 +195,12 @@ class SDSDRLoss(torch.nn.Module):
             input = input - input_mean
             target = target - target_mean
 
-        alpha = (input * target).sum(-1) / (((target ** 2).sum(-1)) + self.eps)
+        alpha = (input * target).sum(-1) / (((target**2).sum(-1)) + self.eps)
         scaled_target = target * alpha.unsqueeze(-1)
         res = input - target
 
         losses = 10 * torch.log10(
-            (scaled_target ** 2).sum(-1) / ((res ** 2).sum(-1) + self.eps) + self.eps
+            (scaled_target**2).sum(-1) / ((res**2).sum(-1) + self.eps) + self.eps
         )
         losses = apply_reduction(losses, self.reduction)
         return -losses

@@ -10,6 +10,7 @@ def apply_reduction(losses, reduction="none"):
         losses = losses.sum()
     return losses
 
+
 def get_window(win_type: str, win_length: int):
     """Return a window function.
 

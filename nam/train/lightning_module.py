@@ -22,13 +22,13 @@ from typing import (
     Union as _Union,
 )
 
-import auraloss as _auraloss
 import logging as _logging
 import pytorch_lightning as _pl
 import torch as _torch
 import torch.nn as _nn
 
 from .._core import InitializableFromConfig as _InitializableFromConfig
+from .._dependencies import auraloss as _auraloss
 from ..models.base import BaseNet as _BaseNet
 from ..models.conv_net import ConvNet as _ConvNet
 from ..models.linear import Linear as _Linear

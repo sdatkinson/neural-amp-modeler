@@ -112,6 +112,7 @@ class FIRFilter(torch.nn.Module):
 
             if plot:
                 from .plotting import compare_filters
+
                 compare_filters(b, a, taps, fs=fs)
 
     def forward(self, input, target):
