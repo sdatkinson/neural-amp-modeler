@@ -10,13 +10,14 @@ authors = [
 ]
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
-    "auraloss @ git+https://github.com/Atkinson-Advanced-Modeling/auraloss.git@4c45a90",
+    "librosa",  # Required by auraloss
     "matplotlib",
     "numpy",
     "pydantic>=2.0.0",
     "pytorch_lightning",
+    "scipy",  # Required by auraloss
     "sounddevice",
     "tensorboard",
     "torch",

@@ -9,7 +9,9 @@ Loss functions
 from typing import Optional as _Optional
 
 import torch as _torch
-from auraloss.freq import MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss
+from .._dependencies.auraloss.freq import (
+    MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss,
+)
 
 
 def apply_pre_emphasis_filter(x: _torch.Tensor, coef: float) -> _torch.Tensor:
