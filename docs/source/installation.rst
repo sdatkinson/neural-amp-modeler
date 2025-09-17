@@ -21,8 +21,7 @@ GPU-compatible version of PyTorch first.
 have the most up-to-date guidance for this. Currently, this is the command:
 
 .. code-block:: console
-
-   $ pip install torch --index-url https://download.pytorch.org/whl/cu129
+   $ pip install -r requirements-gpu.txt
 
 Then, install NAM using pip:
 
