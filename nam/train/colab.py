@@ -27,16 +27,23 @@ _OUTPUT_BASENAME = "output.wav"
 _TRAIN_PATH = "."
 
 
-def _check_for_files() -> _Tuple[_Version, str]:
+def _check_for_files() -> str:
+    """
+    :return: The basename of the input file to be used (output is always the same)
+    """
     # TODO use hash logic as in GUI trainer!
     print("Checking that we have all of the required audio files...")
+
+    # First, look to see if we've got a buggy input file. If we do, then complain.
     for name in _BUGGY_INPUT_BASENAMES:
         if _Path(name).exists():
             raise RuntimeError(
                 f"Detected input signal {name} that has known bugs. Please download the latest input signal, {_LATEST_VERSION[1]}"
             )
+    # Find valid input file by checking for recognized names:
     for input_version, input_basename, other_names in _INPUT_BASENAMES:
         if _Path(input_basename).exists():
+            # We found it. We're done here, but maybe print some things before breaking.
             if input_version == _PROTEUS_VERSION:
                 print(f"Using Proteus input file...")
             elif input_version != _LATEST_VERSION.version:
@@ -56,16 +63,18 @@ def _check_for_files() -> _Tuple[_Version, str]:
         raise FileNotFoundError(
             f"Didn't find NAM's input audio file. Please upload {_LATEST_VERSION.name}"
         )
-    # We found it
+    if input_version != _PROTEUS_VERSION:
+        print(f"Found {input_basename}, presumed version {input_version}")
+    else:
+        print(f"Found Proteus input {input_basename}.")
+
+    # We found the input. Now check for the output and we'll be good.
     if not _Path(_OUTPUT_BASENAME).exists():
         raise FileNotFoundError(
             f"Didn't find your reamped output audio file. Please upload {_OUTPUT_BASENAME}."
         )
-    if input_version != _PROTEUS_VERSION:
-        print(f"Found {input_basename}, version {input_version}")
-    else:
-        print(f"Found Proteus input {input_basename}.")
-    return input_version, input_basename
+
+    return input_basename
 
 
 def _get_valid_export_directory():
@@ -92,10 +101,10 @@ def run(
 ):
     """
     :param epochs: How many epochs we'll train for.
-    :param delay: How far the output algs the input due to round-trip latency during
+    :param delay: How far the output lags the input due to round-trip latency during
         reamping, in samples.
-    :param stage_1_channels: The number of channels in the WaveNet's first stage.
-    :param stage_2_channels: The number of channels in the WaveNet's second stage.
+    :param model_type: The type of model to train.
+    :param architecture: The architecture hyperparameters to use
     :param lr: The initial learning rate
     :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
@@ -103,13 +112,12 @@ def run(
     :param ignore_checks: Ignores the data quality checks and YOLOs it
     """
 
-    input_version, input_basename = _check_for_files()
+    input_basename = _check_for_files()
 
     train_output: _TrainOutput = _train(
-        input_basename,
-        _OUTPUT_BASENAME,
-        _TRAIN_PATH,
-        input_version=input_version,
+        input_path=input_basename,
+        output_path=_OUTPUT_BASENAME,
+        train_path=_TRAIN_PATH,
         epochs=epochs,
         latency=delay,
         model_type=model_type,

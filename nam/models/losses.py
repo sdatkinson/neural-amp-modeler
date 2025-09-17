@@ -9,7 +9,9 @@ Loss functions
 from typing import Optional as _Optional
 
 import torch as _torch
-from auraloss.freq import MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss
+from .._dependencies.auraloss.freq import (
+    MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss,
+)
 
 
 def apply_pre_emphasis_filter(x: _torch.Tensor, coef: float) -> _torch.Tensor:
@@ -66,10 +68,34 @@ def multi_resolution_stft_loss(
     :param device: If provided, send the preds and targets to the provided device.
     :return: ()
     """
+
+    def ensure_shape(z: _torch.Tensor) -> _torch.Tensor:
+        """
+        Required for auraloss v0.4
+
+        :param z: (L,) or (B,L)
+        :return: (B,C,L)
+        """
+        if z.ndim == 1:
+            return z[None, None, :]
+        elif z.ndim == 2:
+            return z[:, None, :]
+        else:
+            assert z.ndim == 3, f"Expected 1D or 2D tensor. Got {z.shape}"
+            return z
+
     loss_func = _MultiResolutionSTFTLoss() if loss_func is None else loss_func
     if device is not None:
         preds, targets = [z.to(device) for z in (preds, targets)]
+    preds, targets = [ensure_shape(z) for z in (preds, targets)]
     return loss_func(preds, targets)
+
+
+def mse(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
+    """
+    MSE loss
+    """
+    return _torch.nn.functional.mse_loss(preds, targets)
 
 
 def mse_fft(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:

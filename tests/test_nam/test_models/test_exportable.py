@@ -80,6 +80,7 @@ class TestExportable(object):
                                     warnings=train_metadata.LatencyCalibrationWarnings(
                                         matches_lookahead=False,
                                         disagreement_too_high=False,
+                                        not_detected=False,
                                     ),
                                 ),
                             ),
@@ -114,6 +115,7 @@ class TestExportable(object):
                                     warnings=train_metadata.LatencyCalibrationWarnings(
                                         matches_lookahead=False,
                                         disagreement_too_high=False,
+                                        not_detected=False,
                                     ),
                                 ),
                             ),

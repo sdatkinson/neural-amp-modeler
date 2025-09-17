@@ -147,11 +147,14 @@ class Exportable(_abc.ABC):
         """
         pass
 
+    def _get_export_architecture(self) -> str:
+        return self.__class__.__name__
+
     def _get_export_dict(self):
         return {
             "version": _MODEL_VERSION,
             "metadata": self._get_non_user_metadata(),
-            "architecture": self.__class__.__name__,
+            "architecture": self._get_export_architecture(),
             "config": self._export_config(),
             "weights": self._export_weights().tolist(),
         }

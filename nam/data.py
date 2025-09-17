@@ -29,7 +29,11 @@ import wavio as _wavio
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm as _tqdm
 
-from ._core import InitializableFromConfig as _InitializableFromConfig
+from ._core import (
+    InitializableFromConfig as _InitializableFromConfig,
+    WithTeardown as _WithTeardown,
+)
+from ._handshake import HandshakeError as _HandshakeError
 
 logger = _logging.getLogger(__name__)
 
@@ -91,7 +95,7 @@ def wav_to_np(
         and other characteristics of another audio file at the provided location
     :param required_shape: If not `None`, assert that the audio loaded is of shape
         `(num_samples, num_channels)`.
-    :param required_wavinfo: If not `None`, assert that the WAV info of the laoded audio
+    :param required_wavinfo: If not `None`, assert that the WAV info of the loaded audio
         matches that provided.
     :param preroll: Drop this many samples off the front
     :param info: If `True`, also return the WAV info of this file.
@@ -165,7 +169,15 @@ def np_to_wav(
     )
 
 
-class AbstractDataset(_Dataset, _abc.ABC):
+class DatasetModelHandshakeError(_HandshakeError):
+    """
+    Raised if a handshake fails from dataset to model
+    """
+
+    pass
+
+
+class AbstractDataset(_Dataset, _abc.ABC, _WithTeardown):
     @_abc.abstractmethod
     def __getitem__(self, idx: int):
         """
@@ -173,6 +185,18 @@ class AbstractDataset(_Dataset, _abc.ABC):
         :return:
         """
         pass
+
+    def handshake(self, model: "nam.models.base.BaseNet"):  # noqa: F821
+        """
+        Perform a handshake with the model to ensure that it's compatible.
+        Raise a DatasetModelHandshakeError if the handshake fails.
+
+        :param model: The model to handshake with.
+        """
+        from nam.models.base import BaseNet
+
+        if not isinstance(model, BaseNet):
+            raise DatasetModelHandshakeError(f"Model is not a NAM: {type(model)}")
 
 
 class XYError(ValueError, DataError):
@@ -274,7 +298,7 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         :param y_scale: Multiplies the output signal by a factor (e.g. if the data are
             too quiet).
         :param input_gain: In dB. If the input signal wasn't fed to the amp at unity
-            gain, you can indicate the gain here. The data set will multipy the raw
+            gain, you can indicate the gain here. The data set will multiply the raw
             audio file by the specified gain so that the true input signal amplitude
             experienced by the signal chain will be provided as input to the model. If
             you are using a reamping setup, you can estimate this by reamping a

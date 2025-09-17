@@ -8,8 +8,8 @@ steps)
 """
 
 import abc as _abc
+import importlib as _importlib
 import math as _math
-import pkg_resources as _pkg_resources
 from typing import (
     Any as _Any,
     Dict as _Dict,
@@ -25,6 +25,16 @@ import torch.nn as _nn
 from .._core import InitializableFromConfig as _InitializableFromConfig
 from ..data import wav_to_tensor as _wav_to_tensor
 from .exportable import Exportable as _Exportable
+
+from .._handshake import HandshakeError as _HandshakeError
+
+
+class ModelDatasetHandshakeError(_HandshakeError):
+    """
+    Raised if a handshake fails from model to dataset
+    """
+
+    pass
 
 
 class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
@@ -55,11 +65,25 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
     def forward(self, *args, **kwargs) -> _torch.Tensor:
         pass
 
+    def handshake(self, dataset: "nam.data.AbstractDataset"):  # noqa: F821
+        """
+        Perform a handshake with the dataset to ensure that it's compatible.
+        Raise a ModelDatasetHandshakeError if the handshake fails.
+
+        :param dataset: The dataset to handshake with.
+        """
+        from ..data import AbstractDataset
+
+        if not isinstance(dataset, AbstractDataset):
+            raise ModelDatasetHandshakeError(
+                f"Dataset is not a NAM dataset: {type(dataset)}"
+            )
+
     @classmethod
     def _metadata_loudness_x(cls) -> _torch.Tensor:
         return _wav_to_tensor(
-            _pkg_resources.resource_filename(
-                "nam", "models/_resources/loudness_input.wav"
+            _importlib.resources.files("nam").joinpath(
+                "models/_resources/loudness_input.wav"
             )
         )
 

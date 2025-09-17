@@ -465,7 +465,7 @@ class GUI(object):
         # This should probably be to the right somewhere
         self._get_additional_options_frame()
 
-        # Last frames: avdanced options & train in the SE corner:
+        # Last frames: advanced options & train in the SE corner:
         self._frame_advanced_options = _tk.Frame(self._root)
         self._frame_train = _tk.Frame(self._root)
         self._frame_update = _tk.Frame(self._root)
@@ -525,7 +525,7 @@ class GUI(object):
         Use a pre-emphasized multi-resolution shot-time Fourier transform loss during
         training.
 
-        This improves agreement in the high frequencies, usually with a minimial loss in
+        This improves agreement in the high frequencies, usually with a minimal loss in
         ESR.
         """
         # Leave this as a public method to anticipate an extension to make it

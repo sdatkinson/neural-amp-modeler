@@ -10,13 +10,14 @@ authors = [
 ]
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
-    "auraloss==0.3.0",
+    "librosa",  # Required by auraloss
     "matplotlib",
-    "numpy<2",
+    "numpy",
     "pydantic>=2.0.0",
     "pytorch_lightning",
+    "scipy",  # Required by auraloss
     "sounddevice",
     "tensorboard",
     "torch",
@@ -32,7 +33,7 @@ dynamic = ["version"]
 # Optional features
 transformers-compat = [
     "transformers>=4",  # Issue-294
-    "numpy<2",  # For older PyTorch versions; user must know when to include
+    "numpy",  # NB: Older PyTorch versions require numpy<2
 ]
 
 test = [

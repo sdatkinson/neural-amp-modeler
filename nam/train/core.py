@@ -35,6 +35,7 @@ from pytorch_lightning.utilities.warnings import (
 from torch.utils.data import DataLoader as _DataLoader
 
 from ..data import (
+    AbstractDataset as _AbstractDataset,
     DataError as _DataError,
     Split as _Split,
     init_dataset as _init_dataset,
@@ -355,16 +356,19 @@ def _warn_lookaheads(indices: _Sequence[int]) -> str:
     return (
         f"WARNING: delays from some blips ({','.join([str(i) for i in indices])}) are "
         "at the minimum value possible. This usually means that something is "
-        "wrong with your data. Check if trianing ends with a poor result!"
+        "wrong with your data. Check if training ends with a poor result!"
     )
 
 
 def _calibrate_latency_v_all(
     data_info: _DataInfo,
     y,
+    manual_available: bool,
+    show_plots: bool,
     abs_threshold=_DELAY_CALIBRATION_ABS_THRESHOLD,
     rel_threshold=_DELAY_CALIBRATION_REL_THRESHOLD,
     safety_factor=_DELAY_CALIBRATION_SAFETY_FACTOR,
+    _override_suppress_plots: bool = False,
 ) -> _metadata.LatencyCalibration:
     """
     Calibrate the delay in teh input-output pair based on blips.
@@ -377,6 +381,13 @@ def _calibrate_latency_v_all(
         delays: _Sequence[int],
     ) -> _metadata.LatencyCalibrationWarnings:
         # Warnings associated with any single delay:
+
+        if len(delays) == 0:
+            return _metadata.LatencyCalibrationWarnings(
+                matches_lookahead=False,
+                disagreement_too_high=False,
+                not_detected=True,
+            )
 
         # "Lookahead warning": if the delay is equal to the lookahead, then it's
         # probably an error.
@@ -402,6 +413,7 @@ def _calibrate_latency_v_all(
         return _metadata.LatencyCalibrationWarnings(
             matches_lookahead=matches_lookahead,
             disagreement_too_high=max_disagreement_too_high,
+            not_detected=False,
         )
 
     lookahead = 1_000
@@ -431,49 +443,56 @@ def _calibrate_latency_v_all(
         y_scans.append(y[start_looking:stop_looking])
     y_scan_average = _np.mean(_np.stack(y_scans), axis=0)
     triggered = _np.where(_np.abs(y_scan_average) > trigger_threshold)[0]
-    if len(triggered) == 0:
+    if len(triggered) == 0:  # No impulse responses were detected; can't calibrate
         msg = (
             "No response activated the trigger in response to input spikes. "
             "Is something wrong with the reamp?"
         )
-        print(msg)
-        print("SHARE THIS PLOT IF YOU ASK FOR HELP")
-        _plt.figure()
-        _plt.plot(
-            _np.arange(-lookahead, lookback),
-            y_scan_average,
-            color="C0",
-            label="Signal average",
-        )
-        for y_scan in y_scans:
-            _plt.plot(_np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2)
-        _plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
-        _plt.axhline(y=-trigger_threshold, color="k", linestyle="--", label="Threshold")
-        _plt.axhline(y=trigger_threshold, color="k", linestyle="--")
-        _plt.xlim((-lookahead, lookback))
-        _plt.xlabel("Samples")
-        _plt.ylabel("Response")
-        _plt.legend()
-        _plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
-        _plt.show()
-        raise RuntimeError(msg)
+        if (show_plots or not manual_available) and not _override_suppress_plots:
+            print(msg)
+            print("SHARE THIS PLOT IF YOU ASK FOR HELP")
+            _plt.figure()
+            _plt.plot(
+                _np.arange(-lookahead, lookback),
+                y_scan_average,
+                color="C0",
+                label="Signal average",
+            )
+            for y_scan in y_scans:
+                _plt.plot(
+                    _np.arange(-lookahead, lookback), y_scan, color="C0", alpha=0.2
+                )
+            _plt.axvline(x=0, color="C1", linestyle="--", label="Trigger")
+            _plt.axhline(
+                y=-trigger_threshold, color="k", linestyle="--", label="Threshold"
+            )
+            _plt.axhline(y=trigger_threshold, color="k", linestyle="--")
+            _plt.xlim((-lookahead, lookback))
+            _plt.xlabel("Samples")
+            _plt.ylabel("Response")
+            _plt.legend()
+            _plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
+            _plt.show()
+        delays = []
+        recommended = None
+
     else:
-        j = triggered[0]
-        delay = j + start_looking - i_rel
+        delay = triggered[0] + start_looking - i_rel
+        delays = [delay]
+        recommended = delay - safety_factor
+        print(f"Delay based on average is {delay}")
+        print(
+            f"After aplying safety factor of {safety_factor}, the final delay is "
+            f"{recommended}"
+        )
 
-    print(f"Delay based on average is {delay}")
-    warnings = report_any_latency_warnings([delay])
+    warnings = report_any_latency_warnings(delays)
 
-    delay_post_safety_factor = delay - safety_factor
-    print(
-        f"After aplying safety factor of {safety_factor}, the final delay is "
-        f"{delay_post_safety_factor}"
-    )
     return _metadata.LatencyCalibration(
         algorithm_version=1,
-        delays=[delay],
+        delays=delays,
         safety_factor=safety_factor,
-        recommended=delay_post_safety_factor,
+        recommended=recommended,
         warnings=warnings,
     )
 
@@ -537,15 +556,26 @@ _plot_latency_v3 = _partial(_plot_latency_v_all, _V3_DATA_INFO)
 _plot_latency_v4 = _partial(_plot_latency_v_all, _V4_DATA_INFO)
 
 
+class _AnalyzeLatencyError(RuntimeError):
+    """
+    Raised when the latency analysis fails.
+    """
+
+    pass
+
+
 def _analyze_latency(
     user_latency: _Optional[int],
     input_version: _Version,
     input_path: str,
     output_path: str,
     silent: bool = False,
+    _override_suppress_plots: bool = False,
 ) -> _metadata.Latency:
     """
-    :param is_proteus: Forget the version; d
+    Use an automatic algorithm to calibrate the latency of the output audio.
+
+    Return alongside the manual latency that the user provided if applicable.
     """
     if input_version.major == 1:
         calibrate, plot = _calibrate_latency_v1, _plot_latency_v1
@@ -561,13 +591,14 @@ def _analyze_latency(
         )
     if user_latency is not None:
         print(f"Delay is specified as {user_latency}")
-    calibration_output = calibrate(_wav_to_np(output_path))
-    latency = (
-        user_latency if user_latency is not None else calibration_output.recommended
+    calibration_output = calibrate(
+        _wav_to_np(output_path),
+        manual_available=user_latency is not None,
+        show_plots=not silent,
+        _override_suppress_plots=_override_suppress_plots,
     )
-    if not silent:
-        plot(latency, input_path, output_path)
-
+    if not silent and calibration_output.recommended is not None:
+        plot(calibration_output.recommended, input_path, output_path)
     return _metadata.Latency(manual=user_latency, calibration=calibration_output)
 
 
@@ -1297,7 +1328,7 @@ def get_callbacks(
 class TrainOutput(_NamedTuple):
     """
     :param model: The trained model
-    :param simpliifed_trianer_metadata: The metadata summarizing training with the
+    :param simplified_trainer_metadata: The metadata summarizing training with the
         simplified trainer.
     """
 
@@ -1305,23 +1336,52 @@ class TrainOutput(_NamedTuple):
     metadata: _metadata.TrainingMetadata
 
 
+class _FinalLatencyError(ValueError):
+    """
+    Raised when the final latency cannot be determined.
+    """
+
+    pass
+
+
 def _get_final_latency(latency_analysis: _metadata.Latency) -> int:
-    if latency_analysis.manual is not None:
-        latency = latency_analysis.manual
-        print(f"Latency provided as {latency_analysis.manual}; override calibration")
-    else:
-        latency = latency_analysis.calibration.recommended
-        print(f"Set latency to recommended {latency_analysis.calibration.recommended}")
-    return latency
+    """
+    Make a decision based on automatic and manual latency values what will be
+    used for training.
+    """
+    user = latency_analysis.manual
+    analyzed = latency_analysis.calibration.recommended
+
+    if user is not None:
+        if analyzed is not None:
+            if user == analyzed:
+                print(f"The user latency is same as the analyzed latency ({user}).")
+            else:
+                print(
+                    f"The user latency is different from the analyzed latency ({user} vs {analyzed})."
+                )
+                print(f"Override the analyzed latency with the user latency.")
+        else:
+            print(
+                f"Cannot automatically analyze the latency. Use the user latency ({user})."
+            )
+
+        return user
+
+    if analyzed is not None:
+        print(f"Cannot use the user latency. Use the analyzed latency ({analyzed}).")
+        return analyzed
+
+    raise _FinalLatencyError(
+        "No latency provided and cannot automatically analyze the latency."
+    )
 
 
 def train(
     input_path: str,
     output_path: str,
     train_path: str,
-    input_version: _Optional[_Version] = None,  # Deprecate?
     epochs=100,
-    delay: _Optional[int] = None,
     latency: _Optional[int] = None,
     model_type: str = "WaveNet",
     architecture: _Union[Architecture, str] = Architecture.STANDARD,
@@ -1341,20 +1401,12 @@ def train(
     fast_dev_run: _Union[bool, int] = False,
 ) -> _Optional[TrainOutput]:
     """
+    :param input_path: Full path to input file
+    :param output_path: Full path to output file
     :param lr_decay: =1-gamma for Exponential learning rate decay.
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
     :param fast_dev_run: One-step training, used for tests.
     """
-
-    def parse_user_latency(
-        delay: _Optional[int], latency: _Optional[int]
-    ) -> _Optional[int]:
-        if delay is not None:
-            if latency is not None:
-                raise ValueError("Both delay and latency are provided; use latency!")
-            print("WARNING: use of `delay` is deprecated; use `latency` instead")
-            return delay
-        return latency
 
     if seed is not None:
         _torch.manual_seed(seed)
@@ -1378,10 +1430,9 @@ def train(
             "in your DAW and ensure that they are the same length."
         )
 
-    if input_version is None:
-        input_version, strong_match = _detect_input_version(input_path)
+    input_version, strong_match = _detect_input_version(input_path)
 
-    user_latency = parse_user_latency(delay, latency)
+    user_latency = latency
     latency_analysis = _analyze_latency(
         user_latency, input_version, input_path, output_path, silent=silent
     )
@@ -1510,6 +1561,9 @@ def train(
         silent=silent,
         **window_kwargs(input_version),
     )
+    for dl in (train_dataloader, val_dataloader):
+        assert isinstance(dl.dataset, _AbstractDataset)
+        dl.dataset.teardown()
     return TrainOutput(
         model=model,
         metadata=_metadata.TrainingMetadata(
@@ -1688,7 +1742,8 @@ def validate_data(
     pytorch_data_split_validation_dict: _Dict[str, _PyTorchDataSplitValidation] = {}
     for split in _Split:
         try:
-            _init_dataset(data_config, split)
+            ds = _init_dataset(data_config, split)
+            ds.teardown()
             pytorch_data_split_validation_dict[split.value] = (
                 _PyTorchDataSplitValidation(passed=True, msg=None)
             )

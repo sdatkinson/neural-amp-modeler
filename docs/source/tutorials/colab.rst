@@ -72,7 +72,25 @@ button and everything will finish in about 10 minutes.
 However, there are a lot of options below that you can use to tweak the training
 that are worth getting familiar with.
 
-TODO: explain the options.
+Here are the options explained:
+
+**Training Parameters**
+* ``epochs``: Number of training epochs. NAM uses validation-set checkpointing and automatically restores the best checkpoint from the entire run after training completes.
+* ``architecture``: Selects the network size/complexity (listed in order of decreasing CPU usage and accuracy). Defaults to the standard architecture.
+* ``latency_samples``: How far the output lags the input due to round-trip latency during reamping, in samples. If not ``"auto"``, it must be an integer value for the measured latency.
+* ``ignore_checks``: Skips data-quality checks.
+
+**User Metadata**
+* ``use_metadata``: If enabled, the ``.nam`` file includes user metadata.
+* ``name``: Model name.
+* ``modeled_by``: Author name.
+* ``gear_make``: Gear manufacturer.
+* ``gear_model``: Gear model.
+* ``gear_type``: Category of the captured gear.
+* ``tone_type``: Category of the reamped tone.
+* ``reamp_send_level``: Reamp send calibration level. See the `documentation <https://neural-amp-modeler.readthedocs.io/en/stable/tutorials/calibration.html>`_ for details.
+* ``reamp_return_level``: Reamp return calibration level. See the same documentation for details.
+
 
 Downloading your model
 ----------------------

@@ -12,12 +12,13 @@ import abc as _abc
 import json as _json
 from pathlib import Path as _Path
 from tempfile import TemporaryDirectory as _TemporaryDirectory
-from typing import Optional as Optional, Tuple as _Tuple
+from typing import Optional as _Optional, Tuple as _Tuple
 
 import numpy as _np
 import torch as _torch
 import torch.nn as _nn
 
+from ._abc import ImportsWeights as _ImportsWeights
 from .base import BaseNet as _BaseNet
 
 
@@ -62,7 +63,11 @@ class _ExportsWeights(_abc.ABC):
         pass
 
 
-class _Linear(_nn.Linear, _ExportsWeights):
+class _ImportsAndExportsWeights(_ImportsWeights, _ExportsWeights):
+    pass
+
+
+class _Linear(_nn.Linear, _ImportsAndExportsWeights):
     def export_weights(self):
         return _np.concatenate(
             [
@@ -71,8 +76,21 @@ class _Linear(_nn.Linear, _ExportsWeights):
             ]
         )
 
+    def import_weights(self, weights: _np.ndarray):
+        self.weight.data = (
+            _torch.from_numpy(weights[: self.weight.numel()])
+            .reshape(self.weight.shape)
+            .to(self.weight.device)
+        )
+        # This will catch any mismatch in number of weights given vs expected:
+        self.bias.data = (
+            _torch.from_numpy(weights[self.weight.numel() :])
+            .reshape(self.bias.shape)
+            .to(self.bias.device)
+        )
 
-class LSTM(_BaseNet):
+
+class LSTM(_BaseNet, _ImportsWeights):
     """
     ABC for recurrent architectures
     """
@@ -80,10 +98,10 @@ class LSTM(_BaseNet):
     def __init__(
         self,
         hidden_size,
-        train_burn_in: Optional[int] = None,
-        train_truncate: Optional[int] = None,
+        train_burn_in: _Optional[int] = None,
+        train_truncate: _Optional[int] = None,
         input_size: int = 1,
-        sample_rate: Optional[float] = None,
+        sample_rate: _Optional[float] = None,
         **lstm_kwargs,
     ):
         """
@@ -129,6 +147,73 @@ class LSTM(_BaseNet):
         # I should simplify this...
         return True
 
+    def import_weights(self, weights):
+        def import_lstm_cell_weights(cell_index: int, i_weight: int) -> int:
+            def assign(
+                name: str, i_weight: int, given_weights: _Optional[_torch.Tensor] = None
+            ) -> int:
+                """
+                Weights and biases of LSTM cell
+                """
+                x = getattr(self._core, name)
+                assert isinstance(x, _torch.Tensor)
+
+                weight_list = (
+                    [w for w in weights[i_weight : i_weight + x.numel()]]
+                    if given_weights is None
+                    else given_weights.flatten().detach().cpu().numpy().tolist()
+                )
+
+                if len(weight_list) != x.numel():
+                    raise ValueError(
+                        f"Weight list containing {len(weight_list)} elements is the "
+                        f"wrong numel for destination {name} with numel {x.numel()} "
+                        f"and shape {x.shape}!"
+                    )
+                x.data = _torch.Tensor(weight_list).reshape(x.shape).to(x.device)
+                return i_weight + x.numel()
+
+            # Form the entire weight matrix then split assign to w_ih and w_hh
+            # This is necessary because the concatenation is horizontal, but the arrays
+            # are stored row-major.
+            input_dim = (
+                self._core.input_size if cell_index == 0 else self._core.hidden_size
+            )
+            hidden_dim = self._core.hidden_size
+            w_shape = (4 * hidden_dim, input_dim + hidden_dim)
+            nw = _np.prod(w_shape)
+            w = _torch.Tensor([w for w in weights[i_weight : i_weight + nw]]).reshape(
+                w_shape
+            )
+            w_ih = w[:, :input_dim]
+            w_hh = w[:, input_dim:]
+            i_weight = assign(f"weight_ih_l{cell_index}", i_weight, given_weights=w_ih)
+            i_weight = assign(f"weight_hh_l{cell_index}", i_weight, given_weights=w_hh)
+
+            # NOTE: "bias" vectors aren't associated with inputs.
+            # Arbitrary choice: assign to ih and zero out the hh.
+            i_weight = assign(f"bias_ih_l{cell_index}", i_weight)
+            getattr(self._core, f"bias_hh_l{cell_index}").data.zero_()
+
+            # hidden_state
+            self._initial_hidden.data[cell_index] = _torch.Tensor(
+                [w for w in weights[i_weight : i_weight + self._core.hidden_size]]
+            ).to(self._initial_hidden.device)
+            i_weight += self._core.hidden_size
+            # cell_state
+            self._initial_cell.data[cell_index] = _torch.Tensor(
+                [w for w in weights[i_weight : i_weight + self._core.hidden_size]]
+            ).to(self._initial_cell.device)
+            i_weight += self._core.hidden_size
+            return i_weight
+
+        weight_index = 0
+        for layer_index in range(self._core.num_layers):
+            weight_index = import_lstm_cell_weights(layer_index, i_weight=weight_index)
+
+        # This should handle any length mismatch:
+        self._head.import_weights(_np.array([w for w in weights[weight_index:]]))
+
     def _apply_head(self, features: _torch.Tensor) -> _torch.Tensor:
         """
         :param features: (B,S,DH)
@@ -137,7 +222,7 @@ class LSTM(_BaseNet):
         return self._head(features)[:, :, 0]
 
     def _forward(
-        self, x: _torch.Tensor, initial_state: Optional[_LSTMHiddenCellType] = None
+        self, x: _torch.Tensor, initial_state: _Optional[_LSTMHiddenCellType] = None
     ) -> _torch.Tensor:
         """
         :param x: (B,L) or (B,L,D)
@@ -192,6 +277,7 @@ class LSTM(_BaseNet):
         """
 
         tensors = [
+            # NOTE: storing the entire (input, hidden) -> ifgo matrix at once.
             _torch.cat(
                 [
                     getattr(self._core, f"weight_ih_l{i}").data,
@@ -199,6 +285,8 @@ class LSTM(_BaseNet):
                 ],
                 dim=1,
             ),
+            # NOTE: "bias" vectors aren't associated with inputs.
+            # Sum together WLOG.
             getattr(self._core, f"bias_ih_l{i}").data
             + getattr(self._core, f"bias_hh_l{i}").data,
             hidden_state,
@@ -250,10 +338,10 @@ class LSTM(_BaseNet):
         _, (h, c) = self._core(inputs)
         return h, c
 
-    def _init_head(self, hidden_size: int) -> _ExportsWeights:
+    def _init_head(self, hidden_size: int) -> _ImportsAndExportsWeights:
         return _Linear(hidden_size, 1)
 
-    def _initial_state(self, n: Optional[int]) -> _LSTMHiddenCellType:
+    def _initial_state(self, n: _Optional[int]) -> _LSTMHiddenCellType:
         """
         Literally what the forward pass starts with.
         Default is zeroes; this should be better since it can be learned.

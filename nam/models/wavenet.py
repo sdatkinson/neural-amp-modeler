@@ -22,6 +22,7 @@ import numpy as _np
 import torch as _torch
 import torch.nn as _nn
 
+from ._abc import ImportsWeights as _ImportsWeights
 from ._activations import get_activation as _get_activation
 from .base import BaseNet as _BaseNet
 from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
@@ -327,6 +328,8 @@ class _WaveNet(_nn.Module):
         return weights.detach().cpu().numpy()
 
     def import_weights(self, weights: _torch.Tensor):
+        if self._head is not None:
+            raise NotImplementedError("Head importing isn't implemented yet.")
         i = 0
         for layer in self._layers:
             i = layer.import_weights(weights, i)
@@ -343,7 +346,7 @@ class _WaveNet(_nn.Module):
         return head_input if self._head is None else self._head(head_input)
 
 
-class WaveNet(_BaseNet):
+class WaveNet(_BaseNet, _ImportsWeights):
     def __init__(self, *args, sample_rate: _Optional[float] = None, **kwargs):
         super().__init__(sample_rate=sample_rate)
         self._net = _WaveNet(*args, **kwargs)
