@@ -6,6 +6,7 @@ from typing import Sequence as _Sequence
 
 import numpy as _np
 import torch as _torch
+import torch.nn as _nn
 
 from .base import BaseNet as _BaseNet
 
@@ -14,7 +15,7 @@ class Sequential(_BaseNet):
     def __init__(self, *args, models: _Sequence[_BaseNet], **kwargs):
         pad_start_default, sample_rate = self._validate_models(models)
         super().__init__(*args, sample_rate=sample_rate, **kwargs)
-        self._models = models
+        self._models = _nn.ModuleList(models)
         self._pad_start_default = pad_start_default
 
     @property
@@ -32,7 +33,7 @@ class Sequential(_BaseNet):
 
         config = super().parse_config(config)
         config["models"] = [
-            _init_model(name=model_config["name"], kwargs=model_config["config"])
+            _init_model(name=model_config["name"], kwargs={"config": model_config["config"]})
             for model_config in config.pop("models")
         ]
         return config

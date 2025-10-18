@@ -47,7 +47,8 @@ class TestSequential(_Base):
         seq_model = _sequential.Sequential(models=models)
         assert seq_model.pad_start_default == True  # Linear models have pad_start_default=True
 
-    def test_forward_pass(self):
+    @_pytest.mark.parametrize("pad_start", [True, False])
+    def test_forward_pass(self, pad_start: bool):
         """Test that forward pass works correctly through sequential models."""
         # Create models with known behavior
         sample_rate = 44_100
@@ -60,12 +61,16 @@ class TestSequential(_Base):
         # Test input
         x = _torch.randn(1000)  # Long enough for receptive field
         
+        expected_samples_lost = 0 if pad_start else seq_model.receptive_field - 1
         # Forward pass
-        y = seq_model(x)
+        y = seq_model(x, pad_start=pad_start)
         
         # Check output shape and properties
         assert isinstance(y, _torch.Tensor)
-        assert y.shape[0] == x.shape[0] - seq_model.receptive_field + 1
+        assert x.ndim == 1
+        assert y.ndim == 1
+        actual_samples_lost = len(x) - len(y)
+        assert actual_samples_lost == expected_samples_lost
 
     def test_validate_models_empty(self):
         """Test that validation fails for empty model list."""
@@ -134,7 +139,7 @@ class TestSequential(_Base):
         
         # Test forward pass
         x = _torch.randn(1000)
-        y = seq_model(x)
+        y = seq_model(x, pad_start=False)
         assert y.shape[0] == x.shape[0] - seq_model.receptive_field + 1
 
     def test_mixed_model_types(self):
@@ -152,7 +157,7 @@ class TestSequential(_Base):
         
         # Test forward pass
         x = _torch.randn(2000)  # Need longer input for conv model
-        y = seq_model(x)
+        y = seq_model(x, pad_start=False)
         assert isinstance(y, _torch.Tensor)
         assert y.shape[0] == x.shape[0] - seq_model.receptive_field + 1
 
@@ -189,7 +194,7 @@ class TestSequential(_Base):
 
         # Test with input that's just long enough
         x = _torch.randn(expected_rf)
-        y = seq_model(x)
+        y = seq_model(x, pad_start=False)
         assert y.shape[0] == 1  # Should output just 1 sample
 
     def test_batch_processing(self):
@@ -203,7 +208,7 @@ class TestSequential(_Base):
         
         # Test batched input
         x = _torch.randn(3, 1000)  # Batch of 3, length 1000
-        y = seq_model(x)
+        y = seq_model(x, pad_start=False)
         
         assert y.shape[0] == 3  # Batch dimension preserved
         assert y.shape[1] == x.shape[1] - seq_model.receptive_field + 1
