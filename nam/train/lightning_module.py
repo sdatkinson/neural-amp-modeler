@@ -40,7 +40,7 @@ from ..models.losses import (
     mse_fft as _mse_fft,
 )
 from ..models.recurrent import LSTM as _LSTM
-from ..models.registry import init as _init_model, register as _register_model
+from ..models.factory import init as _init_model, register as _register_model
 from ..models.wavenet import WaveNet as _WaveNet
 from ..util import init as _init
 
@@ -270,7 +270,7 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
 
     @classmethod
     def register_net_initializer(cls, name, constructor, overwrite: bool = False):
-        logger.warning(f"Deprecated: use models.registry.register instead")
+        logger.warning(f"Deprecated: use models.factory.register instead")
         _register_model(name=name, constructor=constructor, overwrite=overwrite)
 
     @property

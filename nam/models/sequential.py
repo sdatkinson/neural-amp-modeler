@@ -29,7 +29,7 @@ class Sequential(_BaseNet):
     @classmethod
     def parse_config(cls, config):
         # Delayed import to avoid circular imports
-        from .registry import init as _init_model
+        from .factory import init as _init_model
 
         config = super().parse_config(config)
         config["models"] = [

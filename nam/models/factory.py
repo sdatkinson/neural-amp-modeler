@@ -1,5 +1,5 @@
 """
-Registry of factories for models
+Factories (and registry of them) for models
 """
 
 from importlib import import_module as _import_module
