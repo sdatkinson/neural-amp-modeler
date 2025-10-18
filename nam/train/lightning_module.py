@@ -40,6 +40,7 @@ from ..models.losses import (
     mse_fft as _mse_fft,
 )
 from ..models.recurrent import LSTM as _LSTM
+from ..models.factory import init as _init_model, register as _register_model
 from ..models.wavenet import WaveNet as _WaveNet
 from ..util import init as _init
 
@@ -180,14 +181,6 @@ class _LossItem(_NamedTuple):
     value: _Optional[_torch.Tensor]
 
 
-_model_net_init_registry = {
-    "ConvNet": _ConvNet.init_from_config,
-    "Linear": _Linear.init_from_config,
-    "LSTM": _LSTM.init_from_config,
-    "WaveNet": _WaveNet.init_from_config,
-}
-
-
 class LightningModule(_pl.LightningModule, _InitializableFromConfig):
     """
     The PyTorch Lightning Module that unites the model with its loss and
@@ -263,7 +256,10 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         """
         config = super().parse_config(config)
         net_config = config["net"]
-        net = _model_net_init_registry[net_config["name"]](net_config["config"])
+        # A little hacky--assumes "init_from_config"-style factory.
+        net = _init_model(
+            name=net_config["name"], kwargs={"config": net_config["config"]}
+        )
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
             "net": net,
@@ -274,11 +270,8 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
 
     @classmethod
     def register_net_initializer(cls, name, constructor, overwrite: bool = False):
-        if name in _model_net_init_registry and not overwrite:
-            raise KeyError(
-                f"A constructor for net name '{name}' is already registered!"
-            )
-        _model_net_init_registry[name] = constructor
+        logger.warning(f"Deprecated: use models.factory.register instead")
+        _register_model(name=name, constructor=constructor, overwrite=overwrite)
 
     @property
     def net(self) -> _nn.Module:
