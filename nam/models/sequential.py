@@ -4,6 +4,7 @@ Sequential compositional models
 
 from typing import Sequence as _Sequence
 
+import numpy as _np
 import torch as _torch
 
 from .base import BaseNet as _BaseNet
@@ -36,10 +37,26 @@ class Sequential(_BaseNet):
         ]
         return config
 
-    def forward(self, x: _torch.Tensor) -> _torch.Tensor:
-        for model in self.models:
-            x = model(x)
+    def _forward(self, x: _torch.Tensor, **kwargs) -> _torch.Tensor:
+        if len(kwargs) > 0:
+            raise NotImplementedError("Sequential models do not support kwargs")
+        for model in self._models:
+            # Start-padding is handled by the sequential model, not the sub-models
+            x = model(x, pad_start=False)
         return x
+
+    def _export_config(self):
+        """Export configuration for the sequential model."""
+        return {
+            "models": [model._export_config() for model in self._models]
+        }
+
+    def _export_weights(self):
+        """Export weights for the sequential model."""
+        weights_list = []
+        for model in self._models:
+            weights_list.append(model._export_weights())
+        return _np.concatenate(weights_list)
 
     @classmethod
     def _validate_models(cls, models: _Sequence[_BaseNet]):
