@@ -256,7 +256,10 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         """
         config = super().parse_config(config)
         net_config = config["net"]
-        net = _init_model(name=net_config["name"], kwargs=net_config["config"])
+        # A little hacky--assumes "init_from_config"-style factory.
+        net = _init_model(
+            name=net_config["name"], kwargs={"config": net_config["config"]}
+        )
         loss_config = LossConfig.init_from_config(config.get("loss", {}))
         return {
             "net": net,
