@@ -33,7 +33,9 @@ class Sequential(_BaseNet):
 
         config = super().parse_config(config)
         config["models"] = [
-            _init_model(name=model_config["name"], kwargs={"config": model_config["config"]})
+            _init_model(
+                name=model_config["name"], kwargs={"config": model_config["config"]}
+            )
             for model_config in config.pop("models")
         ]
         return config
@@ -48,9 +50,7 @@ class Sequential(_BaseNet):
 
     def _export_config(self):
         """Export configuration for the sequential model."""
-        return {
-            "models": [model._export_config() for model in self._models]
-        }
+        return {"models": [model._export_config() for model in self._models]}
 
     def _export_weights(self):
         """Export weights for the sequential model."""
