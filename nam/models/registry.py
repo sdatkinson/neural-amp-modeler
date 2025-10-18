@@ -46,6 +46,8 @@ def init(
     args: _Optional[_Sequence[_Any]] = None,
     kwargs: _Optional[_Dict[str, _Any]] = None,
 ) -> _BaseNet:
+    args = () if args is None else args
+    kwargs = {} if kwargs is None else kwargs
     if name in _model_net_init_registry:
         return _model_net_init_registry[name](*args, **kwargs)
     else:
