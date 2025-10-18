@@ -1,6 +1,6 @@
 # File: test_sequential.py
-# Created Date: [Current Date]
-# Author: [Author]
+# Created Date: Saturday October 18th 2025
+# Author: Steven Atkinson (steven@atkinson.mn)
 
 import pytest as _pytest
 import torch as _torch
