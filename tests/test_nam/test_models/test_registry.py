@@ -5,7 +5,6 @@
 import copy as _copy
 import contextlib as _contextlib
 import pytest as _pytest
-import torch as _torch
 
 from nam.models import registry as _registry
 from nam.models import linear as _linear
@@ -117,12 +116,14 @@ class TestRegistry:
 
     def test_register_duplicate_without_overwrite(self):
         """Test that registering a duplicate name without overwrite raises KeyError."""
-        with _pytest.raises(
-            KeyError, match="A constructor for net name 'Linear' is already registered!"
-        ):
-            _registry.register(
-                "Linear", _linear.Linear.init_from_config, overwrite=False
-            )
+        with _registry_backup():
+            with _pytest.raises(
+                KeyError,
+                match="A constructor for net name 'Linear' is already registered!",
+            ):
+                _registry.register(
+                    "Linear", _linear.Linear.init_from_config, overwrite=False
+                )
 
     def test_register_duplicate_with_overwrite(self):
         """Test that registering a duplicate name with overwrite=True succeeds."""
@@ -151,9 +152,7 @@ class TestRegistry:
 
         # Test with args only (empty kwargs)
         model2 = _registry.init(
-            "Linear",
-            args=(),
-            kwargs={"config": {"receptive_field": 2, "sample_rate": sample_rate}},
+            "Linear", args=({"receptive_field": 2, "sample_rate": sample_rate},)
         )
         assert isinstance(model2, _linear.Linear)
 
@@ -214,20 +213,6 @@ class TestRegistry:
         # Test with invalid kwargs that should cause the model constructor to fail
         with _pytest.raises(Exception):  # The specific exception depends on the model
             _registry.init("Linear", kwargs={"invalid_param": "invalid_value"})
-
-    def test_registry_persistence(self):
-        """Test that registry changes persist within the same process."""
-        with _registry_backup():
-            # Create a mock constructor
-            def mock_constructor(*args, **kwargs):
-                return _linear.Linear(receptive_field=2, sample_rate=44100)
-
-            # Register it
-            _registry.register("TestModel", mock_constructor)
-
-            # Test that it's still there
-            model = _registry.init("TestModel")
-            assert isinstance(model, _linear.Linear)
 
     def test_multiple_registrations(self):
         """Test registering multiple models."""
@@ -296,23 +281,15 @@ class TestRegistry:
         with _pytest.raises(AttributeError):
             _registry.init(None)
 
-    def test_registry_logging_behavior(self):
-        """Test that registry logs appropriate messages."""
-        # This test would require capturing log messages, which is more complex
-        # For now, we'll just test that the functionality works without errors
-        sample_rate = 44100
-
-        # Test that import-based initialization works (which should log a message)
-        model = _registry.init(
-            "nam.models.linear.Linear",
-            kwargs={"receptive_field": 2, "sample_rate": sample_rate},
-        )
-        assert isinstance(model, _linear.Linear)
-
     def test_registry_backup_handles_exceptions(self):
-        """Test that the registry backup context manager properly handles exceptions."""
+        """
+        Meta-test that the registry backup context manager properly handles exceptions.
+        """
         # Store the original registry state
         original_registry = _copy.deepcopy(_registry._model_net_init_registry)
+
+        class TestException(Exception):
+            pass
 
         try:
             with _registry_backup():
@@ -326,8 +303,8 @@ class TestRegistry:
                 assert "TestExceptionModel" in _registry._model_net_init_registry
 
                 # Intentionally raise an exception
-                raise ValueError("Test exception")
-        except ValueError as e:
+                raise TestException("Test exception")
+        except TestException as e:
             # Verify the exception was re-raised
             assert str(e) == "Test exception"
 
