@@ -348,6 +348,15 @@ class TestWav(object):
         assert info.sampwidth == sample_width
 
 
+def test_wav_to_np_fp32():
+    """
+    Issue 598
+    """
+    path = Path(__file__).parents[1] / "resources" / "fp32.wav"
+    # Assert that this works:
+    data.wav_to_np(path)
+
+
 class TestConcatDataset(object):
     @pytest.mark.parametrize("attrname", ("nx", "ny", "sample_rate"))
     def test_valiation_sample_rate_fail(self, attrname: str):
