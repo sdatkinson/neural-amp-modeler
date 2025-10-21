@@ -8,6 +8,7 @@ Functions and classes for working with audio data with NAM
 
 import abc as _abc
 import logging as _logging
+import wave as _wave
 from collections import namedtuple as _namedtuple
 from copy import deepcopy as _deepcopy
 from dataclasses import dataclass as _dataclass
@@ -16,13 +17,13 @@ from pathlib import Path as _Path
 from typing import (
     Any as _Any,
     Callable as _Callable,
-    Dict as _Dict,
     Optional as _Optional,
     Sequence as _Sequence,
     Tuple as _Tuple,
     Union as _Union,
 )
 
+import librosa as _librosa
 import numpy as _np
 import torch as _torch
 import wavio as _wavio
@@ -47,7 +48,11 @@ class Split(_Enum):
 
 @_dataclass
 class WavInfo:
-    sampwidth: int
+    """
+    :param sampwidth: Sample width, in bytes. May be `None` if not known.
+    """
+
+    sampwidth: _Optional[int]
     rate: int
 
 
@@ -100,37 +105,122 @@ def wav_to_np(
     :param preroll: Drop this many samples off the front
     :param info: If `True`, also return the WAV info of this file.
     """
-    x_wav = _wavio.read(str(filename))
-    assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
-    if rate is not None and x_wav.rate != rate:
-        raise RuntimeError(
-            f"Explicitly expected sample rate of {rate}, but found {x_wav.rate} in "
-            f"file {filename}!"
-        )
 
-    if require_match is not None:
-        assert required_shape is None
-        assert required_wavinfo is None
-        y_wav = _wavio.read(str(require_match))
-        required_shape = y_wav.data.shape
-        required_wavinfo = WavInfo(y_wav.sampwidth, y_wav.rate)
-    if required_wavinfo is not None:
-        if x_wav.rate != required_wavinfo.rate:
-            raise ValueError(
-                f"Mismatched rates {x_wav.rate} versus {required_wavinfo.rate}"
+    def main(
+        filename: _Union[str, _Path],
+        rate: _Optional[int] = None,
+        require_match: _Optional[_Union[str, _Path]] = None,
+        required_shape: _Optional[_Tuple[int, ...]] = None,
+        required_wavinfo: _Optional[WavInfo] = None,
+        preroll: _Optional[int] = None,
+        info: bool = False,
+    ):
+        x_wav = _wavio.read(str(filename))
+        assert x_wav.data.shape[1] == _REQUIRED_CHANNELS, "Mono"
+        if rate is not None and x_wav.rate != rate:
+            raise RuntimeError(
+                f"Explicitly expected sample rate of {rate}, but found {x_wav.rate} in "
+                f"file {filename}!"
             )
-    arr_premono = x_wav.data[preroll:] / (2.0 ** (8 * x_wav.sampwidth - 1))
-    if required_shape is not None:
-        if arr_premono.shape != required_shape:
-            raise AudioShapeMismatchError(
-                required_shape,  # Expected
-                arr_premono.shape,  # Actual
-                f"Mismatched shapes. Expected {required_shape}, but this is "
-                f"{arr_premono.shape}!",
+
+        if require_match is not None:
+            assert required_shape is None
+            assert required_wavinfo is None
+            y_wav = _wavio.read(str(require_match))
+            required_shape = y_wav.data.shape
+            required_wavinfo = WavInfo(y_wav.sampwidth, y_wav.rate)
+        if required_wavinfo is not None:
+            if x_wav.rate != required_wavinfo.rate:
+                raise ValueError(
+                    f"Mismatched rates {x_wav.rate} versus {required_wavinfo.rate}"
+                )
+        arr_premono = x_wav.data[preroll:] / (2.0 ** (8 * x_wav.sampwidth - 1))
+        if required_shape is not None:
+            if arr_premono.shape != required_shape:
+                raise AudioShapeMismatchError(
+                    required_shape,  # Expected
+                    arr_premono.shape,  # Actual
+                    f"Mismatched shapes. Expected {required_shape}, but this is "
+                    f"{arr_premono.shape}!",
+                )
+            # sampwidth fine--we're just casting to 32-bit float anyways
+        arr = arr_premono[:, 0]
+        return arr if not info else (arr, WavInfo(x_wav.sampwidth, x_wav.rate))
+
+    def librosa_fallback(
+        filename: _Union[str, _Path],
+        rate: _Optional[int] = None,
+        require_match: _Optional[_Union[str, _Path]] = None,
+        required_shape: _Optional[_Tuple[int, ...]] = None,
+        required_wavinfo: _Optional[WavInfo] = None,
+        preroll: _Optional[int] = None,
+        info: bool = False,
+    ):
+
+        x_wav, float_sample_rate = _librosa.load(str(filename), sr=None, mono=False)
+        sample_rate = int(float_sample_rate)
+        if _np.abs(sample_rate - float_sample_rate) > 0.0001:
+            raise RuntimeError(
+                f"Encountered unsupportednon-integer sample rate {float_sample_rate} in file {filename}!"
             )
-        # sampwidth fine--we're just casting to 32-bit float anyways
-    arr = arr_premono[:, 0]
-    return arr if not info else (arr, WavInfo(x_wav.sampwidth, x_wav.rate))
+        # Librosa returns a 1-dimensional array if mono. instead of (N,1)
+        x_sampwidth = None
+        if x_wav.ndim > 1:
+            raise NotImplementedError("Multi-channel audio not supported")
+        # Can probably get rid of this
+        x_wav = x_wav[:, None]
+        if rate is not None and sample_rate != rate:
+            raise RuntimeError(
+                f"Explicitly expected sample rate of {rate}, but found {sample_rate} in "
+                f"file {filename}!"
+            )
+
+        if require_match is not None:
+            assert required_shape is None
+            assert required_wavinfo is None
+            y_wav, y_sample_rate = _librosa.load(str(require_match), sr=None)
+            required_shape = y_wav.shape
+            # HACK sample width
+            y_sampwidth = 3
+            required_wavinfo = WavInfo(y_sampwidth, y_sample_rate)
+        if required_wavinfo is not None:
+            if sample_rate != required_wavinfo.rate:
+                raise ValueError(
+                    f"Mismatched rates {sample_rate} versus {required_wavinfo.rate}"
+                )
+        arr_premono = x_wav[preroll:]
+        if required_shape is not None:
+            if arr_premono.shape != required_shape:
+                raise AudioShapeMismatchError(
+                    required_shape,  # Expected
+                    arr_premono.shape,  # Actual
+                    f"Mismatched shapes. Expected {required_shape}, but this is "
+                    f"{arr_premono.shape}!",
+                )
+            # sampwidth fine--we're just casting to 32-bit float anyways
+        arr = arr_premono[:, 0]
+        return arr if not info else (arr, WavInfo(x_sampwidth, sample_rate))
+
+    try:
+        return main(
+            filename=filename,
+            rate=rate,
+            require_match=require_match,
+            required_shape=required_shape,
+            required_wavinfo=required_wavinfo,
+            preroll=preroll,
+            info=info,
+        )
+    except _wave.Error:
+        return librosa_fallback(
+            filename=filename,
+            rate=rate,
+            require_match=require_match,
+            required_shape=required_shape,
+            required_wavinfo=required_wavinfo,
+            preroll=preroll,
+            info=info,
+        )
 
 
 def wav_to_tensor(
