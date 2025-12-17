@@ -7,7 +7,6 @@
 name: nam
 channels:
   - conda-forge # pytest-mock
-  - pytorch
   - defaults
 dependencies:
   - python>=3.9
@@ -24,7 +23,6 @@ dependencies:
   - pytest-mock
   # Performance note:
   # https://github.com/sdatkinson/neural-amp-modeler/issues/505
-  - pytorch
   - semver
   - tensorboard
   - tqdm
@@ -36,3 +34,5 @@ dependencies:
       - transformers>=4  # See requirements.txt
       - wavio >=0.0.5
       - -e ..
+      - torch
+
