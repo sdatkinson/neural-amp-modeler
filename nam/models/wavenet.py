@@ -7,15 +7,15 @@ WaveNet implementation
 https://arxiv.org/abs/1609.03499
 """
 
-import json as _json
+import logging as _logging
 from copy import deepcopy as _deepcopy
-from pathlib import Path as _Path
-from tempfile import TemporaryDirectory as _TemporaryDirectory
+from enum import Enum as _Enum
 from typing import (
     Dict as _Dict,
     Optional as _Optional,
     Sequence as _Sequence,
     Tuple as _Tuple,
+    Union as _Union,
 )
 
 import numpy as _np
@@ -26,6 +26,8 @@ from ._abc import ImportsWeights as _ImportsWeights
 from ._activations import get_activation as _get_activation
 from .base import BaseNet as _BaseNet
 from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
+
+_logger = _logging.getLogger(__name__)
 
 
 class Conv1d(_nn.Conv1d):
@@ -57,6 +59,25 @@ class Conv1d(_nn.Conv1d):
 
 
 class _Layer(_nn.Module):
+    class Gating(_Enum):
+        NONE = "none"
+        SIGMOID = "sigmoid"
+        RELU = "relu"
+        LINEAR = "linear"
+
+    class _GatingDeprecationWarning:
+        """
+        So we only get the warning once.
+        """
+
+        _logged = False
+
+        @classmethod
+        def warn(cls):
+            if not cls._logged:
+                _logger.warning("'gated' is deprecated. Use gating instead.")
+                cls._logged = True
+
     def __init__(
         self,
         condition_size: int,
@@ -64,8 +85,27 @@ class _Layer(_nn.Module):
         kernel_size: int,
         dilation: int,
         activation: str,
-        gated: bool,
+        gated: _Optional[bool] = None,
+        gating: _Optional[_Union[str, Gating]] = None,
     ):
+        def resolve_gating(
+            gated: _Optional[bool], gating: _Optional[_Union[str, self.Gating]]
+        ) -> self.Gating:
+            if gated is not None:
+                if gating is None:
+                    self._GatingDeprecationWarning.warn()
+                else:
+                    raise ValueError(f"Cannot use both 'gated' and 'gating'.")
+                return self.Gating.SIGMOID if gated else self.Gating.NONE
+            else:
+                if gating is None:
+                    raise ValueError("Either 'gated' or 'gating' must be provided.")
+                return (
+                    self.Gating(gating)
+                    if not isinstance(gating, self.Gating)
+                    else gating
+                )
+
         super().__init__()
         # Input mixer takes care of the bias
         mid_channels = 2 * channels if gated else channels
@@ -76,7 +116,13 @@ class _Layer(_nn.Module):
         self._activation = _get_activation(activation)
         self._activation_name = activation
         self._1x1 = Conv1d(channels, channels, 1)
-        self._gated = gated
+        self._gated = resolve_gating(gated, gating)
+        self._gate_op = {
+            self.Gating.NONE: None,
+            self.Gating.SIGMOID: _torch.sigmoid,
+            self.Gating.RELU: _torch.relu,
+            self.Gating.LINEAR: lambda x: x,
+        }[self.gated]
 
     @property
     def activation_name(self) -> str:
@@ -120,10 +166,10 @@ class _Layer(_nn.Module):
         z1 = zconv + self._input_mixer(h)[:, :, -zconv.shape[2] :]
         post_activation = (
             self._activation(z1)
-            if not self._gated
+            if self._gate_op is None
             else (
                 self._activation(z1[:, : self._channels])
-                * _torch.sigmoid(z1[:, self._channels :])
+                * self._gate_op(z1[:, self._channels :])
             )
         )
         return (
@@ -141,7 +187,7 @@ class _Layer(_nn.Module):
         return self._1x1.in_channels
 
 
-class _Layers(_nn.Module):
+class _LayerArray(_nn.Module):
     """
     Takes in the input and condition (and maybe the head input so far); outputs the
     layer output and head input.
@@ -160,7 +206,8 @@ class _Layers(_nn.Module):
         kernel_size: int,
         dilations: _Sequence[int],
         activation: str = "Tanh",
-        gated: bool = True,
+        gated: _Optional[bool] = None,
+        gating: _Optional[_Union[str, _Layer.Gating]] = None,
         head_bias: bool = True,
     ):
         super().__init__()
@@ -168,7 +215,13 @@ class _Layers(_nn.Module):
         self._layers = _nn.ModuleList(
             [
                 _Layer(
-                    condition_size, channels, kernel_size, dilation, activation, gated
+                    condition_size,
+                    channels,
+                    kernel_size,
+                    dilation,
+                    activation,
+                    gated=gated,
+                    gating=gating,
                 )
                 for dilation in dilations
             ]
@@ -302,17 +355,21 @@ class _WaveNet(_nn.Module):
     ):
         super().__init__()
 
-        self._layers = _nn.ModuleList([_Layers(**lc) for lc in layers_configs])
+        self._layer_arrays = _nn.ModuleList(
+            [_LayerArray(**lc) for lc in layers_configs]
+        )
         self._head = None if head_config is None else _Head(**head_config)
         self._head_scale = head_scale
 
     @property
     def receptive_field(self) -> int:
-        return 1 + sum([(layer.receptive_field - 1) for layer in self._layers])
+        return 1 + sum([(layer.receptive_field - 1) for layer in self._layer_arrays])
 
     def export_config(self):
         return {
-            "layers": [layers.export_config() for layers in self._layers],
+            "layers": [
+                layer_array.export_config() for layer_array in self._layer_arrays
+            ],
             "head": None if self._head is None else self._head.export_config(),
             "head_scale": self._head_scale,
         }
@@ -321,7 +378,7 @@ class _WaveNet(_nn.Module):
         """
         :return: 1D array
         """
-        weights = _torch.cat([layer.export_weights() for layer in self._layers])
+        weights = _torch.cat([layer.export_weights() for layer in self._layer_arrays])
         if self._head is not None:
             weights = _torch.cat([weights, self._head.export_weights()])
         weights = _torch.cat([weights.cpu(), _torch.Tensor([self._head_scale])])
@@ -331,7 +388,7 @@ class _WaveNet(_nn.Module):
         if self._head is not None:
             raise NotImplementedError("Head importing isn't implemented yet.")
         i = 0
-        for layer in self._layers:
+        for layer in self._layer_arrays:
             i = layer.import_weights(weights, i)
 
     def forward(self, x: _torch.Tensor) -> _torch.Tensor:
@@ -340,7 +397,7 @@ class _WaveNet(_nn.Module):
         :return: (B,Cy,L-R)
         """
         y, head_input = x, None
-        for layer in self._layers:
+        for layer in self._layer_arrays:
             head_input, y = layer(y, x, head_input=head_input)
         head_input = self._head_scale * head_input
         return head_input if self._head is None else self._head(head_input)
