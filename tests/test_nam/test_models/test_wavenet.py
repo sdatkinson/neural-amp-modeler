@@ -18,19 +18,20 @@ from nam.train.core import (
     Architecture as _Architecture,
     get_wavenet_config as _get_wavenet_config,
 )
+from nam.train.lightning_module import LightningModule as _LightningModule
 from tests._integration import run_loadmodel as _run_loadmodel
 from tests._skips import (
     requires_neural_amp_modeler_core_loadmodel as _requires_neural_amp_modeler_core_loadmodel,
 )
-from tests.resources import resource_path as _resource_path
 
 from .base import Base as _Base
 
-# Activations supported by NeuralAmpModelerCore loadmodel (see activations.cpp type_map).
+# Activations supported by both Python _activations and NeuralAmpModelerCore loadmodel.
+# (Fasttanh is C++-only; omit it since we build the model in Python.)
 _LOADMODEL_ACTIVATIONS = [
     "Tanh",
     "Hardtanh",
-    "Fasttanh",
+    # "Fasttanh",  # C++ approximation of Tanh; not used in the trainer.
     "ReLU",
     "LeakyReLU",
     "PReLU",
@@ -39,7 +40,27 @@ _LOADMODEL_ACTIVATIONS = [
     "Hardswish",
     "LeakyHardtanh",
     "Softsign",
+    {
+        "name": "PairBlend",
+        "primary": "Tanh",
+        "secondary": "Sigmoid",
+    },
+    {
+        "name": "PairMultiply",
+        "primary": "Tanh",
+        "secondary": "Sigmoid",
+    },
 ]
+
+_NAM_FULL_CONFIGS_DIR = _Path(__file__).resolve().parents[3] / "nam_full_configs"
+
+
+def _load_demonet_config() -> dict:
+    path = _NAM_FULL_CONFIGS_DIR / "models" / "demonet.json"
+    data = _json.loads(path.read_text())
+    data.pop("_notes", None)
+    data.pop("_comments", None)
+    return data
 
 
 class TestWaveNet(_Base):
@@ -170,16 +191,20 @@ class TestWaveNet(_Base):
     @_pytest.mark.parametrize("activation", _LOADMODEL_ACTIVATIONS)
     def test_export_nam_loadmodel_can_load(self, activation: str):
         """
-        Load wavenet_minimal.nam, replace activation with each supported type, run
-        loadmodel.
+        LightningModule.init_from_config(demonet with activation replaced) -> .export()
+        -> loadmodel can load the resulting .nam.
         """
-        nam_path = _resource_path("models/identity/wavenet_minimal.nam")
-        data = _json.loads(nam_path.read_text())
-        data["config"]["layers"][0]["activation"] = activation
+        config = _load_demonet_config()
+        for layer in config["net"]["config"]["layers_configs"]:
+            layer["activation"] = activation
+        module = _LightningModule.init_from_config(config)
+        module.net.sample_rate = 48000
         with _TemporaryDirectory() as tmpdir:
-            out_path = _Path(tmpdir) / "model.nam"
-            out_path.write_text(_json.dumps(data))
-            result = _run_loadmodel(out_path)
+            outdir = _Path(tmpdir)
+            module.net.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
             assert result.returncode == 0, (
                 f"loadmodel failed for activation={activation!r}: "
                 f"stderr={result.stderr!r} stdout={result.stdout!r}"
