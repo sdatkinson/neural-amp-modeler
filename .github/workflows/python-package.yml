@@ -23,6 +23,13 @@ jobs:
         with:
           fetch-depth: 0  # Ensures the full history is available
           fetch-tags: true  # Ensures tags are fetched
+      - name: Clone NeuralAmpModelerCore and build loadmodel
+        run: |
+          cd "${{ github.workspace }}/.."
+          git clone --recurse-submodules https://github.com/${{ github.repository_owner }}/NeuralAmpModelerCore.git@v0.4.0.rc2
+          cd NeuralAmpModelerCore/build
+          cmake .. -DCMAKE_BUILD_TYPE=Debug
+          cmake --build . -j4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v3
         with:

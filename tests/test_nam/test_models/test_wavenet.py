@@ -2,6 +2,9 @@
 # Created Date: Friday May 5th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+from pathlib import Path as _Path
+from tempfile import TemporaryDirectory as _TemporaryDirectory
+
 import pytest as _pytest
 import torch as _torch
 
@@ -13,6 +16,10 @@ from nam.models.wavenet import WaveNet as _WaveNet
 from nam.train.core import (
     Architecture as _Architecture,
     get_wavenet_config as _get_wavenet_config,
+)
+from tests._integration import run_loadmodel as _run_loadmodel
+from tests._skips import (
+    requires_neural_amp_modeler_core_loadmodel as _requires_neural_amp_modeler_core_loadmodel,
 )
 
 from .base import Base as _Base
@@ -138,6 +145,21 @@ class TestWaveNet(_Base):
         layers = model._net._layer_arrays[0]._layers
         assert isinstance(layers[0]._activation, _torch.nn.ReLU)
         assert isinstance(layers[1]._activation, _PairBlend)
+
+    @_requires_neural_amp_modeler_core_loadmodel
+    def test_export_nam_loadmodel_can_load(self):
+        """Export a WaveNet to .nam and assert NeuralAmpModelerCore loadmodel can load it."""
+        config = _get_wavenet_config(_Architecture.FEATHER)
+        model = _WaveNet.init_from_config(config)
+        with _TemporaryDirectory() as tmpdir:
+            outdir = _Path(tmpdir)
+            model.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
+            assert (
+                result.returncode == 0
+            ), f"loadmodel failed: stderr={result.stderr!r} stdout={result.stdout!r}"
 
 
 if __name__ == "__main__":
