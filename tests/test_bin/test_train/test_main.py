@@ -80,7 +80,6 @@ class Test(object):
                             "kernel_size": 3,
                             "dilations": [1],
                             "activation": "Tanh",
-                            "gated": False,
                             "head_bias": False,
                         },
                         {
@@ -91,7 +90,6 @@ class Test(object):
                             "kernel_size": 3,
                             "dilations": [2],
                             "activation": "Tanh",
-                            "gated": False,
                             "head_bias": False,
                         },
                     ],

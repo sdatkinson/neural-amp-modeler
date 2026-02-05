@@ -112,7 +112,6 @@ def _compare_lstm_configs(
                         "kernel_size": 3,
                         "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                         "activation": "Tanh",
-                        "gated": False,
                         "head_bias": False,
                     },
                     {
@@ -123,7 +122,6 @@ def _compare_lstm_configs(
                         "kernel_size": 3,
                         "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                         "activation": "Tanh",
-                        "gated": False,
                         "head_bias": True,
                     },
                 ],
