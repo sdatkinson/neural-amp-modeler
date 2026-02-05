@@ -9,7 +9,6 @@ https://arxiv.org/abs/1609.03499
 
 import logging as _logging
 from copy import deepcopy as _deepcopy
-from enum import Enum as _Enum
 from typing import (
     Dict as _Dict,
     Optional as _Optional,
@@ -23,7 +22,12 @@ import torch as _torch
 import torch.nn as _nn
 
 from ._abc import ImportsWeights as _ImportsWeights
-from ._activations import get_activation as _get_activation
+from ._activations import (
+    PairBlend as _PairBlend,
+    PairMultiply as _PairMultiply,
+    PairingActivation as _PairingActivation,
+    get_activation as _get_activation,
+)
 from .base import BaseNet as _BaseNet
 from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
 
@@ -59,74 +63,35 @@ class Conv1d(_nn.Conv1d):
 
 
 class _Layer(_nn.Module):
-    class Gating(_Enum):
-        NONE = "none"
-        SIGMOID = "sigmoid"
-        RELU = "relu"
-        LINEAR = "linear"
-
-    class _GatingDeprecationWarning:
-        """
-        So we only get the warning once.
-        """
-
-        _logged = False
-
-        @classmethod
-        def warn(cls):
-            if not cls._logged:
-                _logger.warning("'gated' is deprecated. Use gating instead.")
-                cls._logged = True
-
     def __init__(
         self,
         condition_size: int,
         channels: int,
         kernel_size: int,
         dilation: int,
-        activation: str,
-        gated: _Optional[bool] = None,
-        gating: _Optional[_Union[str, Gating]] = None,
+        activation: _nn.Module,
     ):
-        def resolve_gating(
-            gated: _Optional[bool], gating: _Optional[_Union[str, self.Gating]]
-        ) -> self.Gating:
-            if gated is not None:
-                if gating is None:
-                    self._GatingDeprecationWarning.warn()
-                else:
-                    raise ValueError(f"Cannot use both 'gated' and 'gating'.")
-                return self.Gating.SIGMOID if gated else self.Gating.NONE
-            else:
-                if gating is None:
-                    raise ValueError("Either 'gated' or 'gating' must be provided.")
-                return (
-                    self.Gating(gating)
-                    if not isinstance(gating, self.Gating)
-                    else gating
-                )
-
         super().__init__()
         # Input mixer takes care of the bias
-        mid_channels = 2 * channels if gated else channels
+        mid_channels = (
+            2 * channels if isinstance(activation, _PairingActivation) else channels
+        )
         self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
         # Custom init: favors direct input-output
         # self._conv.weight.data.zero_()
         self._input_mixer = Conv1d(condition_size, mid_channels, 1, bias=False)
-        self._activation = _get_activation(activation)
+
+        self._activation = activation
+
         self._activation_name = activation
         self._1x1 = Conv1d(channels, channels, 1)
-        self._gated = resolve_gating(gated, gating)
-        self._gate_op = {
-            self.Gating.NONE: None,
-            self.Gating.SIGMOID: _torch.sigmoid,
-            self.Gating.RELU: _torch.relu,
-            self.Gating.LINEAR: lambda x: x,
-        }[self.gated]
 
     @property
     def activation_name(self) -> str:
-        return self._activation_name
+        if isinstance(self._activation, _PairingActivation):
+            return self._activation.name
+        else:
+            return self._activation.__class__.__name__
 
     @property
     def conv(self) -> Conv1d:
@@ -134,7 +99,12 @@ class _Layer(_nn.Module):
 
     @property
     def gated(self) -> bool:
-        return self._gated
+        if isinstance(self._activation, _PairMultiply):
+            return True
+        elif isinstance(self._activation, _PairBlend):
+            raise ValueError("PairBlend is not a gating activation")
+        else:
+            return False
 
     @property
     def kernel_size(self) -> int:
@@ -164,14 +134,7 @@ class _Layer(_nn.Module):
         """
         zconv = self.conv(x)
         z1 = zconv + self._input_mixer(h)[:, :, -zconv.shape[2] :]
-        post_activation = (
-            self._activation(z1)
-            if self._gate_op is None
-            else (
-                self._activation(z1[:, : self._channels])
-                * self._gate_op(z1[:, self._channels :])
-            )
-        )
+        post_activation = self._activation(z1)
         return (
             x[:, :, -post_activation.shape[2] :] + self._1x1(post_activation),
             post_activation[:, :, -out_length:],
@@ -205,13 +168,23 @@ class _LayerArray(_nn.Module):
         channels: int,
         kernel_size: int,
         dilations: _Sequence[int],
-        activation: str = "Tanh",
-        gated: _Optional[bool] = None,
-        gating: _Optional[_Union[str, _Layer.Gating]] = None,
+        activation: _Union[str, dict, _Sequence[_Union[str, dict]]] = "Tanh",
         head_bias: bool = True,
     ):
         super().__init__()
         self._rechannel = Conv1d(input_size, channels, 1, bias=False)
+        num_layers = len(dilations)
+
+        # Broadcast configs to all layers:
+        # Activation:
+        if isinstance(activation, (str, dict)):
+            activation = [activation] * num_layers
+        else:
+            assert isinstance(
+                activation, _Sequence
+            ), "activation must be a string, dict, or sequence"
+        a_list = [_get_activation(a) for a in activation]
+
         self._layers = _nn.ModuleList(
             [
                 _Layer(
@@ -219,11 +192,9 @@ class _LayerArray(_nn.Module):
                     channels,
                     kernel_size,
                     dilation,
-                    activation,
-                    gated=gated,
-                    gating=gating,
+                    activation=a,
                 )
-                for dilation in dilations
+                for (a, dilation) in zip(a_list, dilations)
             ]
         )
         # Convert the head input from channels to head_size
@@ -237,7 +208,6 @@ class _LayerArray(_nn.Module):
             "kernel_size": kernel_size,
             "dilations": dilations,
             "activation": activation,
-            "gated": gated,
             "head_bias": head_bias,
         }
 

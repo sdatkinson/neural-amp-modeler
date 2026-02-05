@@ -32,6 +32,10 @@ class PairingActivation(_nn.Module, _abc.ABC):
         self._primary = primary
         self._secondary = secondary
 
+    @property
+    def name(self) -> str:
+        return self.__class__.__name__
+
     @_abc.abstractmethod
     def forward(self, x: _torch.Tensor) -> _torch.Tensor:
         """
@@ -41,7 +45,7 @@ class PairingActivation(_nn.Module, _abc.ABC):
         pass
 
 
-class _PairMultiply(PairingActivation):
+class PairMultiply(PairingActivation):
     """
     aka "gating" activation
 
@@ -57,7 +61,7 @@ class _PairMultiply(PairingActivation):
         return self._primary(x1) * self._secondary(x2)
 
 
-class _PairBlend(PairingActivation):
+class PairBlend(PairingActivation):
     """
     Blending activation
 
@@ -106,23 +110,28 @@ class _PairingActivationConfig(_BaseModel):
         secondary = get_activation(self.secondary)
         kwargs = dict() if self.kwargs is None else self.kwargs
         return {
-            "PairMultiply": _PairMultiply,
-            "PairBlend": _PairBlend,
+            "PairMultiply": PairMultiply,
+            "PairBlend": PairBlend,
         }[
             self.name
         ](primary=primary, secondary=secondary, **kwargs)
 
 
-_ActivationConfig = _Union[_BasicActivationConfig, _PairingActivationConfig]
+ActivationConfig = _Union[_BasicActivationConfig, _PairingActivationConfig]
+
+
+def parse_activation_config(config: _Dict[str, _Any]) -> ActivationConfig:
+    # Bah wish I could do this smoother
+    name = config.pop("name")
+    if all(k in config for k in ["primary", "secondary"]):
+        primary = config.pop("primary")
+        secondary = config.pop("secondary")
+        return _PairingActivationConfig(
+            name=name, primary=primary, secondary=secondary, kwargs=config
+        )
+    else:
+        return _BasicActivationConfig(name=name, kwargs=config)
 
 
 def get_activation(name: str, **kwargs) -> _nn.Module:
-    # Bah wish I could do this smoother
-    if all(k in kwargs for k in ["primary", "secondary"]):
-        primary = kwargs.pop("primary")
-        secondary = kwargs.pop("secondary")
-        return _PairingActivationConfig(
-            name=name, primary=primary, secondary=secondary, kwargs=kwargs
-        ).create()
-    else:
-        return _BasicActivationConfig(name=name, kwargs=kwargs).create()
+    return parse_activation_config(config={"name": name, **kwargs}).create()

@@ -86,10 +86,10 @@ def _conv_net(
         )
         if batchnorm:
             net.add_module(_BATCHNORM_NAME, _nn.BatchNorm1d(cout))
-        activation = _get_activation(activation)
-        if isinstance(activation, _PairingActivation):
+        a = _get_activation(activation)
+        if isinstance(a, _PairingActivation):
             raise NotImplementedError("Pairing activations not supported for ConvNet")
-        net.add_module(_ACTIVATION_NAME, activation)
+        net.add_module(_ACTIVATION_NAME, a)
         return net
 
     def check_and_expand(n, x):
