@@ -16,6 +16,42 @@ class _Softsign(_nn.Module):
         return x / (1.0 + _torch.abs(x))
 
 
+class _LeakyHardtanh(_nn.Module):
+    """
+    Leaky hard tanh: linear slopes outside [min_val, max_val], identity inside.
+    Matches NeuralAmpModelerCore leaky_hardtanh (activations.h).
+    """
+
+    def __init__(
+        self,
+        min_val: float = -1.0,
+        max_val: float = 1.0,
+        min_slope: float = 0.01,
+        max_slope: float = 0.01,
+    ) -> None:
+        super().__init__()
+        self._min_val = min_val
+        self._max_val = max_val
+        self._min_slope = min_slope
+        self._max_slope = max_slope
+
+    def forward(self, x: _torch.Tensor) -> _torch.Tensor:
+        # Below min_val: (x - min_val) * min_slope + min_val
+        # Above max_val: (x - max_val) * max_slope + max_val
+        # Else: x
+        out = _torch.where(
+            x < self._min_val,
+            (x - self._min_val) * self._min_slope + self._min_val,
+            x,
+        )
+        out = _torch.where(
+            x > self._max_val,
+            (x - self._max_val) * self._max_slope + self._max_val,
+            out,
+        )
+        return out
+
+
 class _Softsigmoid(_nn.Module):
     def forward(self, x: _torch.Tensor) -> _torch.Tensor:
         return 0.5 * (1.0 + x / (1.0 + _torch.abs(x)))
@@ -92,6 +128,7 @@ class _BasicActivationConfig(_BaseModel):
         kwargs = dict() if self.kwargs is None else self.kwargs
         # Special NAM activations (check first so we don't call getattr(_nn, name) for these)
         special = {
+            "LeakyHardtanh": _LeakyHardtanh,
             "Softsigmoid": _Softsigmoid,
             "Softsign": _Softsign,
         }

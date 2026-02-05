@@ -50,14 +50,14 @@ def test_get_activation_with_kwargs() -> None:
 # -----------------------------------------------------------------------------
 
 
-@_pytest.mark.parametrize("name", ["Softsigmoid", "Softsign"])
+@_pytest.mark.parametrize("name", ["LeakyHardtanh", "Softsigmoid", "Softsign"])
 def test_get_activation_nam_special(name: str) -> None:
     """get_activation returns NAM-specific activation modules."""
     act = get_activation(name)
     assert isinstance(act, _torch.nn.Module)
     x = _torch.randn(2, 4)
     y = act(x)
-    # These two happen to preserve shape and dtype
+    # These happen to preserve shape and dtype
     assert y.shape == x.shape
     assert y.dtype == x.dtype
 
@@ -82,6 +82,45 @@ def test_softsigmoid_bounds() -> None:
         assert 0.0 < y.item() < 1.0
     x = _torch.tensor([[0.0]])
     assert act(x).item() == _pytest.approx(0.5)
+
+
+# -----------------------------------------------------------------------------
+# LeakyHardtanh (matches NeuralAmpModelerCore leaky_hardtanh)
+# -----------------------------------------------------------------------------
+
+
+def test_leaky_hardtanh_forward() -> None:
+    """LeakyHardtanh: identity in [min_val, max_val], linear slopes outside."""
+    act = get_activation("LeakyHardtanh")  # defaults: min=-1, max=1, slopes=0.01
+    # In range: pass through
+    x_mid = _torch.tensor([[0.0, -0.5, 1.0]])
+    assert (act(x_mid) == x_mid).all().item()
+    # Below min_val: (x - min_val) * min_slope + min_val. For x=-2: (-2 - (-1))*0.01 + (-1) = -1.01
+    x_low = _torch.tensor([[-2.0]])
+    assert act(x_low).item() == _pytest.approx(-1.01)
+    # Above max_val: (x - max_val) * max_slope + max_val. For x=2: (2 - 1)*0.01 + 1 = 1.01
+    x_high = _torch.tensor([[2.0]])
+    assert act(x_high).item() == _pytest.approx(1.01)
+
+
+def test_leaky_hardtanh_with_kwargs() -> None:
+    """LeakyHardtanh accepts min_val, max_val, min_slope, max_slope."""
+    act = get_activation(
+        "LeakyHardtanh",
+        min_val=-2.0,
+        max_val=2.0,
+        min_slope=0.1,
+        max_slope=0.1,
+    )
+    # Below -2: (x - min_val)*min_slope + min_val = (-3 - (-2))*0.1 + (-2) = -2.1
+    assert act(_torch.tensor([[-3.0]])).item() == _pytest.approx(-2.1)
+    # Above 2: (x - max_val)*max_slope + max_val = (3 - 2)*0.1 + 2 = 2.1
+    assert act(_torch.tensor([[3.0]])).item() == _pytest.approx(2.1)
+    # In range [-2, 2]: pass through
+    y = act(_torch.tensor([[-2.0, 0.0, 2.0]]))
+    assert y[0, 0].item() == _pytest.approx(-2.0)
+    assert y[0, 1].item() == _pytest.approx(0.0)
+    assert y[0, 2].item() == _pytest.approx(2.0)
 
 
 # -----------------------------------------------------------------------------
