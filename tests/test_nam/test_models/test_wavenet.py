@@ -2,6 +2,7 @@
 # Created Date: Friday May 5th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import json as _json
 from pathlib import Path as _Path
 from tempfile import TemporaryDirectory as _TemporaryDirectory
 
@@ -21,8 +22,24 @@ from tests._integration import run_loadmodel as _run_loadmodel
 from tests._skips import (
     requires_neural_amp_modeler_core_loadmodel as _requires_neural_amp_modeler_core_loadmodel,
 )
+from tests.resources import resource_path as _resource_path
 
 from .base import Base as _Base
+
+# Activations supported by NeuralAmpModelerCore loadmodel (see activations.cpp type_map).
+_LOADMODEL_ACTIVATIONS = [
+    "Tanh",
+    "Hardtanh",
+    "Fasttanh",
+    "ReLU",
+    "LeakyReLU",
+    "PReLU",
+    "Sigmoid",
+    "SiLU",
+    "Hardswish",
+    "LeakyHardtanh",
+    "Softsign",
+]
 
 
 class TestWaveNet(_Base):
@@ -85,7 +102,10 @@ class TestWaveNet(_Base):
 
     @_pytest.mark.parametrize("pairing_name", ["PairMultiply", "PairBlend"])
     def test_init_from_config_activation_dict_pairing(self, pairing_name: str):
-        """WaveNet.init_from_config accepts activation as a dict for PairMultiply/PairBlend."""
+        """
+        WaveNet.init_from_config accepts activation as a dict for
+        PairMultiply/PairBlend.
+        """
         config = {
             "layers_configs": [
                 {
@@ -147,19 +167,23 @@ class TestWaveNet(_Base):
         assert isinstance(layers[1]._activation, _PairBlend)
 
     @_requires_neural_amp_modeler_core_loadmodel
-    def test_export_nam_loadmodel_can_load(self):
-        """Export a WaveNet to .nam and assert NeuralAmpModelerCore loadmodel can load it."""
-        config = _get_wavenet_config(_Architecture.FEATHER)
-        model = _WaveNet.init_from_config(config)
+    @_pytest.mark.parametrize("activation", _LOADMODEL_ACTIVATIONS)
+    def test_export_nam_loadmodel_can_load(self, activation: str):
+        """
+        Load wavenet_minimal.nam, replace activation with each supported type, run
+        loadmodel.
+        """
+        nam_path = _resource_path("models/identity/wavenet_minimal.nam")
+        data = _json.loads(nam_path.read_text())
+        data["config"]["layers"][0]["activation"] = activation
         with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            model.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert (
-                result.returncode == 0
-            ), f"loadmodel failed: stderr={result.stderr!r} stdout={result.stdout!r}"
+            out_path = _Path(tmpdir) / "model.nam"
+            out_path.write_text(_json.dumps(data))
+            result = _run_loadmodel(out_path)
+            assert result.returncode == 0, (
+                f"loadmodel failed for activation={activation!r}: "
+                f"stderr={result.stderr!r} stdout={result.stdout!r}"
+            )
 
 
 if __name__ == "__main__":
