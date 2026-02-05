@@ -3,6 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import json
+from copy import deepcopy
 from enum import Enum
 from pathlib import Path
 from subprocess import check_call
@@ -14,6 +15,20 @@ import pytest
 import torch
 
 from nam.data import np_to_wav
+
+# Configs are loaded from nam_full_configs and patched for minimal fast runs.
+_NAM_FULL_CONFIGS_DIR = (
+    Path(__file__).resolve().parent.parent.parent.parent / "nam_full_configs"
+)
+
+
+def _load_json(config_dir: str, name: str) -> dict:
+    path = _NAM_FULL_CONFIGS_DIR / config_dir / f"{name}.json"
+    with open(path, "r") as f:
+        data = json.load(f)
+    data.pop("_notes", None)
+    data.pop("_comments", None)
+    return data
 
 
 class _Device(Enum):
@@ -48,76 +63,38 @@ class Test(object):
     def _get_configs(
         self, root_path: Path, device: _Device
     ) -> Tuple[Dict, Dict, Dict]:  # TODO pydantic models
-        data_config = {
-            "train": {
-                "start": None,
-                "stop": -self._num_samples_validation,
-                "ny": self._ny,
-            },
-            "validation": {
-                "start": -self._num_samples_validation,
-                "stop": None,
-                "ny": None,
-            },
-            "common": {
-                "x_path": str(self._x_path(root_path)),
-                "y_path": str(self._y_path(root_path)),
-                "delay": 0,
-                "require_input_pre_silence": None,
-            },
+        # Data: from single_pair; patch paths and trim for minimal 128 samples
+        data_config = _load_json("data", "single_pair")
+        data_config = deepcopy(data_config)
+        common = data_config["common"]
+        common["x_path"] = str(self._x_path(root_path))
+        common["y_path"] = str(self._y_path(root_path))
+        common["require_input_pre_silence"] = None
+        data_config["train"] = {
+            "start": None,
+            "stop": -self._num_samples_validation,
+            "ny": self._ny,
         }
-        stage_channels = (3, 2)
-        model_config = {
-            "net": {
-                "name": "WaveNet",
-                "config": {
-                    "layers_configs": [
-                        {
-                            "condition_size": 1,
-                            "input_size": 1,
-                            "channels": stage_channels[0],
-                            "head_size": stage_channels[1],
-                            "kernel_size": 3,
-                            "dilations": [1],
-                            "activation": "Tanh",
-                            "head_bias": False,
-                        },
-                        {
-                            "condition_size": 1,
-                            "input_size": stage_channels[0],
-                            "channels": stage_channels[1],
-                            "head_size": 1,
-                            "kernel_size": 3,
-                            "dilations": [2],
-                            "activation": "Tanh",
-                            "head_bias": False,
-                        },
-                    ],
-                    "head_scale": 0.02,
-                },
-            },
-            "optimizer": {"lr": 0.004},
-            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.993}},
+        data_config["validation"] = {
+            "start": -self._num_samples_validation,
+            "stop": None,
+            "ny": None,
         }
 
-        def extra_trainer_kwargs(device) -> Dict[str, Union[int, str]]:
-            return {
-                _Device.GPU: {"accelerator": "gpu", "devices": 1},
-                _Device.MPS: {"accelerator": "mps", "devices": 1},
-            }.get(device, {})
+        # Model: from demonet (kept tiny so this test runs fast)
+        model_config = _load_json("models", "demonet")
 
-        learning_config = {
-            "train_dataloader": {
-                "batch_size": 3,
-                "shuffle": True,
-                "pin_memory": True,
-                "drop_last": True,
-                "num_workers": 0,
-            },
-            "val_dataloader": {},
-            "trainer": {"max_epochs": 2, **extra_trainer_kwargs(device)},
-            "trainer_fit_kwargs": {},
-        }
+        # Learning: from demo; patch device and short run
+        learning_config = _load_json("learning", "demo")
+        learning_config = deepcopy(learning_config)
+        extra_trainer_kwargs: Dict[str, Union[int, str]] = {
+            _Device.CPU: {"accelerator": "cpu"},
+            _Device.GPU: {"accelerator": "gpu", "devices": 1},
+            _Device.MPS: {"accelerator": "mps", "devices": 1},
+        }.get(device, {})
+        learning_config["trainer"]["max_epochs"] = 2
+        learning_config["trainer"].update(extra_trainer_kwargs)
+        learning_config["train_dataloader"]["batch_size"] = 3
 
         return data_config, model_config, learning_config
 
