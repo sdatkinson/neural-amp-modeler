@@ -3,6 +3,7 @@
 # Author: Steven Atkinson (steven@atkinson.mn)
 
 import abc as _abc
+from copy import deepcopy as _deepcopy
 from typing import Any as _Any, Dict as _Dict, Optional as _Optional, Union as _Union
 
 import torch as _torch
@@ -133,5 +134,7 @@ def parse_activation_config(config: _Dict[str, _Any]) -> ActivationConfig:
         return _BasicActivationConfig(name=name, kwargs=config)
 
 
-def get_activation(name: str, **kwargs) -> _nn.Module:
+def get_activation(name: _Union[str, _Dict[str, _Any]], **kwargs) -> _nn.Module:
+    if isinstance(name, dict):
+        return parse_activation_config(_deepcopy(name)).create()
     return parse_activation_config(config={"name": name, **kwargs}).create()

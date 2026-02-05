@@ -5,6 +5,10 @@
 import pytest as _pytest
 import torch as _torch
 
+from nam.models._activations import (
+    PairBlend as _PairBlend,
+    PairMultiply as _PairMultiply,
+)
 from nam.models.wavenet import WaveNet as _WaveNet
 from nam.train.core import (
     Architecture as _Architecture,
@@ -49,6 +53,91 @@ class TestWaveNet(_Base):
 
         assert not _torch.allclose(y2_before, y1)
         assert _torch.allclose(y2_after, y1)
+
+    def test_init_from_config_activation_list_of_str(self):
+        """WaveNet.init_from_config accepts activation as a list of str per layer."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": ["Tanh", "ReLU"],
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)  # Pre-pads
+        assert y.shape == x.shape
+
+    @_pytest.mark.parametrize("pairing_name", ["PairMultiply", "PairBlend"])
+    def test_init_from_config_activation_dict_pairing(self, pairing_name: str):
+        """WaveNet.init_from_config accepts activation as a dict for PairMultiply/PairBlend."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": {
+                        "name": pairing_name,
+                        "primary": "Tanh",
+                        "secondary": "Sigmoid",
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 4)
+        y = model(x)  # Pre-pads
+        assert y.shape == x.shape
+        pairing_cls = _PairMultiply if pairing_name == "PairMultiply" else _PairBlend
+        assert isinstance(
+            model._net._layer_arrays[0]._layers[0]._activation, pairing_cls
+        )
+
+    def test_init_from_config_activation_mixed_per_layer(self):
+        """WaveNet.init_from_config accepts different activations (basic and pair) per layer."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": [
+                        "ReLU",
+                        {
+                            "name": "PairBlend",
+                            "primary": "Tanh",
+                            "secondary": "Sigmoid",
+                        },
+                    ],
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 4)
+        y = model(x)  # Pre-pads
+        assert y.shape == x.shape
+        layers = model._net._layer_arrays[0]._layers
+        assert isinstance(layers[0]._activation, _torch.nn.ReLU)
+        assert isinstance(layers[1]._activation, _PairBlend)
 
 
 if __name__ == "__main__":
