@@ -26,6 +26,7 @@ from ._activations import (
     PairBlend as _PairBlend,
     PairMultiply as _PairMultiply,
     PairingActivation as _PairingActivation,
+    export_activation_config as _export_activation_config,
     get_activation as _get_activation,
 )
 from .base import BaseNet as _BaseNet
@@ -149,6 +150,32 @@ class _Layer(_nn.Module):
     def _channels(self) -> int:
         return self._1x1.in_channels
 
+    def export_activation_config(self):
+        """
+        Export activation in WaveNet Factory format: (primary, gating_mode, secondary).
+        Parses the output of _activations.export_activation_config() into primary/
+        secondary/gating_mode as expected by the C++ Factory.
+        """
+        out = _export_activation_config(self._activation)
+        if isinstance(self._activation, _PairingActivation):
+            if isinstance(self._activation, _PairMultiply):
+                gating_mode = "gated"
+            elif isinstance(self._activation, _PairBlend):
+                gating_mode = "blended"
+            else:
+                raise ValueError(f"Unknown pairing activation: {self._activation}")
+            return {
+                "primary": out["primary"],
+                "gating_mode": gating_mode,
+                "secondary": out["secondary"],
+            }
+        else:
+            return {
+                "primary": out,
+                "gating_mode": "none",
+                "secondary": None,
+            }
+
 
 class _LayerArray(_nn.Module):
     """
@@ -216,7 +243,26 @@ class _LayerArray(_nn.Module):
         return 1 + (self._kernel_size - 1) * sum(self._dilations)
 
     def export_config(self):
-        return _deepcopy(self._config)
+        config = _deepcopy(self._config)
+        # Override dilations and activations with programmatic values (C++ format)
+        dilations = []
+        activations = []
+        gating_modes = []
+        secondary_activations = []
+
+        for layer in self._layers:
+            d = layer.conv.dilation
+            dilations.append(d if isinstance(d, int) else d[0])
+            activation_config = layer.export_activation_config()
+            activations.append(activation_config["primary"])
+            gating_modes.append(activation_config["gating_mode"])
+            secondary_activations.append(activation_config["secondary"])
+
+        config["dilations"] = dilations
+        config["activation"] = activations
+        config["gating_mode"] = gating_modes
+        config["secondary_activation"] = secondary_activations
+        return config
 
     def export_weights(self) -> _torch.Tensor:
         return _torch.cat(
