@@ -44,6 +44,11 @@ class _Head1x1Config(_BaseModel):
     groups: int = 1
 
 
+class _Layer1x1Config(_BaseModel):
+    active: bool = True
+    groups: int = 1
+
+
 class Conv1d(_nn.Conv1d):
     def export_weights(self) -> _torch.Tensor:
         tensors = []
@@ -82,6 +87,7 @@ class _Layer(_nn.Module):
         activation: _nn.Module,
         bottleneck: int,
         head_1x1_config: _Head1x1Config,
+        layer_1x1_config: _Layer1x1Config,
     ):
         super().__init__()
         # Input mixer takes care of the bias
@@ -94,9 +100,20 @@ class _Layer(_nn.Module):
         self._input_mixer = Conv1d(condition_size, mid_channels, 1, bias=False)
 
         self._activation = activation
+        self._bottleneck = bottleneck
 
         self._activation_name = activation
-        self._1x1 = Conv1d(bottleneck, channels, 1)
+        if layer_1x1_config.active:
+            self._layer1x1 = (
+                Conv1d(bottleneck, channels, 1, groups=layer_1x1_config.groups)
+                if layer_1x1_config.active
+                else None
+            )
+        else:
+            self._layer1x1 = None
+            assert (
+                bottleneck == channels
+            ), "bottleneck must equal channels if layer1x1 is not active"
         self._head1x1 = (
             None
             if not head_1x1_config.active
@@ -136,8 +153,9 @@ class _Layer(_nn.Module):
         tensors = [
             self.conv.export_weights(),
             self._input_mixer.export_weights(),
-            self._1x1.export_weights(),
         ]
+        if self._layer1x1 is not None:
+            tensors.append(self._layer1x1.export_weights())
         if self._head1x1 is not None:
             tensors.append(self._head1x1.export_weights())
         return _torch.cat(tensors)
@@ -163,22 +181,22 @@ class _Layer(_nn.Module):
             if self._head1x1 is None
             else self._head1x1(post_activation)[:, :, -out_length:]
         )
-        return (
-            x[:, :, -post_activation.shape[2] :] + self._1x1(post_activation),
-            head_output,
+        layer_output = (
+            post_activation
+            if self._layer1x1 is None
+            else self._layer1x1(post_activation)
         )
+        residual = x[:, :, -layer_output.shape[2] :] + layer_output
+        return (residual, head_output)
 
     def import_weights(self, weights: _torch.Tensor, i: int) -> int:
         i = self.conv.import_weights(weights, i)
         i = self._input_mixer.import_weights(weights, i)
-        i = self._1x1.import_weights(weights, i)
+        if self._layer1x1 is not None:
+            i = self._layer1x1.import_weights(weights, i)
         if self._head1x1 is not None:
             i = self._head1x1.import_weights(weights, i)
         return i
-
-    @property
-    def _channels(self) -> int:
-        return self._1x1.in_channels
 
     def export_activation_config(self):
         """
@@ -229,10 +247,13 @@ class _LayerArray(_nn.Module):
         head_bias: bool = True,
         bottleneck: _Optional[int] = None,
         head_1x1_config: _Optional[dict] = None,
+        layer_1x1_config: _Optional[dict] = None,
     ):
         super().__init__()
         head_1x1_config = dict() if head_1x1_config is None else head_1x1_config
         head1x1_config_pydantic = _Head1x1Config(**head_1x1_config)
+        layer_1x1_config = dict() if layer_1x1_config is None else layer_1x1_config
+        layer1x1_config_pydantic = _Layer1x1Config(**layer_1x1_config)
 
         bottleneck = channels if bottleneck is None else bottleneck
 
@@ -259,6 +280,7 @@ class _LayerArray(_nn.Module):
                     activation=a_list[i],
                     bottleneck=bottleneck,
                     head_1x1_config=head1x1_config_pydantic,
+                    layer_1x1_config=layer1x1_config_pydantic,
                 )
                 for i in range(num_layers)
             ]
@@ -282,6 +304,7 @@ class _LayerArray(_nn.Module):
             "head_bias": head_bias,
             "bottleneck": bottleneck,
             "head1x1": head1x1_config_pydantic.model_dump(),
+            "layer1x1": layer1x1_config_pydantic.model_dump(),
         }
 
     @property

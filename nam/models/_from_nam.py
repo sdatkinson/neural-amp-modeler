@@ -77,13 +77,15 @@ def _convert_nam_layer_array_config(layer_config: _Dict[str, _Any]) -> _Dict[str
     """
     Convert a layer array config from .nam export format to _LayerArray __init__
     kwargs. Strips gating_mode / secondary_activation and re-parses activation.
-    Renames head1x1 (export key) to head_1x1_config (init kwarg).
+    Renames head1x1 (export key) to head_1x1_config, layer1x1 to layer_1x1_config.
     """
     lc = _deepcopy(layer_config)
     gating_modes = lc.pop("gating_mode", None)
     secondary_activations = lc.pop("secondary_activation", None)
     if "head1x1" in lc:
         lc["head_1x1_config"] = lc.pop("head1x1")
+    if "layer1x1" in lc:
+        lc["layer_1x1_config"] = lc.pop("layer1x1")
     activations = lc.get("activation", [])
 
     if gating_modes is not None and secondary_activations is not None:
