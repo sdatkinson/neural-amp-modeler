@@ -116,7 +116,9 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
                 "Model wants to put 'sample_rate' into model export dict, but the key "
                 "is already taken!"
             )
-        d[sample_rate_key] = self.sample_rate
+        # Only write sample_rate when set; C++ reader expects a number or missing key (-1.0).
+        if self.sample_rate is not None:
+            d[sample_rate_key] = self.sample_rate
         return d
 
     def _metadata_loudness(self, gain: float = 1.0, db: bool = True) -> float:

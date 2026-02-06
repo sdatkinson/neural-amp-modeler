@@ -7,15 +7,14 @@ WaveNet implementation
 https://arxiv.org/abs/1609.03499
 """
 
-import json as _json
+import logging as _logging
 from copy import deepcopy as _deepcopy
-from pathlib import Path as _Path
-from tempfile import TemporaryDirectory as _TemporaryDirectory
 from typing import (
     Dict as _Dict,
     Optional as _Optional,
     Sequence as _Sequence,
     Tuple as _Tuple,
+    Union as _Union,
 )
 
 import numpy as _np
@@ -23,9 +22,17 @@ import torch as _torch
 import torch.nn as _nn
 
 from ._abc import ImportsWeights as _ImportsWeights
-from ._activations import get_activation as _get_activation
+from ._activations import (
+    PairBlend as _PairBlend,
+    PairMultiply as _PairMultiply,
+    PairingActivation as _PairingActivation,
+    export_activation_config as _export_activation_config,
+    get_activation as _get_activation,
+)
 from .base import BaseNet as _BaseNet
 from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
+
+_logger = _logging.getLogger(__name__)
 
 
 class Conv1d(_nn.Conv1d):
@@ -63,24 +70,29 @@ class _Layer(_nn.Module):
         channels: int,
         kernel_size: int,
         dilation: int,
-        activation: str,
-        gated: bool,
+        activation: _nn.Module,
     ):
         super().__init__()
         # Input mixer takes care of the bias
-        mid_channels = 2 * channels if gated else channels
+        mid_channels = (
+            2 * channels if isinstance(activation, _PairingActivation) else channels
+        )
         self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
         # Custom init: favors direct input-output
         # self._conv.weight.data.zero_()
         self._input_mixer = Conv1d(condition_size, mid_channels, 1, bias=False)
-        self._activation = _get_activation(activation)
+
+        self._activation = activation
+
         self._activation_name = activation
         self._1x1 = Conv1d(channels, channels, 1)
-        self._gated = gated
 
     @property
     def activation_name(self) -> str:
-        return self._activation_name
+        if isinstance(self._activation, _PairingActivation):
+            return self._activation.name
+        else:
+            return self._activation.__class__.__name__
 
     @property
     def conv(self) -> Conv1d:
@@ -88,7 +100,12 @@ class _Layer(_nn.Module):
 
     @property
     def gated(self) -> bool:
-        return self._gated
+        if isinstance(self._activation, _PairMultiply):
+            return True
+        elif isinstance(self._activation, _PairBlend):
+            raise ValueError("PairBlend is not a gating activation")
+        else:
+            return False
 
     @property
     def kernel_size(self) -> int:
@@ -118,14 +135,7 @@ class _Layer(_nn.Module):
         """
         zconv = self.conv(x)
         z1 = zconv + self._input_mixer(h)[:, :, -zconv.shape[2] :]
-        post_activation = (
-            self._activation(z1)
-            if not self._gated
-            else (
-                self._activation(z1[:, : self._channels])
-                * _torch.sigmoid(z1[:, self._channels :])
-            )
-        )
+        post_activation = self._activation(z1)
         return (
             x[:, :, -post_activation.shape[2] :] + self._1x1(post_activation),
             post_activation[:, :, -out_length:],
@@ -140,8 +150,34 @@ class _Layer(_nn.Module):
     def _channels(self) -> int:
         return self._1x1.in_channels
 
+    def export_activation_config(self):
+        """
+        Export activation in WaveNet Factory format: (primary, gating_mode, secondary).
+        Parses the output of _activations.export_activation_config() into primary/
+        secondary/gating_mode as expected by the C++ Factory.
+        """
+        out = _export_activation_config(self._activation)
+        if isinstance(self._activation, _PairingActivation):
+            if isinstance(self._activation, _PairMultiply):
+                gating_mode = "gated"
+            elif isinstance(self._activation, _PairBlend):
+                gating_mode = "blended"
+            else:
+                raise ValueError(f"Unknown pairing activation: {self._activation}")
+            return {
+                "primary": out["primary"],
+                "gating_mode": gating_mode,
+                "secondary": out["secondary"],
+            }
+        else:
+            return {
+                "primary": out,
+                "gating_mode": "none",
+                "secondary": None,
+            }
 
-class _Layers(_nn.Module):
+
+class _LayerArray(_nn.Module):
     """
     Takes in the input and condition (and maybe the head input so far); outputs the
     layer output and head input.
@@ -159,18 +195,33 @@ class _Layers(_nn.Module):
         channels: int,
         kernel_size: int,
         dilations: _Sequence[int],
-        activation: str = "Tanh",
-        gated: bool = True,
+        activation: _Union[str, dict, _Sequence[_Union[str, dict]]] = "Tanh",
         head_bias: bool = True,
     ):
         super().__init__()
         self._rechannel = Conv1d(input_size, channels, 1, bias=False)
+        num_layers = len(dilations)
+
+        # Broadcast configs to all layers:
+        # Activation:
+        if isinstance(activation, (str, dict)):
+            activation = [activation] * num_layers
+        else:
+            assert isinstance(
+                activation, _Sequence
+            ), "activation must be a string, dict, or sequence"
+        a_list = [_get_activation(a) for a in activation]
+
         self._layers = _nn.ModuleList(
             [
                 _Layer(
-                    condition_size, channels, kernel_size, dilation, activation, gated
+                    condition_size,
+                    channels,
+                    kernel_size,
+                    dilation,
+                    activation=a,
                 )
-                for dilation in dilations
+                for (a, dilation) in zip(a_list, dilations)
             ]
         )
         # Convert the head input from channels to head_size
@@ -184,7 +235,6 @@ class _Layers(_nn.Module):
             "kernel_size": kernel_size,
             "dilations": dilations,
             "activation": activation,
-            "gated": gated,
             "head_bias": head_bias,
         }
 
@@ -193,7 +243,26 @@ class _Layers(_nn.Module):
         return 1 + (self._kernel_size - 1) * sum(self._dilations)
 
     def export_config(self):
-        return _deepcopy(self._config)
+        config = _deepcopy(self._config)
+        # Override dilations and activations with programmatic values (C++ format)
+        dilations = []
+        activations = []
+        gating_modes = []
+        secondary_activations = []
+
+        for layer in self._layers:
+            d = layer.conv.dilation
+            dilations.append(d if isinstance(d, int) else d[0])
+            activation_config = layer.export_activation_config()
+            activations.append(activation_config["primary"])
+            gating_modes.append(activation_config["gating_mode"])
+            secondary_activations.append(activation_config["secondary"])
+
+        config["dilations"] = dilations
+        config["activation"] = activations
+        config["gating_mode"] = gating_modes
+        config["secondary_activation"] = secondary_activations
+        return config
 
     def export_weights(self) -> _torch.Tensor:
         return _torch.cat(
@@ -302,17 +371,21 @@ class _WaveNet(_nn.Module):
     ):
         super().__init__()
 
-        self._layers = _nn.ModuleList([_Layers(**lc) for lc in layers_configs])
+        self._layer_arrays = _nn.ModuleList(
+            [_LayerArray(**lc) for lc in layers_configs]
+        )
         self._head = None if head_config is None else _Head(**head_config)
         self._head_scale = head_scale
 
     @property
     def receptive_field(self) -> int:
-        return 1 + sum([(layer.receptive_field - 1) for layer in self._layers])
+        return 1 + sum([(layer.receptive_field - 1) for layer in self._layer_arrays])
 
     def export_config(self):
         return {
-            "layers": [layers.export_config() for layers in self._layers],
+            "layers": [
+                layer_array.export_config() for layer_array in self._layer_arrays
+            ],
             "head": None if self._head is None else self._head.export_config(),
             "head_scale": self._head_scale,
         }
@@ -321,7 +394,7 @@ class _WaveNet(_nn.Module):
         """
         :return: 1D array
         """
-        weights = _torch.cat([layer.export_weights() for layer in self._layers])
+        weights = _torch.cat([layer.export_weights() for layer in self._layer_arrays])
         if self._head is not None:
             weights = _torch.cat([weights, self._head.export_weights()])
         weights = _torch.cat([weights.cpu(), _torch.Tensor([self._head_scale])])
@@ -331,7 +404,7 @@ class _WaveNet(_nn.Module):
         if self._head is not None:
             raise NotImplementedError("Head importing isn't implemented yet.")
         i = 0
-        for layer in self._layers:
+        for layer in self._layer_arrays:
             i = layer.import_weights(weights, i)
 
     def forward(self, x: _torch.Tensor) -> _torch.Tensor:
@@ -340,7 +413,7 @@ class _WaveNet(_nn.Module):
         :return: (B,Cy,L-R)
         """
         y, head_input = x, None
-        for layer in self._layers:
+        for layer in self._layer_arrays:
             head_input, y = layer(y, x, head_input=head_input)
         head_input = self._head_scale * head_input
         return head_input if self._head is None else self._head(head_input)
