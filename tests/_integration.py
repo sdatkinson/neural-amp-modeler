@@ -7,8 +7,7 @@ import sys as _sys
 from pathlib import Path as _Path
 
 _REPO_ROOT = _Path(__file__).resolve().parents[1]
-# _NEURAL_AMP_MODELER_CORE_DIR = _REPO_ROOT.parent / "NeuralAmpModelerCore"
-_NEURAL_AMP_MODELER_CORE_DIR = _REPO_ROOT / "temp" / "NeuralAmpModelerCore"
+_NEURAL_AMP_MODELER_CORE_DIR = _REPO_ROOT.parent / "NeuralAmpModelerCore"
 
 
 def loadmodel_exe_path():
