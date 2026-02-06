@@ -202,6 +202,104 @@ class TestWaveNet(_Base):
         exported = model._export_config()
         assert exported["layers"][0]["bottleneck"] == 4
 
+    def test_init_from_config_head1x1_active(self):
+        """WaveNet.init_from_config accepts head_1x1_config with active=True."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                    "head_1x1_config": {
+                        "active": True,
+                        "out_channels": 2,
+                        "groups": 1,
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+        layer = model._net._layer_arrays[0]._layers[0]
+        assert layer._head1x1 is not None
+        assert layer._head1x1.out_channels == 2
+
+    def test_init_from_config_head1x1_out_channels_independent_of_bottleneck(self):
+        """head1x1 out_channels can differ from bottleneck; head_rechannel uses it."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                    "head_1x1_config": {
+                        "active": True,
+                        "out_channels": 4,  # Differs from bottleneck (2)
+                        "groups": 1,
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+        layer_array = model._net._layer_arrays[0]
+        assert layer_array._head_rechannel.in_channels == 4
+
+    def test_import_weights_head1x1(self):
+        """Weight import/export roundtrip works with head1x1 active."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                    "head_1x1_config": {
+                        "active": True,
+                        "out_channels": 2,
+                        "groups": 1,
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model_1 = _WaveNet.init_from_config(config)
+        model_2 = _WaveNet.init_from_config(config)
+
+        batch_size = 2
+        x = _torch.randn(batch_size, model_1.receptive_field + 23)
+
+        y1 = model_1(x)
+        y2_before = model_2(x)
+
+        model_2.import_weights(model_1._export_weights())
+        y2_after = model_2(x)
+
+        assert not _torch.allclose(y2_before, y1)
+        assert _torch.allclose(y2_after, y1)
+
     def test_init_from_config_bottleneck_with_pairing_activation(self):
         """Bottleneck works with PairMultiply activation."""
         config = {
