@@ -202,6 +202,104 @@ class TestWaveNet(_Base):
         exported = model._export_config()
         assert exported["layers"][0]["bottleneck"] == 4
 
+    def test_init_from_config_head1x1_active(self):
+        """WaveNet.init_from_config accepts head_1x1_config with active=True."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                    "head_1x1_config": {
+                        "active": True,
+                        "out_channels": 2,
+                        "groups": 1,
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+        layer = model._net._layer_arrays[0]._layers[0]
+        assert layer._head1x1 is not None
+        assert layer._head1x1.out_channels == 2
+
+    def test_init_from_config_head1x1_out_channels_independent_of_bottleneck(self):
+        """head1x1 out_channels can differ from bottleneck; head_rechannel uses it."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                    "head_1x1_config": {
+                        "active": True,
+                        "out_channels": 4,  # Differs from bottleneck (2)
+                        "groups": 1,
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+        layer_array = model._net._layer_arrays[0]
+        assert layer_array._head_rechannel.in_channels == 4
+
+    def test_import_weights_head1x1(self):
+        """Weight import/export roundtrip works with head1x1 active."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                    "head_1x1_config": {
+                        "active": True,
+                        "out_channels": 2,
+                        "groups": 1,
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model_1 = _WaveNet.init_from_config(config)
+        model_2 = _WaveNet.init_from_config(config)
+
+        batch_size = 2
+        x = _torch.randn(batch_size, model_1.receptive_field + 23)
+
+        y1 = model_1(x)
+        y2_before = model_2(x)
+
+        model_2.import_weights(model_1._export_weights())
+        y2_after = model_2(x)
+
+        assert not _torch.allclose(y2_before, y1)
+        assert _torch.allclose(y2_after, y1)
+
     def test_init_from_config_bottleneck_with_pairing_activation(self):
         """Bottleneck works with PairMultiply activation."""
         config = {
@@ -302,6 +400,34 @@ class TestWaveNet(_Base):
             result = _run_loadmodel(nam_path)
             assert result.returncode == 0, (
                 "loadmodel failed for bottleneck: "
+                f"stderr={result.stderr!r} stdout={result.stdout!r}"
+            )
+
+    @_requires_neural_amp_modeler_core_loadmodel
+    def test_export_nam_loadmodel_can_load_with_head1x1(self):
+        """
+        LightningModule with head1x1 active -> .export() -> loadmodel can load the .nam.
+        """
+        config = _load_demonet_config()
+        layers_configs = config["net"]["config"]["layers_configs"]
+        # head_input is summed across layer arrays, so all must use the same out_channels
+        head1x1_out_channels = layers_configs[0]["head_size"]
+        for layer in layers_configs:
+            layer["head_1x1_config"] = {
+                "active": True,
+                "out_channels": head1x1_out_channels,
+                "groups": 1,
+            }
+        module = _LightningModule.init_from_config(config)
+        module.net.sample_rate = 48000
+        with _TemporaryDirectory() as tmpdir:
+            outdir = _Path(tmpdir)
+            module.net.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
+            assert result.returncode == 0, (
+                "loadmodel failed for head1x1: "
                 f"stderr={result.stderr!r} stdout={result.stdout!r}"
             )
 

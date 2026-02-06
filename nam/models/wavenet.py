@@ -20,6 +20,7 @@ from typing import (
 import numpy as _np
 import torch as _torch
 import torch.nn as _nn
+from pydantic import BaseModel as _BaseModel, model_validator as _model_validator
 
 from ._abc import ImportsWeights as _ImportsWeights
 from ._activations import (
@@ -33,6 +34,14 @@ from .base import BaseNet as _BaseNet
 from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
 
 _logger = _logging.getLogger(__name__)
+
+
+class _Head1x1Config(_BaseModel):
+    active: bool = False
+    # NOTE: NeuralAmpModelerCore requires non-null values for out_channels and groups,
+    # even though they are not used if active is False.
+    out_channels: int = 1
+    groups: int = 1
 
 
 class Conv1d(_nn.Conv1d):
@@ -72,6 +81,7 @@ class _Layer(_nn.Module):
         dilation: int,
         activation: _nn.Module,
         bottleneck: int,
+        head_1x1_config: _Head1x1Config,
     ):
         super().__init__()
         # Input mixer takes care of the bias
@@ -87,6 +97,16 @@ class _Layer(_nn.Module):
 
         self._activation_name = activation
         self._1x1 = Conv1d(bottleneck, channels, 1)
+        self._head1x1 = (
+            None
+            if not head_1x1_config.active
+            else Conv1d(
+                bottleneck,
+                head_1x1_config.out_channels,
+                1,
+                groups=head_1x1_config.groups,
+            )
+        )
 
     @property
     def activation_name(self) -> str:
@@ -113,13 +133,14 @@ class _Layer(_nn.Module):
         return self._conv.kernel_size[0]
 
     def export_weights(self) -> _torch.Tensor:
-        return _torch.cat(
-            [
-                self.conv.export_weights(),
-                self._input_mixer.export_weights(),
-                self._1x1.export_weights(),
-            ]
-        )
+        tensors = [
+            self.conv.export_weights(),
+            self._input_mixer.export_weights(),
+            self._1x1.export_weights(),
+        ]
+        if self._head1x1 is not None:
+            tensors.append(self._head1x1.export_weights())
+        return _torch.cat(tensors)
 
     def forward(
         self, x: _torch.Tensor, h: _Optional[_torch.Tensor], out_length: int
@@ -137,15 +158,23 @@ class _Layer(_nn.Module):
         zconv = self.conv(x)
         z1 = zconv + self._input_mixer(h)[:, :, -zconv.shape[2] :]
         post_activation = self._activation(z1)
+        head_output = (
+            post_activation[:, :, -out_length:]
+            if self._head1x1 is None
+            else self._head1x1(post_activation)[:, :, -out_length:]
+        )
         return (
             x[:, :, -post_activation.shape[2] :] + self._1x1(post_activation),
-            post_activation[:, :, -out_length:],
+            head_output,
         )
 
     def import_weights(self, weights: _torch.Tensor, i: int) -> int:
         i = self.conv.import_weights(weights, i)
         i = self._input_mixer.import_weights(weights, i)
-        return self._1x1.import_weights(weights, i)
+        i = self._1x1.import_weights(weights, i)
+        if self._head1x1 is not None:
+            i = self._head1x1.import_weights(weights, i)
+        return i
 
     @property
     def _channels(self) -> int:
@@ -199,11 +228,16 @@ class _LayerArray(_nn.Module):
         activation: _Union[str, dict, _Sequence[_Union[str, dict]]] = "Tanh",
         head_bias: bool = True,
         bottleneck: _Optional[int] = None,
+        head_1x1_config: _Optional[dict] = None,
     ):
         super().__init__()
+        head_1x1_config = dict() if head_1x1_config is None else head_1x1_config
+        head1x1_config_pydantic = _Head1x1Config(**head_1x1_config)
+
+        bottleneck = channels if bottleneck is None else bottleneck
+
         self._rechannel = Conv1d(input_size, channels, 1, bias=False)
         num_layers = len(dilations)
-        bottleneck = channels if bottleneck is None else bottleneck
 
         # Broadcast configs to all layers:
         # Activation:
@@ -224,12 +258,18 @@ class _LayerArray(_nn.Module):
                     dilations[i],
                     activation=a_list[i],
                     bottleneck=bottleneck,
+                    head_1x1_config=head1x1_config_pydantic,
                 )
                 for i in range(num_layers)
             ]
         )
-        # Convert the head input from bottleneck to head_size (head receives post_activation)
-        self._head_rechannel = Conv1d(bottleneck, head_size, 1, bias=head_bias)
+        # Convert the head input to head_size (from head1x1 out_channels or bottleneck)
+        head_rechannel_in = (
+            head1x1_config_pydantic.out_channels
+            if head1x1_config_pydantic.active
+            else bottleneck
+        )
+        self._head_rechannel = Conv1d(head_rechannel_in, head_size, 1, bias=head_bias)
 
         self._config = {
             "input_size": input_size,
@@ -241,6 +281,7 @@ class _LayerArray(_nn.Module):
             "activation": activation,
             "head_bias": head_bias,
             "bottleneck": bottleneck,
+            "head1x1": head1x1_config_pydantic.model_dump(),
         }
 
     @property
