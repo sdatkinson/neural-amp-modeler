@@ -210,6 +210,31 @@ class TestWaveNet(_Base):
                 f"stderr={result.stderr!r} stdout={result.stdout!r}"
             )
 
+    @_requires_neural_amp_modeler_core_loadmodel
+    def test_export_nam_loadmodel_can_load_different_activation_per_layer(self):
+        """
+        Same as test_export_nam_loadmodel_can_load but with a different activation
+        for each layer in the layer array (loadmodel still loads the .nam).
+        """
+        config = _load_demonet_config()
+        layers_configs = config["net"]["config"]["layers_configs"]
+        # Use a distinct loadmodel-supported activation for each layer in the array.
+        per_layer_activations = ["Tanh", "ReLU"]
+        for i, layer in enumerate(layers_configs):
+            layer["activation"] = per_layer_activations[i]
+        module = _LightningModule.init_from_config(config)
+        module.net.sample_rate = 48000
+        with _TemporaryDirectory() as tmpdir:
+            outdir = _Path(tmpdir)
+            module.net.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
+            assert result.returncode == 0, (
+                "loadmodel failed for per-layer activations: "
+                f"stderr={result.stderr!r} stdout={result.stdout!r}"
+            )
+
 
 if __name__ == "__main__":
     _pytest.main()
