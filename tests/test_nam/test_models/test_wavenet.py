@@ -155,6 +155,80 @@ class TestWaveNet(_Base):
             model._net._layer_arrays[0]._layers[0]._activation, pairing_cls
         )
 
+    def test_init_from_config_bottleneck_int(self):
+        """WaveNet.init_from_config accepts bottleneck as int (same for all layers)."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+
+    def test_init_from_config_bottleneck_defaults_to_channels(self):
+        """When bottleneck is omitted, it defaults to channels (no compression)."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+        exported = model._export_config()
+        assert exported["layers"][0]["bottleneck"] == 4
+
+    def test_init_from_config_bottleneck_with_pairing_activation(self):
+        """Bottleneck works with PairMultiply activation."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": {
+                        "name": "PairMultiply",
+                        "primary": "Tanh",
+                        "secondary": "Sigmoid",
+                    },
+                    "bottleneck": 2,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+
     def test_init_from_config_activation_mixed_per_layer(self):
         """WaveNet.init_from_config accepts different activations (basic and pair) per layer."""
         config = {
@@ -207,6 +281,27 @@ class TestWaveNet(_Base):
             result = _run_loadmodel(nam_path)
             assert result.returncode == 0, (
                 f"loadmodel failed for activation={activation!r}: "
+                f"stderr={result.stderr!r} stdout={result.stdout!r}"
+            )
+
+    @_requires_neural_amp_modeler_core_loadmodel
+    def test_export_nam_loadmodel_can_load_with_bottleneck(self):
+        """
+        LightningModule with bottleneck -> .export() -> loadmodel can load the .nam.
+        """
+        config = _load_demonet_config()
+        for layer in config["net"]["config"]["layers_configs"]:
+            layer["bottleneck"] = 2
+        module = _LightningModule.init_from_config(config)
+        module.net.sample_rate = 48000
+        with _TemporaryDirectory() as tmpdir:
+            outdir = _Path(tmpdir)
+            module.net.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
+            assert result.returncode == 0, (
+                "loadmodel failed for bottleneck: "
                 f"stderr={result.stderr!r} stdout={result.stdout!r}"
             )
 

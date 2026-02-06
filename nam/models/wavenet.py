@@ -71,11 +71,12 @@ class _Layer(_nn.Module):
         kernel_size: int,
         dilation: int,
         activation: _nn.Module,
+        bottleneck: int,
     ):
         super().__init__()
         # Input mixer takes care of the bias
         mid_channels = (
-            2 * channels if isinstance(activation, _PairingActivation) else channels
+            2 * bottleneck if isinstance(activation, _PairingActivation) else bottleneck
         )
         self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
         # Custom init: favors direct input-output
@@ -85,7 +86,7 @@ class _Layer(_nn.Module):
         self._activation = activation
 
         self._activation_name = activation
-        self._1x1 = Conv1d(channels, channels, 1)
+        self._1x1 = Conv1d(bottleneck, channels, 1)
 
     @property
     def activation_name(self) -> str:
@@ -197,10 +198,12 @@ class _LayerArray(_nn.Module):
         dilations: _Sequence[int],
         activation: _Union[str, dict, _Sequence[_Union[str, dict]]] = "Tanh",
         head_bias: bool = True,
+        bottleneck: _Optional[int] = None,
     ):
         super().__init__()
         self._rechannel = Conv1d(input_size, channels, 1, bias=False)
         num_layers = len(dilations)
+        bottleneck = channels if bottleneck is None else bottleneck
 
         # Broadcast configs to all layers:
         # Activation:
@@ -218,14 +221,15 @@ class _LayerArray(_nn.Module):
                     condition_size,
                     channels,
                     kernel_size,
-                    dilation,
-                    activation=a,
+                    dilations[i],
+                    activation=a_list[i],
+                    bottleneck=bottleneck,
                 )
-                for (a, dilation) in zip(a_list, dilations)
+                for i in range(num_layers)
             ]
         )
-        # Convert the head input from channels to head_size
-        self._head_rechannel = Conv1d(channels, head_size, 1, bias=head_bias)
+        # Convert the head input from bottleneck to head_size (head receives post_activation)
+        self._head_rechannel = Conv1d(bottleneck, head_size, 1, bias=head_bias)
 
         self._config = {
             "input_size": input_size,
@@ -236,6 +240,7 @@ class _LayerArray(_nn.Module):
             "dilations": dilations,
             "activation": activation,
             "head_bias": head_bias,
+            "bottleneck": bottleneck,
         }
 
     @property
