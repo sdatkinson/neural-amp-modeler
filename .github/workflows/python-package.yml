@@ -24,6 +24,8 @@ jobs:
           fetch-depth: 0  # Ensures the full history is available
           fetch-tags: true  # Ensures tags are fetched
       - name: Clone NeuralAmpModelerCore and build loadmodel
+        env:
+          CXX: clang++
         run: |
           cd "${{ github.workspace }}/.."
           git clone --recurse-submodules --branch v0.4.0.rc2 https://github.com/${{ github.repository_owner }}/NeuralAmpModelerCore.git
