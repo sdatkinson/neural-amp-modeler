@@ -26,7 +26,7 @@ jobs:
       - name: Clone NeuralAmpModelerCore and build loadmodel
         run: |
           cd "${{ github.workspace }}/.."
-          git clone --recurse-submodules https://github.com/${{ github.repository_owner }}/NeuralAmpModelerCore.git@v0.4.0.rc2
+          git clone --recurse-submodules --branch v0.4.0.rc2 https://github.com/${{ github.repository_owner }}/NeuralAmpModelerCore.git
           cd NeuralAmpModelerCore/build
           cmake .. -DCMAKE_BUILD_TYPE=Debug
           cmake --build . -j4
