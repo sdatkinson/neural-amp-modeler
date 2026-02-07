@@ -98,6 +98,24 @@ def _convert_nam_layer_array_config(layer_config: _Dict[str, _Any]) -> _Dict[str
             new_activation.append(_nam_layer_activation_to_init(prim, gmode, sec))
         lc["activation"] = new_activation
 
+    # FiLM params: collect flat keys into film_params for _LayerArray
+    _film_keys = (
+        "conv_pre_film",
+        "conv_post_film",
+        "input_mixin_pre_film",
+        "input_mixin_post_film",
+        "activation_pre_film",
+        "activation_post_film",
+        "layer1x1_post_film",
+        "head1x1_post_film",
+    )
+    film_params = {}
+    for key in _film_keys:
+        if key in lc:
+            film_params[key] = lc.pop(key)
+    if film_params:
+        lc["film_params"] = film_params
+
     return lc
 
 
