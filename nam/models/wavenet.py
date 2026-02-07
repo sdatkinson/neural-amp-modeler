@@ -9,6 +9,7 @@ https://arxiv.org/abs/1609.03499
 
 import logging as _logging
 from copy import deepcopy as _deepcopy
+from datetime import datetime as _datetime
 from typing import (
     Any as _Any,
     Dict as _Dict,
@@ -32,6 +33,8 @@ from ._activations import (
     get_activation as _get_activation,
 )
 from .base import BaseNet as _BaseNet
+from ._constants import MODEL_VERSION as _EXPORT_VERSION
+from .metadata import Date as _Date
 from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
 
 _logger = _logging.getLogger(__name__)
@@ -648,8 +651,16 @@ class _WaveNet(_nn.Module):
         layers_configs: _Sequence[_Dict],
         head_config: _Optional[_Dict] = None,
         head_scale: float = 1.0,
+        condition_dsp: _Optional[_Dict] = None,
     ):
         super().__init__()
+
+        if condition_dsp is not None:
+            if condition_dsp.get("name") != "WaveNet":
+                raise NotImplementedError("Only WaveNet condition DSP is supported")
+            self._condition_dsp = _WaveNet(**condition_dsp.get("config", dict()))
+        else:
+            self._condition_dsp = None
 
         self._layer_arrays = _nn.ModuleList(
             [_LayerArray(**lc) for lc in layers_configs]
@@ -661,14 +672,42 @@ class _WaveNet(_nn.Module):
     def receptive_field(self) -> int:
         return 1 + sum([(layer.receptive_field - 1) for layer in self._layer_arrays])
 
-    def export_config(self):
-        return {
+    def export_config(self, sample_rate: _Optional[float] = None):
+        config = {
             "layers": [
                 layer_array.export_config() for layer_array in self._layer_arrays
             ],
             "head": None if self._head is None else self._head.export_config(),
             "head_scale": self._head_scale,
         }
+        if self._condition_dsp is not None:
+            # Build condition_dsp export dict without running forward (condition_dsp
+            # may have multiple output channels; WaveNet wrapper asserts 1 channel).
+            assert isinstance(
+                self._condition_dsp, _WaveNet
+            ), "The following assumes that the condition DSP is a _WaveNet"
+            t = _datetime.now()
+            condition_dsp_dict = {
+                "version": _EXPORT_VERSION,
+                "metadata": {
+                    "date": _Date(
+                        year=t.year,
+                        month=t.month,
+                        day=t.day,
+                        hour=t.hour,
+                        minute=t.minute,
+                        second=t.second,
+                    ).model_dump()
+                },
+                "architecture": "WaveNet",
+                "config": self._condition_dsp.export_config(),
+                "weights": self._condition_dsp.export_weights().tolist(),
+            }
+            # C++ loadmodel requires condition_dsp sample_rate to match main model
+            if sample_rate is not None:
+                condition_dsp_dict["sample_rate"] = sample_rate
+            config["condition_dsp"] = condition_dsp_dict
+        return config
 
     def export_weights(self) -> _np.ndarray:
         """
@@ -692,9 +731,10 @@ class _WaveNet(_nn.Module):
         :param x: (B,Cx,L)
         :return: (B,Cy,L-R)
         """
+        c = x if self._condition_dsp is None else self._condition_dsp(x)
         y, head_input = x, None
-        for layer in self._layer_arrays:
-            head_input, y = layer(y, x, head_input=head_input)
+        for layer_array in self._layer_arrays:
+            head_input, y = layer_array(y, c, head_input=head_input)
         head_input = self._head_scale * head_input
         return head_input if self._head is None else self._head(head_input)
 
@@ -718,7 +758,7 @@ class WaveNet(_BaseNet, _ImportsWeights):
         self._net.import_weights(weights)
 
     def _export_config(self):
-        return self._net.export_config()
+        return self._net.export_config(sample_rate=self.sample_rate)
 
     def _export_weights(self) -> _np.ndarray:
         return self._net.export_weights()
