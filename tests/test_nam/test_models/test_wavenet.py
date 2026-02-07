@@ -866,6 +866,221 @@ class TestWaveNet(_Base):
         with _pytest.raises(ValueError, match="head1x1_post_film cannot be active"):
             _WaveNet.init_from_config(config)
 
+    # --- condition_dsp tests ---
+
+    def test_condition_dsp_none_forward(self):
+        """Without condition_dsp, condition is the raw input and forward runs."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model._net._condition_dsp is None
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        # With pad_start_default True, output length equals input length
+        assert y.shape == x.shape
+
+    def test_condition_dsp_wavenet_forward(self):
+        """With condition_dsp (nested WaveNet), condition is processed and forward runs."""
+        # Condition DSP: 1 in -> 2 out. Main: condition_size 2, one layer array.
+        config = {
+            "condition_dsp": {
+                "name": "WaveNet",
+                "config": {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "head_size": 2,
+                            "channels": 2,
+                            "kernel_size": 2,
+                            "dilations": [1],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                },
+            },
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model._net._condition_dsp is not None
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        # With pad_start_default True, output length equals input length
+        assert y.shape == x.shape
+
+    def test_condition_dsp_export_config_includes_condition_dsp(self):
+        """
+        Exported config includes condition_dsp (full export dict) when set.
+        """
+        config = {
+            "condition_dsp": {
+                "name": "WaveNet",
+                "config": {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "head_size": 1,
+                            "channels": 2,
+                            "kernel_size": 2,
+                            "dilations": [1],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                },
+            },
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        exported = model._export_config()
+        assert "condition_dsp" in exported
+        cd = exported["condition_dsp"]
+        assert cd["architecture"] == "WaveNet"
+        assert "config" in cd
+        assert "weights" in cd
+        assert "layers" in cd["config"]
+
+    def test_condition_dsp_export_weights_main_only(self):
+        """Main model export_weights does not include condition_dsp weights."""
+        config_no_cd = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        config_with_cd = {
+            **config_no_cd,
+            "condition_dsp": {
+                "name": "WaveNet",
+                "config": {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "head_size": 1,
+                            "channels": 2,
+                            "kernel_size": 2,
+                            "dilations": [1],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                },
+            },
+        }
+        model_no_cd = _WaveNet.init_from_config(config_no_cd)
+        model_with_cd = _WaveNet.init_from_config(config_with_cd)
+        main_weights_no_cd = model_no_cd._export_weights()
+        main_weights_with_cd = model_with_cd._export_weights()
+        # Same main layout: one layer array + head_scale. Same length.
+        assert len(main_weights_no_cd) == len(main_weights_with_cd)
+        # condition_dsp has its own weights in the export dict, not in main
+        exported = model_with_cd._export_config()
+        assert "condition_dsp" in exported
+        assert "weights" in exported["condition_dsp"]
+        assert len(exported["condition_dsp"]["weights"]) > 0
+
+    @_requires_neural_amp_modeler_core_loadmodel
+    def test_export_nam_loadmodel_can_load_with_condition_dsp(self):
+        """
+        WaveNet with condition_dsp: export to .nam -> loadmodel can load the file.
+        """
+        # Condition DSP outputs 2 channels; main first layer has condition_size 2.
+        config = {
+            "net": {
+                "name": "WaveNet",
+                "config": {
+                    "condition_dsp": {
+                        "name": "WaveNet",
+                        "config": {
+                            "layers_configs": [
+                                {
+                                    "input_size": 1,
+                                    "condition_size": 1,
+                                    "head_size": 2,
+                                    "channels": 2,
+                                    "kernel_size": 2,
+                                    "dilations": [1],
+                                    "activation": "Tanh",
+                                }
+                            ],
+                            "head_scale": 1.0,
+                        },
+                    },
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 2,
+                            "head_size": 1,
+                            "channels": 2,
+                            "kernel_size": 2,
+                            "dilations": [1],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                },
+            },
+            "optimizer": {"lr": 0.004},
+            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.993}},
+        }
+        module = _LightningModule.init_from_config(config)
+        module.net.sample_rate = 48000
+        with _TemporaryDirectory() as tmpdir:
+            outdir = _Path(tmpdir)
+            module.net.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
+            assert result.returncode == 0, (
+                "loadmodel failed for condition_dsp: "
+                f"stderr={result.stderr!r} stdout={result.stdout!r}"
+            )
+
 
 class TestFiLM:
     """Tests for the _FiLM class itself."""
