@@ -14,6 +14,7 @@ from nam.models._activations import (
     PairMultiply as _PairMultiply,
 )
 from nam.models.wavenet import WaveNet as _WaveNet
+from nam.models.wavenet import _FiLM
 from nam.train.core import (
     Architecture as _Architecture,
     get_wavenet_config as _get_wavenet_config,
@@ -53,6 +54,17 @@ _LOADMODEL_ACTIVATIONS = [
 ]
 
 _NAM_FULL_CONFIGS_DIR = _Path(__file__).resolve().parents[3] / "nam_full_configs"
+
+_FILM_SLOTS = (
+    "conv_pre_film",
+    "conv_post_film",
+    "input_mixin_pre_film",
+    "input_mixin_post_film",
+    "activation_pre_film",
+    "activation_post_film",
+    "layer1x1_post_film",
+    "head1x1_post_film",
+)
 
 
 def _load_demonet_config() -> dict:
@@ -583,6 +595,226 @@ class TestWaveNet(_Base):
                 "loadmodel failed for per-layer activations: "
                 f"stderr={result.stderr!r} stdout={result.stdout!r}"
             )
+
+    @_requires_neural_amp_modeler_core_loadmodel
+    @_pytest.mark.parametrize("film_slot", _FILM_SLOTS)
+    def test_export_nam_loadmodel_can_load_with_film(self, film_slot: str):
+        """
+        LightningModule with one FiLM slot active -> .export() -> loadmodel can load the .nam.
+        """
+        config = _load_demonet_config()
+        layers_configs = config["net"]["config"]["layers_configs"]
+        head_size = layers_configs[0]["head_size"]
+        for layer in layers_configs:
+            layer["film_params"] = {
+                film_slot: {"active": True, "shift": True, "groups": 1},
+            }
+            if film_slot == "head1x1_post_film":
+                layer["head_1x1_config"] = {
+                    "active": True,
+                    "out_channels": head_size,
+                    "groups": 1,
+                }
+        module = _LightningModule.init_from_config(config)
+        module.net.sample_rate = 48000
+        with _TemporaryDirectory() as tmpdir:
+            outdir = _Path(tmpdir)
+            module.net.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
+            assert result.returncode == 0, (
+                f"loadmodel failed for FiLM slot {film_slot!r}: "
+                f"stderr={result.stderr!r} stdout={result.stdout!r}"
+            )
+
+    # --- WaveNet + FiLM tests ---
+
+    @_pytest.mark.parametrize("film_slot", _FILM_SLOTS)
+    def test_init_from_config_conv_pre_film(self, film_slot: str):
+        """WaveNet.init_from_config accepts each FiLM slot and forward runs."""
+        layer_config = {
+            "input_size": 1,
+            "condition_size": 1,
+            "head_size": 1,
+            "channels": 2,
+            "kernel_size": 2,
+            "dilations": [1],
+            "activation": "Tanh",
+            "film_params": {
+                film_slot: {"active": True, "shift": True, "groups": 1},
+            },
+        }
+        if film_slot == "head1x1_post_film":
+            layer_config["head_1x1_config"] = {
+                "active": True,
+                "out_channels": 1,
+                "groups": 1,
+            }
+        config = {
+            "layers_configs": [layer_config],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field >= 1
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+        layer = model._net._layer_arrays[0]._layers[0]
+        attr = f"_{film_slot}"
+        assert getattr(layer, attr) is not None
+
+    @_pytest.mark.parametrize("film_slot", _FILM_SLOTS)
+    def test_export_config_includes_film(self, film_slot: str):
+        """Exported config includes FiLM keys when film_params present."""
+        layer_config = {
+            "input_size": 1,
+            "condition_size": 1,
+            "head_size": 1,
+            "channels": 2,
+            "kernel_size": 2,
+            "dilations": [1],
+            "activation": "Tanh",
+            "film_params": {
+                film_slot: {"active": True, "shift": True, "groups": 1},
+            },
+        }
+        if film_slot == "head1x1_post_film":
+            layer_config["head_1x1_config"] = {
+                "active": True,
+                "out_channels": 1,
+                "groups": 1,
+            }
+        config = {
+            "layers_configs": [layer_config],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        exported = model._export_config()
+        assert film_slot in exported["layers"][0]
+        assert exported["layers"][0][film_slot]["active"] is True
+        assert exported["layers"][0][film_slot]["shift"] is True
+        assert exported["layers"][0][film_slot]["groups"] == 1
+
+    @_pytest.mark.parametrize("film_slot", _FILM_SLOTS)
+    def test_import_weights_with_film(self, film_slot: str):
+        """Weight import/export roundtrip works with FiLM active."""
+        layer_config = {
+            "input_size": 1,
+            "condition_size": 1,
+            "head_size": 1,
+            "channels": 2,
+            "kernel_size": 2,
+            "dilations": [1],
+            "activation": "Tanh",
+            "film_params": {
+                film_slot: {"active": True, "shift": True, "groups": 1},
+            },
+        }
+        if film_slot == "head1x1_post_film":
+            layer_config["head_1x1_config"] = {
+                "active": True,
+                "out_channels": 1,
+                "groups": 1,
+            }
+        config = {
+            "layers_configs": [layer_config],
+            "head_scale": 1.0,
+        }
+        model_1 = _WaveNet.init_from_config(config)
+        model_2 = _WaveNet.init_from_config(config)
+        batch_size = 2
+        x = _torch.randn(batch_size, model_1.receptive_field + 23)
+        y1 = model_1(x)
+        y2_before = model_2(x)
+        model_2.import_weights(model_1._export_weights())
+        y2_after = model_2(x)
+        assert not _torch.allclose(y2_before, y1)
+        assert _torch.allclose(y2_after, y1)
+
+    def test_film_layer1x1_post_film_requires_layer1x1(self):
+        """layer1x1_post_film cannot be active when layer1x1 is inactive."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                    "layer_1x1_config": {"active": False},
+                    "film_params": {
+                        "layer1x1_post_film": {"active": True},
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(ValueError, match="layer1x1_post_film cannot be active"):
+            _WaveNet.init_from_config(config)
+
+    def test_film_head1x1_post_film_requires_head1x1(self):
+        """head1x1_post_film cannot be active when head1x1 is inactive."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "film_params": {
+                        "head1x1_post_film": {"active": True},
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(ValueError, match="head1x1_post_film cannot be active"):
+            _WaveNet.init_from_config(config)
+
+
+class TestFiLM:
+    """Tests for the _FiLM class itself."""
+
+    def test_forward_shape(self):
+        """_FiLM forward returns correct shape (scale-only and scale+shift)."""
+        B, C, Dc, L = 2, 4, 3, 10
+        x = _torch.randn(B, C, L)
+        c = _torch.randn(B, Dc, L)
+        for shift in (True, False):
+            film = _FiLM(condition_size=Dc, input_dim=C, shift=shift, groups=1)
+            out = film(x, c)
+            assert out.shape == (B, C, L)
+
+    def test_shift_false_scale_only(self):
+        """_FiLM with shift=False applies only scale (no additive shift)."""
+        B, C, Dc, L = 2, 4, 3, 10
+        x = _torch.randn(B, C, L)
+        c = _torch.randn(B, Dc, L)
+        film = _FiLM(condition_size=Dc, input_dim=C, shift=False, groups=1)
+        out = film(x, c)
+        # With zero input, output should be zero (no shift, scale multiplies against
+        # zero input)
+        out_zero = film(_torch.zeros(B, C, L), c)
+        assert out_zero.abs().max() < 1e-5
+
+    def test_export_import_weights_roundtrip(self):
+        """_FiLM export_weights/import_weights roundtrip preserves behavior."""
+        B, C, Dc, L = 2, 4, 3, 10
+        film1 = _FiLM(condition_size=Dc, input_dim=C, shift=True, groups=1)
+        film2 = _FiLM(condition_size=Dc, input_dim=C, shift=True, groups=1)
+        x = _torch.randn(B, C, L)
+        c = _torch.randn(B, Dc, L)
+        y1 = film1(x, c)
+        film2.import_weights(film1.export_weights(), 0)
+        y2 = film2(x, c)
+        assert _torch.allclose(y1, y2)
 
 
 if __name__ == "__main__":

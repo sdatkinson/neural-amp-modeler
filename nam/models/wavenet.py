@@ -10,6 +10,7 @@ https://arxiv.org/abs/1609.03499
 import logging as _logging
 from copy import deepcopy as _deepcopy
 from typing import (
+    Any as _Any,
     Dict as _Dict,
     Optional as _Optional,
     Sequence as _Sequence,
@@ -20,7 +21,7 @@ from typing import (
 import numpy as _np
 import torch as _torch
 import torch.nn as _nn
-from pydantic import BaseModel as _BaseModel, model_validator as _model_validator
+from pydantic import BaseModel as _BaseModel
 
 from ._abc import ImportsWeights as _ImportsWeights
 from ._activations import (
@@ -47,6 +48,27 @@ class _Head1x1Config(_BaseModel):
 class _Layer1x1Config(_BaseModel):
     active: bool = True
     groups: int = 1
+
+
+class _FiLMParamsConfig(_BaseModel):
+    """FiLM (Feature-wise Linear Modulation) params for one insertion point."""
+
+    active: bool = False
+    shift: bool = True
+    groups: int = 1
+
+
+def _film_params_from_dict(d: _Optional[_Dict]) -> _FiLMParamsConfig:
+    """Parse FiLM params from config dict (e.g. from .nam or init)."""
+    if d is None or d is False:
+        return _FiLMParamsConfig(active=False)
+    if isinstance(d, dict):
+        return _FiLMParamsConfig(
+            active=d.get("active", True),
+            shift=d.get("shift", True),
+            groups=d.get("groups", 1),
+        )
+    return _FiLMParamsConfig(active=False)
 
 
 class Conv1d(_nn.Conv1d):
@@ -77,6 +99,47 @@ class Conv1d(_nn.Conv1d):
         return i
 
 
+class _FiLM(_nn.Module, _ImportsWeights):
+    """
+    FiLM (Feature-wise Linear Modulation) module.
+
+    Given input (B, input_dim, L) and condition (B, condition_dim, L), computes
+    scale (and optionally shift) from condition via 1x1 conv, then
+    output = input * scale + shift (or output = input * scale when shift=False).
+    """
+
+    def __init__(
+        self,
+        condition_size: int,
+        input_dim: int,
+        shift: bool = True,
+        groups: int = 1,
+    ):
+        super().__init__()
+        self._shift = shift
+        out_channels = (2 if shift else 1) * input_dim
+        self._film = Conv1d(condition_size, out_channels, 1, bias=True, groups=groups)
+
+    def forward(self, x: _torch.Tensor, c: _torch.Tensor) -> _torch.Tensor:
+        """
+        :param x: (B, input_dim, L)
+        :param c: (B, condition_size, L) condition
+        :return: (B, input_dim, L)
+        """
+        film_out = self._film(c)
+        if self._shift:
+            scale, shift = film_out.chunk(2, dim=1)
+            return scale * x + shift
+        else:
+            return film_out * x
+
+    def export_weights(self) -> _torch.Tensor:
+        return self._film.export_weights()
+
+    def import_weights(self, weights: _torch.Tensor, i: int) -> int:
+        return self._film.import_weights(weights, i)
+
+
 class _Layer(_nn.Module):
     def __init__(
         self,
@@ -88,8 +151,10 @@ class _Layer(_nn.Module):
         bottleneck: int,
         head_1x1_config: _Head1x1Config,
         layer_1x1_config: _Layer1x1Config,
+        film_params: _Optional[_Dict[str, _Any]] = None,
     ):
         super().__init__()
+        film_params = dict() if film_params is None else film_params
         # Input mixer takes care of the bias
         mid_channels = (
             2 * bottleneck if isinstance(activation, _PairingActivation) else bottleneck
@@ -125,6 +190,66 @@ class _Layer(_nn.Module):
             )
         )
 
+        # FiLM modules (optional at each position)
+        def _maybe_film(
+            fp: _FiLMParamsConfig, cond_dim: int, in_dim: int
+        ) -> _Optional[_FiLM]:
+            if not fp.active:
+                return None
+            return _FiLM(
+                condition_size=cond_dim,
+                input_dim=in_dim,
+                shift=fp.shift,
+                groups=fp.groups,
+            )
+
+        fp_conv_pre = _film_params_from_dict(film_params.get("conv_pre_film"))
+        fp_conv_post = _film_params_from_dict(film_params.get("conv_post_film"))
+        fp_im_pre = _film_params_from_dict(film_params.get("input_mixin_pre_film"))
+        fp_im_post = _film_params_from_dict(film_params.get("input_mixin_post_film"))
+        fp_act_pre = _film_params_from_dict(film_params.get("activation_pre_film"))
+        fp_act_post = _film_params_from_dict(film_params.get("activation_post_film"))
+        fp_l1x1_post = _film_params_from_dict(film_params.get("layer1x1_post_film"))
+        fp_h1x1_post = _film_params_from_dict(film_params.get("head1x1_post_film"))
+
+        if fp_l1x1_post.active and not layer_1x1_config.active:
+            raise ValueError(
+                "layer1x1_post_film cannot be active when layer1x1 is not active"
+            )
+        if fp_h1x1_post.active and not head_1x1_config.active:
+            raise ValueError(
+                "head1x1_post_film cannot be active when head1x1 is not active"
+            )
+
+        self._conv_pre_film = _maybe_film(fp_conv_pre, condition_size, channels)
+        self._conv_post_film = _maybe_film(fp_conv_post, condition_size, mid_channels)
+        self._input_mixin_pre_film = _maybe_film(
+            fp_im_pre, condition_size, condition_size
+        )
+        self._input_mixin_post_film = _maybe_film(
+            fp_im_post, condition_size, mid_channels
+        )
+        self._activation_pre_film = _maybe_film(
+            fp_act_pre, condition_size, mid_channels
+        )
+        self._activation_post_film = _maybe_film(
+            fp_act_post, condition_size, bottleneck
+        )
+        self._layer1x1_post_film = (
+            _maybe_film(fp_l1x1_post, condition_size, channels)
+            if layer_1x1_config.active
+            else None
+        )
+        self._head1x1_post_film = (
+            _maybe_film(
+                fp_h1x1_post,
+                condition_size,
+                head_1x1_config.out_channels if head_1x1_config.active else bottleneck,
+            )
+            if head_1x1_config.active
+            else None
+        )
+
     @property
     def activation_name(self) -> str:
         if isinstance(self._activation, _PairingActivation):
@@ -158,6 +283,18 @@ class _Layer(_nn.Module):
             tensors.append(self._layer1x1.export_weights())
         if self._head1x1 is not None:
             tensors.append(self._head1x1.export_weights())
+        for film in (
+            self._conv_pre_film,
+            self._conv_post_film,
+            self._input_mixin_pre_film,
+            self._input_mixin_post_film,
+            self._activation_pre_film,
+            self._activation_post_film,
+            self._layer1x1_post_film,
+            self._head1x1_post_film,
+        ):
+            if film is not None:
+                tensors.append(film.export_weights())
         return _torch.cat(tensors)
 
     def forward(
@@ -173,19 +310,55 @@ class _Layer(_nn.Module):
                 (B,C,L1-d) to mixer
             If final, next layer is None
         """
-        zconv = self.conv(x)
-        z1 = zconv + self._input_mixer(h)[:, :, -zconv.shape[2] :]
+
+        # Helper: slice condition to match tensor time length (conv shortens sequence)
+        def _c(t_len: int) -> _torch.Tensor:
+            return h[:, :, -t_len:]
+
+        # Step 1: input convolution (with optional pre/post FiLM)
+        conv_input = x
+        if self._conv_pre_film is not None:
+            conv_input = self._conv_pre_film(conv_input, _c(conv_input.shape[2]))
+        zconv = self.conv(conv_input)
+        if self._conv_post_film is not None:
+            zconv = self._conv_post_film(zconv, _c(zconv.shape[2]))
+
+        # Input mixin (with optional pre/post FiLM)
+        mixin_input = h
+        if self._input_mixin_pre_film is not None:
+            mixin_input = self._input_mixin_pre_film(mixin_input, h)
+        mix_out = self._input_mixer(mixin_input)[:, :, -zconv.shape[2] :]
+        if self._input_mixin_post_film is not None:
+            mix_out = self._input_mixin_post_film(mix_out, _c(mix_out.shape[2]))
+
+        z1 = zconv + mix_out
+        if self._activation_pre_film is not None:
+            z1 = self._activation_pre_film(z1, _c(z1.shape[2]))
+
         post_activation = self._activation(z1)
-        head_output = (
-            post_activation[:, :, -out_length:]
-            if self._head1x1 is None
-            else self._head1x1(post_activation)[:, :, -out_length:]
-        )
-        layer_output = (
-            post_activation
-            if self._layer1x1 is None
-            else self._layer1x1(post_activation)
-        )
+        if self._activation_post_film is not None:
+            post_activation = self._activation_post_film(
+                post_activation, _c(post_activation.shape[2])
+            )
+
+        layer_output = post_activation
+        if self._layer1x1 is not None:
+            layer_output = self._layer1x1(layer_output)
+            if self._layer1x1_post_film is not None:
+                layer_output = self._layer1x1_post_film(
+                    layer_output, _c(layer_output.shape[2])
+                )
+
+        head_output = post_activation
+        if self._head1x1 is not None:
+            head_output = self._head1x1(head_output)[:, :, -out_length:]
+            if self._head1x1_post_film is not None:
+                head_output = self._head1x1_post_film(
+                    head_output, _c(head_output.shape[2])
+                )
+        else:
+            head_output = head_output[:, :, -out_length:]
+
         residual = x[:, :, -layer_output.shape[2] :] + layer_output
         return (residual, head_output)
 
@@ -196,6 +369,18 @@ class _Layer(_nn.Module):
             i = self._layer1x1.import_weights(weights, i)
         if self._head1x1 is not None:
             i = self._head1x1.import_weights(weights, i)
+        for film in (
+            self._conv_pre_film,
+            self._conv_post_film,
+            self._input_mixin_pre_film,
+            self._input_mixin_post_film,
+            self._activation_pre_film,
+            self._activation_post_film,
+            self._layer1x1_post_film,
+            self._head1x1_post_film,
+        ):
+            if film is not None:
+                i = film.import_weights(weights, i)
         return i
 
     def export_activation_config(self):
@@ -248,12 +433,14 @@ class _LayerArray(_nn.Module):
         bottleneck: _Optional[int] = None,
         head_1x1_config: _Optional[dict] = None,
         layer_1x1_config: _Optional[dict] = None,
+        film_params: _Optional[_Dict[str, _Any]] = None,
     ):
         super().__init__()
         head_1x1_config = dict() if head_1x1_config is None else head_1x1_config
         head1x1_config_pydantic = _Head1x1Config(**head_1x1_config)
         layer_1x1_config = dict() if layer_1x1_config is None else layer_1x1_config
         layer1x1_config_pydantic = _Layer1x1Config(**layer_1x1_config)
+        film_params = dict() if film_params is None else film_params
 
         bottleneck = channels if bottleneck is None else bottleneck
 
@@ -281,6 +468,7 @@ class _LayerArray(_nn.Module):
                     bottleneck=bottleneck,
                     head_1x1_config=head1x1_config_pydantic,
                     layer_1x1_config=layer1x1_config_pydantic,
+                    film_params=film_params,
                 )
                 for i in range(num_layers)
             ]
@@ -305,6 +493,7 @@ class _LayerArray(_nn.Module):
             "bottleneck": bottleneck,
             "head1x1": head1x1_config_pydantic.model_dump(),
             "layer1x1": layer1x1_config_pydantic.model_dump(),
+            "film_params": film_params,
         }
 
     @property
@@ -313,6 +502,16 @@ class _LayerArray(_nn.Module):
 
     def export_config(self):
         config = _deepcopy(self._config)
+        # Drop internal film_params key; export flat FiLM keys for C++/loadmodel
+        config.pop("film_params", None)
+        film_params = self._config.get("film_params", {}) or {}
+        for key in film_params:
+            fp = _film_params_from_dict(film_params[key])
+            config[key] = (
+                {"active": True, "shift": fp.shift, "groups": fp.groups}
+                if fp.active
+                else False
+            )
         # Override dilations and activations with programmatic values (C++ format)
         dilations = []
         activations = []
