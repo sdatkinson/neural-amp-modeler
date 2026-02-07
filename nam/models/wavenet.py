@@ -152,6 +152,8 @@ class _Layer(_nn.Module):
         head_1x1_config: _Head1x1Config,
         layer_1x1_config: _Layer1x1Config,
         film_params: _Optional[_Dict[str, _Any]] = None,
+        groups_input: int = 1,
+        groups_input_mixin: int = 1,
     ):
         super().__init__()
         film_params = dict() if film_params is None else film_params
@@ -159,10 +161,14 @@ class _Layer(_nn.Module):
         mid_channels = (
             2 * bottleneck if isinstance(activation, _PairingActivation) else bottleneck
         )
-        self._conv = Conv1d(channels, mid_channels, kernel_size, dilation=dilation)
+        self._conv = Conv1d(
+            channels, mid_channels, kernel_size, dilation=dilation, groups=groups_input
+        )
         # Custom init: favors direct input-output
         # self._conv.weight.data.zero_()
-        self._input_mixer = Conv1d(condition_size, mid_channels, 1, bias=False)
+        self._input_mixer = Conv1d(
+            condition_size, mid_channels, 1, bias=False, groups=groups_input_mixin
+        )
 
         self._activation = activation
         self._bottleneck = bottleneck
@@ -434,6 +440,8 @@ class _LayerArray(_nn.Module):
         head_1x1_config: _Optional[dict] = None,
         layer_1x1_config: _Optional[dict] = None,
         film_params: _Optional[_Dict[str, _Any]] = None,
+        groups_input: int = 1,
+        groups_input_mixin: int = 1,
     ):
         super().__init__()
         head_1x1_config = dict() if head_1x1_config is None else head_1x1_config
@@ -469,6 +477,8 @@ class _LayerArray(_nn.Module):
                     head_1x1_config=head1x1_config_pydantic,
                     layer_1x1_config=layer1x1_config_pydantic,
                     film_params=film_params,
+                    groups_input=groups_input,
+                    groups_input_mixin=groups_input_mixin,
                 )
                 for i in range(num_layers)
             ]
@@ -494,6 +504,8 @@ class _LayerArray(_nn.Module):
             "head1x1": head1x1_config_pydantic.model_dump(),
             "layer1x1": layer1x1_config_pydantic.model_dump(),
             "film_params": film_params,
+            "groups_input": groups_input,
+            "groups_input_mixin": groups_input_mixin,
         }
 
     @property

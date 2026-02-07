@@ -261,6 +261,72 @@ class TestWaveNet(_Base):
         assert layer._layer1x1 is not None
         assert layer._layer1x1.groups == 2
 
+    def test_init_from_config_groups_input_and_groups_input_mixin(self):
+        """WaveNet.init_from_config accepts groups_input and groups_input_mixin."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,  # divisible by groups_input_mixin for build
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "bottleneck": 4,
+                    "groups_input": 2,
+                    "groups_input_mixin": 2,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        layer = model._net._layer_arrays[0]._layers[0]
+        assert layer.conv.groups == 2
+        assert layer._input_mixer.groups == 2
+
+    def test_export_config_includes_groups_input(self):
+        """Exported layer config includes groups_input and groups_input_mixin."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "groups_input": 2,
+                    "groups_input_mixin": 2,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        exported = model._export_config()
+        assert exported["layers"][0]["groups_input"] == 2
+        assert exported["layers"][0]["groups_input_mixin"] == 2
+        # Default (1) when omitted
+        config_default = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model_default = _WaveNet.init_from_config(config_default)
+        exported_default = model_default._export_config()
+        assert exported_default["layers"][0]["groups_input"] == 1
+        assert exported_default["layers"][0]["groups_input_mixin"] == 1
+
     def test_init_from_config_layer1x1_inactive(self):
         """WaveNet.init_from_config accepts layer_1x1_config with active=False."""
         config = {
@@ -540,6 +606,28 @@ class TestWaveNet(_Base):
             result = _run_loadmodel(nam_path)
             assert result.returncode == 0, (
                 "loadmodel failed for bottleneck: "
+                f"stderr={result.stderr!r} stdout={result.stdout!r}"
+            )
+
+    @_requires_neural_amp_modeler_core_loadmodel
+    def test_export_nam_loadmodel_can_load_with_groups_input(self):
+        """
+        LightningModule with groups_input=2 -> .export() -> loadmodel can load the .nam.
+        """
+        config = _load_demonet_config()
+        layers_configs = config["net"]["config"]["layers_configs"]
+        # Second layer has channels=2, so groups_input=2 is valid (depthwise).
+        layers_configs[1]["groups_input"] = 2
+        module = _LightningModule.init_from_config(config)
+        module.net.sample_rate = 48000
+        with _TemporaryDirectory() as tmpdir:
+            outdir = _Path(tmpdir)
+            module.net.export(outdir, basename="model")
+            nam_path = outdir / "model.nam"
+            assert nam_path.exists()
+            result = _run_loadmodel(nam_path)
+            assert result.returncode == 0, (
+                "loadmodel failed for groups_input=2: "
                 f"stderr={result.stderr!r} stdout={result.stdout!r}"
             )
 
