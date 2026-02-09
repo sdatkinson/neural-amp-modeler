@@ -14,7 +14,8 @@ from copy import deepcopy as _deepcopy
 from enum import Enum as _Enum
 from functools import partial as _partial
 from pathlib import Path as _Path
-from time import time as _time
+import logging as _logging
+import time as _time
 from typing import (
     Dict as _Dict,
     NamedTuple as _NamedTuple,
@@ -33,7 +34,6 @@ from pytorch_lightning.utilities.warnings import (
     PossibleUserWarning as _PossibleUserWarning,
 )
 from torch.utils.data import DataLoader as _DataLoader
-
 from ..data import (
     AbstractDataset as _AbstractDataset,
     DataError as _DataError,
@@ -54,6 +54,7 @@ from . import metadata as _metadata
 STANDARD_SAMPLE_RATE = 48_000.0
 # Default number of output samples per datum.
 _NY_DEFAULT = 8192
+_logger = _logging.getLogger(__name__)
 
 
 class Architecture(_Enum):
@@ -1252,8 +1253,25 @@ class _ModelCheckpoint(_pl.callbacks.model_checkpoint.ModelCheckpoint):
         return self._settings_metadata is not None and self._data_metadata is not None
 
     def _save_checkpoint(self, trainer: _pl.Trainer, filepath: str):
+        max_attempts = 5
+        base_delay = 0.05
+        transient_errors = (OSError, IOError, PermissionError)
         # Save the .ckpt:
-        super()._save_checkpoint(trainer, filepath)
+        for attempt in range(max_attempts):
+            try:
+                super()._save_checkpoint(trainer, filepath)
+                break
+            except transient_errors as e:
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(
+                        f"Failed to save checkpoint after {max_attempts} attempts: {filepath}"
+                    ) from e
+                delay = base_delay * (2**attempt)
+                _logger.warning(
+                    f"Checkpoint save failed (attempt {attempt+1}/{max_attempts}): {e}. Retrying in {delay:.2f}s..."
+                )
+                _time.sleep(delay)
+
         # Save the .nam:
         nam_filepath = self._get_nam_filepath(filepath)
         pl_model: _LightningModule = trainer.model
@@ -1272,12 +1290,26 @@ class _ModelCheckpoint(_pl.callbacks.model_checkpoint.ModelCheckpoint):
                 ).model_dump()
             }
         )
-        nam_model.export(
-            outdir,
-            basename=basename,
-            user_metadata=self._user_metadata,
-            other_metadata=other_metadata,
-        )
+
+        for attempt in range(max_attempts):
+            try:
+                nam_model.export(
+                    outdir,
+                    basename=basename,
+                    user_metadata=self._user_metadata,
+                    other_metadata=other_metadata,
+                )
+                break
+            except transient_errors as e:
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(
+                        f"Failed to export NAM model after {max_attempts} attempts: {nam_filepath}"
+                    ) from e
+                delay = base_delay * (2**attempt)
+                _logger.warning(
+                    f"Checkpoint save failed (attempt {attempt+1}/{max_attempts}): {e}. Retrying in {delay:.2f}s..."
+                )
+                _time.sleep(delay)
 
     def _remove_checkpoint(self, trainer: _pl.Trainer, filepath: str) -> None:
         super()._remove_checkpoint(trainer, filepath)
