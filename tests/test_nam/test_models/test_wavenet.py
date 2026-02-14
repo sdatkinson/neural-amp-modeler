@@ -1059,7 +1059,9 @@ class TestWaveNet(_Base):
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "film_params": {"conv_pre_film": {"active": True, "shift": True, "groups": 1}},
+                    "film_params": {
+                        "conv_pre_film": {"active": True, "shift": True, "groups": 1}
+                    },
                 }
             ],
             "head_scale": 1.0,

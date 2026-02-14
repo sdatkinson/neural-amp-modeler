@@ -327,18 +327,22 @@ class _Layer(_nn.Module):
         """
 
         # Helper: slice condition to match tensor time length (conv shortens sequence)
-        def _c(t_len: int, tensor: _torch.Tensor=h) -> _torch.Tensor:
+        def _c(t_len: int, tensor: _torch.Tensor = h) -> _torch.Tensor:
             return tensor[:, :, -t_len:]
 
         # Step 1: input convolution (with optional pre/post FiLM)
         conv_input = x
         if self._conv_pre_film is not None:
             pre_conv_length = min(conv_input.shape[2], h.shape[2])
-            conv_input = self._conv_pre_film(_c(pre_conv_length, tensor=conv_input), _c(pre_conv_length))
+            conv_input = self._conv_pre_film(
+                _c(pre_conv_length, tensor=conv_input), _c(pre_conv_length)
+            )
         zconv = self.conv(conv_input)
         if self._conv_post_film is not None:
             post_conv_length = min(zconv.shape[2], h.shape[2])
-            zconv = self._conv_post_film(_c(post_conv_length, tensor=zconv), _c(post_conv_length))
+            zconv = self._conv_post_film(
+                _c(post_conv_length, tensor=zconv), _c(post_conv_length)
+            )
 
         # Input mixin (with optional pre/post FiLM)
         mixin_input = h
@@ -679,7 +683,9 @@ class _WaveNet(_nn.Module):
 
     @property
     def receptive_field(self) -> int:
-        receptive_field = 1 + sum([(layer.receptive_field - 1) for layer in self._layer_arrays])
+        receptive_field = 1 + sum(
+            [(layer.receptive_field - 1) for layer in self._layer_arrays]
+        )
         if self._condition_dsp is not None:
             receptive_field += self._condition_dsp.receptive_field - 1
         return receptive_field
