@@ -123,6 +123,12 @@ class _FiLM(_nn.Module, _ImportsWeights):
         out_channels = (2 if shift else 1) * input_dim
         self._film = Conv1d(condition_size, out_channels, 1, bias=True, groups=groups)
 
+        # Initialize to identity:
+        # self._film.weight.data.zero_()  # Independent of condition input
+        # if self._film.bias is not None:
+        #     self._film.bias.data.zero_()  # (Scales &) shifts to zero
+        #     self._film.bias.data[:input_dim] = 1.0  # Scales back to 1
+
     def forward(self, x: _torch.Tensor, c: _torch.Tensor) -> _torch.Tensor:
         """
         :param x: (B, input_dim, L)
@@ -307,7 +313,7 @@ class _Layer(_nn.Module):
         return _torch.cat(tensors)
 
     def forward(
-        self, x: _torch.Tensor, h: _Optional[_torch.Tensor], out_length: int
+        self, x: _torch.Tensor, h: _torch.Tensor, out_length: int
     ) -> _Tuple[_Optional[_torch.Tensor], _torch.Tensor]:
         """
         :param x: (B,C,L1) From last layer
@@ -321,16 +327,18 @@ class _Layer(_nn.Module):
         """
 
         # Helper: slice condition to match tensor time length (conv shortens sequence)
-        def _c(t_len: int) -> _torch.Tensor:
-            return h[:, :, -t_len:]
+        def _c(t_len: int, tensor: _torch.Tensor=h) -> _torch.Tensor:
+            return tensor[:, :, -t_len:]
 
         # Step 1: input convolution (with optional pre/post FiLM)
         conv_input = x
         if self._conv_pre_film is not None:
-            conv_input = self._conv_pre_film(conv_input, _c(conv_input.shape[2]))
+            pre_conv_length = min(conv_input.shape[2], h.shape[2])
+            conv_input = self._conv_pre_film(_c(pre_conv_length, tensor=conv_input), _c(pre_conv_length))
         zconv = self.conv(conv_input)
         if self._conv_post_film is not None:
-            zconv = self._conv_post_film(zconv, _c(zconv.shape[2]))
+            post_conv_length = min(zconv.shape[2], h.shape[2])
+            zconv = self._conv_post_film(_c(post_conv_length, tensor=zconv), _c(post_conv_length))
 
         # Input mixin (with optional pre/post FiLM)
         mixin_input = h
@@ -340,7 +348,8 @@ class _Layer(_nn.Module):
         if self._input_mixin_post_film is not None:
             mix_out = self._input_mixin_post_film(mix_out, _c(mix_out.shape[2]))
 
-        z1 = zconv + mix_out
+        z1len = min(zconv.shape[2], mix_out.shape[2])
+        z1 = zconv[:, :, -z1len:] + mix_out[:, :, -z1len:]
         if self._activation_pre_film is not None:
             z1 = self._activation_pre_film(z1, _c(z1.shape[2]))
 
@@ -574,7 +583,7 @@ class _LayerArray(_nn.Module):
             (B,Dc,L-R+1) head input
             (B,Dc,L-R+1) layer output
         """
-        out_length = x.shape[2] - (self.receptive_field - 1)
+        out_length = min(x.shape[2], c.shape[2]) - (self.receptive_field - 1)
         x = self._rechannel(x)
         for layer in self._layers:
             x, head_term = layer(x, c, out_length)  # Ensures head_term sample length
@@ -670,7 +679,10 @@ class _WaveNet(_nn.Module):
 
     @property
     def receptive_field(self) -> int:
-        return 1 + sum([(layer.receptive_field - 1) for layer in self._layer_arrays])
+        receptive_field = 1 + sum([(layer.receptive_field - 1) for layer in self._layer_arrays])
+        if self._condition_dsp is not None:
+            receptive_field += self._condition_dsp.receptive_field - 1
+        return receptive_field
 
     def export_config(self, sample_rate: _Optional[float] = None):
         config = {
