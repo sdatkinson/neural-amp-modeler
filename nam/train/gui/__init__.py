@@ -14,7 +14,6 @@ import abc as _abc
 import re as _re
 import requests as _requests
 import tkinter as _tk
-import subprocess as _subprocess
 import sys as _sys
 import webbrowser as _webbrowser
 from dataclasses import dataclass as _dataclass
@@ -102,6 +101,35 @@ def _is_mac() -> bool:
 
 
 _SYSTEM_TEXT_COLOR = "systemTextColor" if _is_mac() else "black"
+
+
+def _get_latest_version_from_github() -> _Optional[_Version]:
+    """
+    Fetch releases from GitHub and return the newest version, or None on error.
+    """
+    url = "https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
+    try:
+        response = _requests.get(url)
+    except _requests.exceptions.ConnectionError:
+        print("WARNING: Failed to reach the server to check for updates")
+        return None
+    if response.status_code != 200:
+        print(f"Failed to fetch releases. Status code: {response.status_code}")
+        return None
+    releases = response.json()
+    latest_version = None
+    if releases:
+        for release in releases:
+            tag = release["tag_name"]
+            if not tag.startswith("v"):
+                print(f"Found invalid version {tag}")
+            else:
+                this_version = _Version.from_string(tag[1:])
+                if latest_version is None or this_version > latest_version:
+                    latest_version = this_version
+    else:
+        print("No releases found for this repository.")
+    return latest_version
 
 
 @_dataclass
@@ -392,6 +420,51 @@ class _YesNoModal(object):
         self._no.pack(side=_tk.RIGHT)
 
 
+class _UpdateAvailableModal(object):
+    """
+    Modal shown when a new version is available. Message, "Do not show this again"
+    checkbox, and Close button. Does not offer an in-GUI upgrade; instructs user to
+    run pip install --upgrade.
+    """
+
+    def __init__(self, resume_main: _Callable[[], None], version: str):
+        self._root = _tk.Toplevel()
+        self._root.title("Update available")
+        msg = (
+            f"neural-amp-modeler v{version} is now available. To upgrade, run "
+            "pip install --upgrade neural-amp-modeler in your terminal."
+        )
+        self._label = _tk.Label(
+            self._root,
+            text=msg,
+            justify=_tk.LEFT,
+            wraplength=400,
+        )
+        self._label.pack(padx=10, pady=10)
+        self._never_show_var = _tk.BooleanVar(value=False)
+        self._checkbox = _tk.Checkbutton(
+            self._root,
+            text="Do not show this again",
+            variable=self._never_show_var,
+        )
+        self._checkbox.pack(anchor="w", padx=10, pady=5)
+        self._close_btn = _tk.Button(
+            self._root,
+            text="Close",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=self._on_close,
+        )
+        self._close_btn.pack(pady=10)
+        self._resume_main = resume_main
+
+    def _on_close(self):
+        if self._never_show_var.get():
+            _settings.set_update_settings(never_show_again=True)
+        self._resume_main()
+        self._root.destroy()
+
+
 class _GUIWidgets(_Enum):
     INPUT_PATH = "input_path"
     OUTPUT_PATH = "output_path"
@@ -399,7 +472,6 @@ class _GUIWidgets(_Enum):
     METADATA = "metadata"
     ADVANCED_OPTIONS = "advanced_options"
     TRAIN = "train"
-    UPDATE = "update"
 
 
 @_dataclass
@@ -468,9 +540,7 @@ class GUI(object):
         # Last frames: advanced options & train in the SE corner:
         self._frame_advanced_options = _tk.Frame(self._root)
         self._frame_train = _tk.Frame(self._root)
-        self._frame_update = _tk.Frame(self._root)
         # Pack must be in reverse order
-        self._frame_update.pack(side=_tk.BOTTOM, anchor="e")
         self._frame_train.pack(side=_tk.BOTTOM, anchor="e")
         self._frame_advanced_options.pack(side=_tk.BOTTOM, anchor="e")
 
@@ -505,7 +575,7 @@ class GUI(object):
         )
         self._widgets[_GUIWidgets.TRAIN].pack()
 
-        self._pack_update_button_if_update_is_available()
+        self._show_update_modal_if_update_available()
 
         self._check_button_states()
 
@@ -601,78 +671,15 @@ class GUI(object):
 
         self._wait_while_func(lambda resume: UserMetadataGUI(resume, self))
 
-    def _pack_update_button(self, version_from: _Version, version_to: _Version):
-        """
-        Pack a button that a user can click to update
-        """
-
-        def update_nam():
-            result = _subprocess.run(
-                [
-                    f"{_sys.executable}",
-                    "-m",
-                    "pip",
-                    "install",
-                    "--upgrade",
-                    "neural-amp-modeler",
-                ]
-            )
-            if result.returncode == 0:
-                self._wait_while_func(
-                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
-                    "Update complete! Restart NAM for changes to take effect.",
-                )
-            else:
-                self._wait_while_func(
-                    (lambda resume, *args, **kwargs: _OkModal(resume, *args, **kwargs)),
-                    "Update failed! See logs.",
-                )
-
-        self._widgets[_GUIWidgets.UPDATE] = _tk.Button(
-            self._frame_update,
-            text=f"Update ({str(version_from)} -> {str(version_to)})",
-            width=_BUTTON_WIDTH,
-            height=_BUTTON_HEIGHT,
-            command=update_nam,
-        )
-        self._widgets[_GUIWidgets.UPDATE].pack()
-
-    def _pack_update_button_if_update_is_available(self):
+    def _show_update_modal_if_update_available(self):
         class UpdateInfo(_NamedTuple):
             available: bool
             current_version: _Version
             new_version: _Optional[_Version]
 
         def get_info() -> UpdateInfo:
-            # TODO error handling
-            url = f"https://api.github.com/repos/sdatkinson/neural-amp-modeler/releases"
             current_version = _get_current_version()
-            try:
-                response = _requests.get(url)
-            except _requests.exceptions.ConnectionError:
-                print("WARNING: Failed to reach the server to check for updates")
-                return UpdateInfo(
-                    available=False, current_version=current_version, new_version=None
-                )
-            if response.status_code != 200:
-                print(f"Failed to fetch releases. Status code: {response.status_code}")
-                return UpdateInfo(
-                    available=False, current_version=current_version, new_version=None
-                )
-            else:
-                releases = response.json()
-                latest_version = None
-                if releases:
-                    for release in releases:
-                        tag = release["tag_name"]
-                        if not tag.startswith("v"):
-                            print(f"Found invalid version {tag}")
-                        else:
-                            this_version = _Version.from_string(tag[1:])
-                            if latest_version is None or this_version > latest_version:
-                                latest_version = this_version
-                else:
-                    print("No releases found for this repository.")
+            latest_version = _get_latest_version_from_github()
             update_available = (
                 latest_version is not None and latest_version > current_version
             )
@@ -683,9 +690,30 @@ class GUI(object):
             )
 
         update_info = get_info()
-        if update_info.available:
-            self._pack_update_button(
-                update_info.current_version, update_info.new_version
+        if not update_info.available or update_info.new_version is None:  # No news
+            return
+        # Now figure out what we've seen in the past
+        update_settings = _settings.get_update_settings()
+
+        settings_version = (
+            _Version.from_string(update_settings["newest_available_version"])
+            if update_settings["newest_available_version"] is not None
+            else None
+        )
+        # Different new version since we last checked
+        if settings_version is None or update_info.new_version > settings_version:
+            _settings.set_update_settings(
+                newest_available_version=str(update_info.new_version),
+                never_show_again=False,
+            )
+            update_settings = _settings.get_update_settings()
+        if update_settings["never_show_again"]:
+            return
+        else:
+            self._wait_while_func(
+                lambda resume: _UpdateAvailableModal(
+                    resume, str(update_info.new_version)
+                ),
             )
 
     def _resume(self):
