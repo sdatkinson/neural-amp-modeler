@@ -16,13 +16,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Ensures the full history is available
           fetch-tags: true  # Ensures tags are fetched
+      - name: Clone NeuralAmpModelerCore and build loadmodel
+        env:
+          CXX: clang++
+        run: |
+          cd "${{ github.workspace }}/.."
+          git clone --recurse-submodules --branch v0.4.0.rc2 https://github.com/${{ github.repository_owner }}/NeuralAmpModelerCore.git
+          cd NeuralAmpModelerCore/build
+          cmake .. -DCMAKE_BUILD_TYPE=Debug
+          cmake --build . -j4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v3
         with:

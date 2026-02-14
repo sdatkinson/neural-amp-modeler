@@ -68,7 +68,6 @@ class TestRegistry:
                             "kernel_size": 3,
                             "dilations": [1, 2],
                             "activation": "Tanh",
-                            "gated": False,
                             "head_bias": False,
                         }
                     ],

@@ -23,7 +23,10 @@ import torch.nn.functional as _F
 
 from .. import __version__
 from ..data import wav_to_tensor as _wav_to_tensor
-from ._activations import get_activation as _get_activation
+from ._activations import (
+    PairingActivation as _PairingActivation,
+    get_activation as _get_activation,
+)
 from .base import BaseNet as _BaseNet
 from ._names import (
     ACTIVATION_NAME as _ACTIVATION_NAME,
@@ -83,7 +86,10 @@ def _conv_net(
         )
         if batchnorm:
             net.add_module(_BATCHNORM_NAME, _nn.BatchNorm1d(cout))
-        net.add_module(_ACTIVATION_NAME, _get_activation(activation))
+        a = _get_activation(activation)
+        if isinstance(a, _PairingActivation):
+            raise NotImplementedError("Pairing activations not supported for ConvNet")
+        net.add_module(_ACTIVATION_NAME, a)
         return net
 
     def check_and_expand(n, x):

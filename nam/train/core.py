@@ -854,7 +854,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": False,
                 },
                 {
@@ -865,7 +864,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": True,
                 },
             ],
@@ -881,7 +879,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": False,
                 },
                 {
@@ -892,7 +889,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": True,
                 },
             ],
@@ -908,7 +904,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": False,
                 },
                 {
@@ -919,7 +914,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": True,
                 },
             ],
@@ -935,7 +929,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": False,
                 },
                 {
@@ -946,7 +939,6 @@ def get_wavenet_config(architecture):
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
                     "head_bias": True,
                 },
             ],
