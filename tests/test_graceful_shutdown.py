@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -21,6 +21,89 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from nam.data import np_to_wav
+
+
+def _os_process_helpers() -> Dict[str, Callable]:
+    """
+    Return OS-appropriate implementations for process signaling and I/O.
+
+    Detects the OS and returns a dict of functions with consistent signatures
+    whose implementations differ by platform (Unix vs Windows).
+
+    :return: Dict with keys:
+        - get_popen_kwargs: () -> dict, extra kwargs for Popen (process group)
+        - send_interrupt: (process: subprocess.Popen) -> None
+        - kill_process_group: (process: subprocess.Popen) -> None
+        - read_available_output: (process, timeout) -> str or None
+    """
+    if os.name == "nt":
+        # Windows: no killpg/getpgid/setsid; use terminate and CREATE_NEW_PROCESS_GROUP
+
+        def get_popen_kwargs() -> dict:
+            return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+
+        def send_interrupt(process: subprocess.Popen) -> None:
+            try:
+                process.send_signal(signal.CTRL_C_EVENT)
+            except (ProcessLookupError, ValueError):
+                process.terminate()
+
+        def kill_process_group(process: subprocess.Popen) -> None:
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            except ProcessLookupError:
+                pass
+
+        def read_available_output(process: subprocess.Popen, timeout: float) -> Optional[str]:
+            # select() does not work with pipes on Windows; use thread-based polling
+            import threading
+            result: list = []
+            def read():
+                try:
+                    line = process.stdout.readline()
+                    if line:
+                        result.append(line)
+                except (ValueError, OSError):
+                    pass
+            t = threading.Thread(target=read)
+            t.daemon = True
+            t.start()
+            t.join(timeout=timeout)
+            return result[0] if result else None
+
+    else:
+        # Unix: use process groups, killpg, setsid
+
+        def get_popen_kwargs() -> dict:
+            return {"preexec_fn": os.setsid}
+
+        def send_interrupt(process: subprocess.Popen) -> None:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGINT)
+            except ProcessLookupError:
+                pass
+
+        def kill_process_group(process: subprocess.Popen) -> None:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        def read_available_output(process: subprocess.Popen, timeout: float) -> Optional[str]:
+            import select
+            if select.select([process.stdout], [], [], timeout)[0]:
+                return process.stdout.readline()
+            return None
+
+    return {
+        "get_popen_kwargs": get_popen_kwargs,
+        "send_interrupt": send_interrupt,
+        "kill_process_group": kill_process_group,
+        "read_available_output": read_available_output,
+    }
 
 
 def create_test_data(root_path: Path) -> Tuple[Path, Path]:
@@ -93,7 +176,6 @@ def create_configs(
                         "kernel_size": 3,
                         "dilations": [1],
                         "activation": "Tanh",
-                        "gated": False,
                         "head_bias": False,
                     },
                 ],
@@ -188,14 +270,16 @@ def run_training_with_interrupt(
     
     print(f"Starting training with command: {' '.join(cmd)}")
     
+    helpers = _os_process_helpers()
+    popen_kwargs = helpers["get_popen_kwargs"]()
+    
     # Start the process
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        # Create a new process group so we can send signals properly
-        preexec_fn=os.setsid if os.name != 'nt' else None,
+        **popen_kwargs,
     )
     
     output_lines = []
@@ -217,36 +301,34 @@ def run_training_with_interrupt(
             elapsed = time.time() - start_time
             if elapsed > timeout:
                 print(f"Timeout after {timeout}s, killing process")
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                helpers["kill_process_group"](process)
                 break
             
             # Try to read output (non-blocking)
             try:
-                import select
-                if select.select([process.stdout], [], [], 0.1)[0]:
-                    line = process.stdout.readline()
-                    if line:
-                        output_lines.append(line)
-                        print(f"[nam-full] {line.rstrip()}")
-                        
-                        # Check for training indicators - these appear when training actually starts
-                        # Look for PyTorch Lightning training indicators
-                        training_indicators = [
-                            "Epoch ",  # Lightning progress
-                            "GPU available:",  # Lightning startup
-                            "Trainer already configured",  # Lightning
-                            "LOCAL_RANK:",  # Lightning distributed
-                            "kick ass",  # Our message in core.py
-                            "Sanity Checking",  # Lightning validation check
-                        ]
-                        if any(ind in line for ind in training_indicators):
-                            if not training_started:
-                                training_started = True
-                                training_start_time = time.time()
-                                print(f"\n>>> Training detected after {elapsed:.1f}s <<<\n")
-                        
-                        if "graceful" in line.lower():
-                            graceful_shutdown_detected = True
+                line = helpers["read_available_output"](process, 0.1)
+                if line:
+                    output_lines.append(line)
+                    print(f"[nam-full] {line.rstrip()}")
+                    
+                    # Check for training indicators - these appear when training actually starts
+                    # Look for PyTorch Lightning training indicators
+                    training_indicators = [
+                        "Epoch ",  # Lightning progress
+                        "GPU available:",  # Lightning startup
+                        "Trainer already configured",  # Lightning
+                        "LOCAL_RANK:",  # Lightning distributed
+                        "kick ass",  # Our message in core.py
+                        "Sanity Checking",  # Lightning validation check
+                    ]
+                    if any(ind in line for ind in training_indicators):
+                        if not training_started:
+                            training_started = True
+                            training_start_time = time.time()
+                            print(f"\n>>> Training detected after {elapsed:.1f}s <<<\n")
+                    
+                    if "graceful" in line.lower():
+                        graceful_shutdown_detected = True
             except Exception:
                 time.sleep(0.1)
             
@@ -266,12 +348,8 @@ def run_training_with_interrupt(
             
             if should_send_interrupt and process.poll() is None:
                 print(f"\n>>> Sending SIGINT (elapsed={elapsed:.1f}s) <<<\n")
-                try:
-                    # Send SIGINT to the process group
-                    os.killpg(os.getpgid(process.pid), signal.SIGINT)
-                    interrupt_sent = True
-                except ProcessLookupError:
-                    pass
+                helpers["send_interrupt"](process)
+                interrupt_sent = True
         
         # Read any remaining output
         remaining_output, _ = process.communicate(timeout=30)
@@ -286,7 +364,7 @@ def run_training_with_interrupt(
     except Exception as e:
         print(f"Error during training: {e}")
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            helpers["kill_process_group"](process)
         except Exception:
             pass
     
