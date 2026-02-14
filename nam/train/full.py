@@ -183,7 +183,7 @@ def main(
         default_root_dir=outdir,
         **learning_config["trainer"],
     )
-    
+
     try:
         with _filter_warnings("ignore", category=_PossibleUserWarning):
             trainer.fit(

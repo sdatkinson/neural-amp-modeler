@@ -1513,7 +1513,7 @@ def train(
         fast_dev_run=fast_dev_run,
         **learning_config["trainer"],
     )
-    
+
     try:
         # Suppress the PossibleUserWarning about num_workers (Issue 345)
         with _filter_warnings("ignore", category=_PossibleUserWarning):
