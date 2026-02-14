@@ -1024,6 +1024,184 @@ class TestWaveNet(_Base):
         assert "weights" in exported["condition_dsp"]
         assert len(exported["condition_dsp"]["weights"]) > 0
 
+    # --- Bug fix regression tests (see commit "Fix bugs in WaveNet") ---
+
+    def test_condition_dsp_with_conv_pre_film_forward(self):
+        """
+        Bug fix: When condition_dsp shortens c, x and c have different lengths in
+        the first layer. conv_pre_film must slice both to min length before FiLM.
+        Without the fix: shape mismatch in FiLM (x and c different L).
+        """
+        config = {
+            "condition_dsp": {
+                "name": "WaveNet",
+                "config": {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "head_size": 2,
+                            "channels": 2,
+                            "kernel_size": 2,
+                            "dilations": [1],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                },
+            },
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "film_params": {"conv_pre_film": {"active": True, "shift": True, "groups": 1}},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        x = _torch.randn(1, model.receptive_field + 16)
+        y = model(x)
+        assert y.shape == x.shape
+
+    def test_condition_dsp_zconv_mix_out_length_mismatch_forward(self):
+        """
+        Bug fix: When condition_dsp shortens c, zconv (from conv on x) can be longer
+        than mix_out (from input_mixer on c). Must use min length and slice both.
+        Without the fix: zconv + mix_out fails (different shapes).
+        """
+        # Condition DSP: k=2,d=1 -> rf=2, c has length L-1.
+        # Main: k=2,d=1, so first layer zconv has length L-1 from x (length L).
+        # Wait - x gets rechanneled, so it has length L. Conv reduces to L-1.
+        # c has length L-1 (condition_dsp output). So zconv L-1, mix_out from
+        # mixer(c) has length L-1. They match. Need condition_dsp with larger rf
+        # so c is much shorter. Cond: k=3, d=2 -> rf=1+2*2=5, c has L-4.
+        # Main: k=2,d=1, zconv has L-1. So zconv (L-1) > mix_out (L-4). Good.
+        config = {
+            "condition_dsp": {
+                "name": "WaveNet",
+                "config": {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "head_size": 2,
+                            "channels": 2,
+                            "kernel_size": 3,
+                            "dilations": [2],  # rf = 1 + (3-1)*2 = 5, c has L-4
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                },
+            },
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],  # zconv has L-1
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        x = _torch.randn(1, model.receptive_field + 20)
+        y = model(x)
+        assert y.shape == x.shape
+
+    def test_condition_dsp_out_length_uses_min_of_x_and_c(self):
+        """
+        Bug fix: out_length must be min(x.shape[2], c.shape[2]) - (rf-1) so we
+        don't request more samples than c provides. Without the fix: index error
+        or wrong output shape when c is shorter than x.
+        """
+        config = {
+            "condition_dsp": {
+                "name": "WaveNet",
+                "config": {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "head_size": 2,
+                            "channels": 2,
+                            "kernel_size": 2,
+                            "dilations": [1, 2],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                },
+            },
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        x = _torch.randn(1, model.receptive_field + 16)
+        y = model(x)
+        assert y.shape == x.shape
+
+    def test_receptive_field_includes_condition_dsp(self):
+        """
+        Bug fix: receptive_field must include condition_dsp's receptive field when
+        condition_dsp is present. Without the fix: under-reported rf.
+        """
+        cond_config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 2,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        main_layer_config = {
+            "input_size": 1,
+            "condition_size": 2,
+            "head_size": 1,
+            "channels": 2,
+            "kernel_size": 2,
+            "dilations": [1],
+            "activation": "Tanh",
+        }
+        cond_rf = 1 + (2 - 1) * 1  # 2
+        main_rf = 1 + (2 - 1) * 1  # 2
+        expected_rf = 1 + (main_rf - 1) + (cond_rf - 1)  # 1 + 1 + 1 = 3
+        config = {
+            "condition_dsp": {"name": "WaveNet", "config": cond_config},
+            "layers_configs": [main_layer_config],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field == expected_rf, (
+            f"receptive_field should be {expected_rf} (main + condition_dsp), "
+            f"got {model.receptive_field}"
+        )
+
     @_requires_neural_amp_modeler_core_loadmodel
     def test_export_nam_loadmodel_can_load_with_condition_dsp(self):
         """
