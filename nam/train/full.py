@@ -183,35 +183,41 @@ def main(
         default_root_dir=outdir,
         **learning_config["trainer"],
     )
-    with _filter_warnings("ignore", category=_PossibleUserWarning):
-        trainer.fit(
-            model,
-            train_dataloader,
-            val_dataloader,
-            **learning_config.get("trainer_fit_kwargs", {}),
-        )
-    # Go to best checkpoint
-    best_checkpoint = trainer.checkpoint_callback.best_model_path
-    if best_checkpoint != "":
-        model = _lightning_module.LightningModule.load_from_checkpoint(
-            trainer.checkpoint_callback.best_model_path,
-            **_lightning_module.LightningModule.parse_config(model_config),
-        )
-    model.cpu()
-    model.eval()
-    if make_plots:
-        _plot(
-            model,
-            dataset_validation,
-            savefig=_Path(outdir, "comparison.png"),
-            window_start=100_000,
-            window_end=110_000,
-            show=False,
-        )
-        _plot(model, dataset_validation, show=not no_show)
-    # Export!
-    model.net.export(outdir)
 
-    # Tear down the datasets
-    train_dataloader.dataset.teardown()
-    val_dataloader.dataset.teardown()
+    try:
+        with _filter_warnings("ignore", category=_PossibleUserWarning):
+            trainer.fit(
+                model,
+                train_dataloader,
+                val_dataloader,
+                **learning_config.get("trainer_fit_kwargs", {}),
+            )
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user.")
+    finally:
+        # Always try to export a model, even if training was interrupted
+        # Go to best checkpoint
+        best_checkpoint = trainer.checkpoint_callback.best_model_path
+        if best_checkpoint != "":
+            model = _lightning_module.LightningModule.load_from_checkpoint(
+                trainer.checkpoint_callback.best_model_path,
+                **_lightning_module.LightningModule.parse_config(model_config),
+            )
+        model.cpu()
+        model.eval()
+        if make_plots:
+            _plot(
+                model,
+                dataset_validation,
+                savefig=_Path(outdir, "comparison.png"),
+                window_start=100_000,
+                window_end=110_000,
+                show=False,
+            )
+            _plot(model, dataset_validation, show=not no_show)
+        # Export!
+        model.net.export(outdir)
+
+        # Tear down the datasets
+        train_dataloader.dataset.teardown()
+        val_dataloader.dataset.teardown()
