@@ -5,7 +5,6 @@
 name: nam
 channels:
   - conda-forge # pytest-mock
-  - pytorch
   - nvidia  # GPU
   - defaults
 dependencies:
@@ -21,11 +20,6 @@ dependencies:
   - pydantic>=2
   - pytest
   - pytest-mock
-  - pytorch::pytorch
-  # If your GPU isn't being detected, you may need a different version.
-  # You're going to need to look at Table 3 here: 
-  # https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html#cuda-major-component-versions__table-cuda-toolkit-driver-versions
-  - pytorch::pytorch-cuda=12.1  # GPU
   - semver
   - tensorboard
   - tqdm
@@ -37,3 +31,5 @@ dependencies:
       - transformers>=4  # See requirements.txt
       - wavio >=0.0.5
       - -e ..
+      - torch
+
