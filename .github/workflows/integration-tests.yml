@@ -1,0 +1,13 @@
+name: Run Integration Tests
+
+on:
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  call-integration-tests:
+    uses: Atkinson-Advanced-Modeling/NamIntegrationTests/.github/workflows/integration-tests.yml@main
+    with:
+      source_repo: neural-amp-modeler
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}
