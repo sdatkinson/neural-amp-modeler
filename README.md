@@ -2,7 +2,7 @@
 
 [![Build](https://github.com/sdatkinson/neural-amp-modeler/actions/workflows/python-package.yml/badge.svg)](https://github.com/sdatkinson/neural-amp-modeler/actions/workflows/python-package.yml)
 
-This repository handles training, reamping, and exporting the weights of a model.
+This repository handles training models and exporting them to .nam files.
 For playing trained models in real time in a standalone application or plugin, see the partner repo,
 [NeuralAmpModelerPlugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin).
 
