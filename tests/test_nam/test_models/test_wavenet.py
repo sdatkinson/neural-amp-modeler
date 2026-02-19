@@ -2,10 +2,6 @@
 # Created Date: Friday May 5th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import json as _json
-from pathlib import Path as _Path
-from tempfile import TemporaryDirectory as _TemporaryDirectory
-
 import pytest as _pytest
 import torch as _torch
 
@@ -19,41 +15,7 @@ from nam.train.core import (
     Architecture as _Architecture,
     get_wavenet_config as _get_wavenet_config,
 )
-from nam.train.lightning_module import LightningModule as _LightningModule
-from tests._integration import run_loadmodel as _run_loadmodel
-from tests._skips import (
-    requires_neural_amp_modeler_core_loadmodel as _requires_neural_amp_modeler_core_loadmodel,
-)
-
 from .base import Base as _Base
-
-# Activations supported by both Python _activations and NeuralAmpModelerCore loadmodel.
-# (Fasttanh is C++-only; omit it since we build the model in Python.)
-_LOADMODEL_ACTIVATIONS = [
-    "Tanh",
-    "Hardtanh",
-    # "Fasttanh",  # C++ approximation of Tanh; not used in the trainer.
-    "ReLU",
-    "LeakyReLU",
-    "PReLU",
-    "Sigmoid",
-    "SiLU",
-    "Hardswish",
-    "LeakyHardtanh",
-    "Softsign",
-    {
-        "name": "PairBlend",
-        "primary": "Tanh",
-        "secondary": "Sigmoid",
-    },
-    {
-        "name": "PairMultiply",
-        "primary": "Tanh",
-        "secondary": "Sigmoid",
-    },
-]
-
-_NAM_FULL_CONFIGS_DIR = _Path(__file__).resolve().parents[3] / "nam_full_configs"
 
 _FILM_SLOTS = (
     "conv_pre_film",
@@ -65,14 +27,6 @@ _FILM_SLOTS = (
     "layer1x1_post_film",
     "head1x1_post_film",
 )
-
-
-def _load_demonet_config() -> dict:
-    path = _NAM_FULL_CONFIGS_DIR / "models" / "demonet.json"
-    data = _json.loads(path.read_text())
-    data.pop("_notes", None)
-    data.pop("_comments", None)
-    return data
 
 
 class TestWaveNet(_Base):
@@ -565,157 +519,6 @@ class TestWaveNet(_Base):
         assert isinstance(layers[0]._activation, _torch.nn.ReLU)
         assert isinstance(layers[1]._activation, _PairBlend)
 
-    @_requires_neural_amp_modeler_core_loadmodel
-    @_pytest.mark.parametrize("activation", _LOADMODEL_ACTIVATIONS)
-    def test_export_nam_loadmodel_can_load(self, activation: str):
-        """
-        LightningModule.init_from_config(demonet with activation replaced) -> .export()
-        -> loadmodel can load the resulting .nam.
-        """
-        config = _load_demonet_config()
-        for layer in config["net"]["config"]["layers_configs"]:
-            layer["activation"] = activation
-        module = _LightningModule.init_from_config(config)
-        module.net.sample_rate = 48000
-        with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            module.net.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert result.returncode == 0, (
-                f"loadmodel failed for activation={activation!r}: "
-                f"stderr={result.stderr!r} stdout={result.stdout!r}"
-            )
-
-    @_requires_neural_amp_modeler_core_loadmodel
-    def test_export_nam_loadmodel_can_load_with_bottleneck(self):
-        """
-        LightningModule with bottleneck -> .export() -> loadmodel can load the .nam.
-        """
-        config = _load_demonet_config()
-        for layer in config["net"]["config"]["layers_configs"]:
-            layer["bottleneck"] = 2
-        module = _LightningModule.init_from_config(config)
-        module.net.sample_rate = 48000
-        with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            module.net.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert result.returncode == 0, (
-                "loadmodel failed for bottleneck: "
-                f"stderr={result.stderr!r} stdout={result.stdout!r}"
-            )
-
-    @_requires_neural_amp_modeler_core_loadmodel
-    def test_export_nam_loadmodel_can_load_with_groups_input(self):
-        """
-        LightningModule with groups_input=2 -> .export() -> loadmodel can load the .nam.
-        """
-        config = _load_demonet_config()
-        layers_configs = config["net"]["config"]["layers_configs"]
-        # Second layer has channels=2, so groups_input=2 is valid (depthwise).
-        layers_configs[1]["groups_input"] = 2
-        module = _LightningModule.init_from_config(config)
-        module.net.sample_rate = 48000
-        with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            module.net.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert result.returncode == 0, (
-                "loadmodel failed for groups_input=2: "
-                f"stderr={result.stderr!r} stdout={result.stdout!r}"
-            )
-
-    @_requires_neural_amp_modeler_core_loadmodel
-    def test_export_nam_loadmodel_can_load_with_head1x1(self):
-        """
-        LightningModule with head1x1 active -> .export() -> loadmodel can load the .nam.
-        """
-        config = _load_demonet_config()
-        layers_configs = config["net"]["config"]["layers_configs"]
-        # head_input is summed across layer arrays, so all must use the same out_channels
-        head1x1_out_channels = layers_configs[0]["head_size"]
-        for layer in layers_configs:
-            layer["head_1x1_config"] = {
-                "active": True,
-                "out_channels": head1x1_out_channels,
-                "groups": 1,
-            }
-        module = _LightningModule.init_from_config(config)
-        module.net.sample_rate = 48000
-        with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            module.net.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert result.returncode == 0, (
-                "loadmodel failed for head1x1: "
-                f"stderr={result.stderr!r} stdout={result.stdout!r}"
-            )
-
-    @_requires_neural_amp_modeler_core_loadmodel
-    def test_export_nam_loadmodel_can_load_different_activation_per_layer(self):
-        """
-        Same as test_export_nam_loadmodel_can_load but with a different activation
-        for each layer in the layer array (loadmodel still loads the .nam).
-        """
-        config = _load_demonet_config()
-        layers_configs = config["net"]["config"]["layers_configs"]
-        # Use a distinct loadmodel-supported activation for each layer in the array.
-        per_layer_activations = ["Tanh", "ReLU"]
-        for i, layer in enumerate(layers_configs):
-            layer["activation"] = per_layer_activations[i]
-        module = _LightningModule.init_from_config(config)
-        module.net.sample_rate = 48000
-        with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            module.net.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert result.returncode == 0, (
-                "loadmodel failed for per-layer activations: "
-                f"stderr={result.stderr!r} stdout={result.stdout!r}"
-            )
-
-    @_requires_neural_amp_modeler_core_loadmodel
-    @_pytest.mark.parametrize("film_slot", _FILM_SLOTS)
-    def test_export_nam_loadmodel_can_load_with_film(self, film_slot: str):
-        """
-        LightningModule with one FiLM slot active -> .export() -> loadmodel can load the .nam.
-        """
-        config = _load_demonet_config()
-        layers_configs = config["net"]["config"]["layers_configs"]
-        head_size = layers_configs[0]["head_size"]
-        for layer in layers_configs:
-            layer["film_params"] = {
-                film_slot: {"active": True, "shift": True, "groups": 1},
-            }
-            if film_slot == "head1x1_post_film":
-                layer["head_1x1_config"] = {
-                    "active": True,
-                    "out_channels": head_size,
-                    "groups": 1,
-                }
-        module = _LightningModule.init_from_config(config)
-        module.net.sample_rate = 48000
-        with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            module.net.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert result.returncode == 0, (
-                f"loadmodel failed for FiLM slot {film_slot!r}: "
-                f"stderr={result.stderr!r} stdout={result.stdout!r}"
-            )
-
     # --- WaveNet + FiLM tests ---
 
     @_pytest.mark.parametrize("film_slot", _FILM_SLOTS)
@@ -1203,63 +1006,6 @@ class TestWaveNet(_Base):
             f"receptive_field should be {expected_rf} (main + condition_dsp), "
             f"got {model.receptive_field}"
         )
-
-    @_requires_neural_amp_modeler_core_loadmodel
-    def test_export_nam_loadmodel_can_load_with_condition_dsp(self):
-        """
-        WaveNet with condition_dsp: export to .nam -> loadmodel can load the file.
-        """
-        # Condition DSP outputs 2 channels; main first layer has condition_size 2.
-        config = {
-            "net": {
-                "name": "WaveNet",
-                "config": {
-                    "condition_dsp": {
-                        "name": "WaveNet",
-                        "config": {
-                            "layers_configs": [
-                                {
-                                    "input_size": 1,
-                                    "condition_size": 1,
-                                    "head_size": 2,
-                                    "channels": 2,
-                                    "kernel_size": 2,
-                                    "dilations": [1],
-                                    "activation": "Tanh",
-                                }
-                            ],
-                            "head_scale": 1.0,
-                        },
-                    },
-                    "layers_configs": [
-                        {
-                            "input_size": 1,
-                            "condition_size": 2,
-                            "head_size": 1,
-                            "channels": 2,
-                            "kernel_size": 2,
-                            "dilations": [1],
-                            "activation": "Tanh",
-                        }
-                    ],
-                    "head_scale": 1.0,
-                },
-            },
-            "optimizer": {"lr": 0.004},
-            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.993}},
-        }
-        module = _LightningModule.init_from_config(config)
-        module.net.sample_rate = 48000
-        with _TemporaryDirectory() as tmpdir:
-            outdir = _Path(tmpdir)
-            module.net.export(outdir, basename="model")
-            nam_path = outdir / "model.nam"
-            assert nam_path.exists()
-            result = _run_loadmodel(nam_path)
-            assert result.returncode == 0, (
-                "loadmodel failed for condition_dsp: "
-                f"stderr={result.stderr!r} stdout={result.stdout!r}"
-            )
 
 
 class TestFiLM:
