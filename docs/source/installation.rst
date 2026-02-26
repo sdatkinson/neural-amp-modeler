@@ -22,7 +22,7 @@ have the most up-to-date guidance for this. Currently, this is the command:
 
 .. code-block:: console
 
-   $ pip install torch --index-url https://download.pytorch.org/whl/cu129
+   $ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu129
 
 Then, install NAM using pip:
 
