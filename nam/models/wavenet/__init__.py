@@ -77,6 +77,35 @@ def _film_params_from_dict(d: _Optional[_Dict]) -> _FiLMParamsConfig:
     return _FiLMParamsConfig(active=False)
 
 
+_SLIMMABLE_METHOD = "slice_channels_uniform"  # TODO other methods in the future
+
+
+def _parse_slimmable_config(val: _Any) -> bool:
+    """
+    Parse slimmable config from layer config.
+    Only {"method": "slice_channels_uniform", "kwargs": {...}} is supported.
+    Raises NotImplementedError for any other value.
+    """
+    if val is None:
+        return False
+    if not isinstance(val, dict):
+        raise NotImplementedError(
+            f"Slimmable config must be a dict, got {type(val).__name__}"
+        )
+    if val.get("method") != _SLIMMABLE_METHOD:
+        raise NotImplementedError(
+            f"Slimmable config only supports method '{_SLIMMABLE_METHOD}', "
+            f"got {val.get('method', 'missing')!r}"
+        )
+    if "kwargs" not in val:
+        raise NotImplementedError("Slimmable config must include 'kwargs' key")
+    if not isinstance(val["kwargs"], dict):
+        raise NotImplementedError(
+            f"Slimmable config 'kwargs' must be a dict, got {type(val['kwargs']).__name__}"
+        )
+    return True
+
+
 def _validate_slimmable_config(
     layers_configs: _Sequence[_Dict],
     condition_dsp: _Optional[_Dict],
@@ -84,12 +113,17 @@ def _validate_slimmable_config(
     """
     Validate that slimmable config does not use unsupported options.
     Raises NotImplementedError if any layer has slimmable and uses:
+    - more than one layer array
     - condition_dsp
     - groups_input != 1 or groups_input_mixin != 1
     - head_1x1
     - FiLM
     - layer_1x1 with groups != 1
     """
+    if any("slimmable" in lc for lc in layers_configs) and len(layers_configs) > 1:
+        raise NotImplementedError(
+            "Slimmable training with more than one layer array is not supported yet"
+        )
     if condition_dsp is not None:
         raise NotImplementedError(
             "Slimmable training with condition_dsp is not supported"
@@ -158,6 +192,11 @@ class Conv1d(_nn.Conv1d):
         return i
 
 
+def _ratio_to_channels(ratio: float, max_size: int) -> int:
+    """Convert ratio in [0, 1] to integer channel count, minimum 1."""
+    return 1 + min(int(_np.floor((ratio * max_size))), max_size - 1)
+
+
 class _Slimmable(_abc.ABC, _nn.Module):
     """
     Mixin for slimmable modules. Dictates at what channel size the layer operates.
@@ -165,25 +204,27 @@ class _Slimmable(_abc.ABC, _nn.Module):
 
     def __init__(self):
         super().__init__()
-        self._adjust_size: _Optional[int] = None
+        self._adjust_size: _Optional[float] = None
 
-    @_abc.abstractmethod
-    def max_adjust_size(self) -> int:
-        """The maximum size that this module can be adjusted to."""
-        pass
-
-    def adjust_to(self, adjust_size: _Optional[int] = None, _recurse: bool = True):
-        self._adjust_size = adjust_size
+    def adjust_to(
+        self,
+        ratio: _Optional[float] = None,
+        _recurse: bool = True,
+    ):
+        """
+        Set the channel width. ratio in [0, 1] scales to channels; None means full width.
+        """
+        self._adjust_size = ratio
         if _recurse:
             for module in self.modules():
                 if module is self:
                     continue
                 if isinstance(module, _Slimmable):
-                    module.adjust_to(adjust_size, _recurse=False)
+                    module.adjust_to(ratio, _recurse=False)
 
     def adjust_to_random(self):
-        a = _random.randint(1, self.max_adjust_size())
-        self.adjust_to(a)
+        ratio = _random.uniform(0.0, 1.0)
+        self.adjust_to(ratio)
 
     @_contextmanager
     def context_adjust_to_random(self):
@@ -247,13 +288,13 @@ class _SlimmableRechannelIn(_SlimmableConv1dBase):
         super().__init__(*args, **kwargs)
         self._is_first = is_first
 
-    def max_adjust_size(self) -> int:
+    def _max_adjust_size(self) -> int:
         return self.out_channels
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        adj = self._adjust_size
+        adj = _ratio_to_channels(self._adjust_size, self._max_adjust_size())
         if self._is_first:
             w = self.weight[:adj, :, :]
         else:
@@ -269,13 +310,13 @@ class _SlimmableConvLayer(_SlimmableConv1dBase):
         super().__init__(*args, **kwargs)
         self._gated = gated
 
-    def max_adjust_size(self) -> int:
+    def _max_adjust_size(self) -> int:
         return self.in_channels
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        adj = self._adjust_size
+        adj = _ratio_to_channels(self._adjust_size, self._max_adjust_size())
         if self._gated:
             w = self.weight[: 2 * adj, :adj, :]
             b = None if self.bias is None else self.bias[: 2 * adj]
@@ -288,13 +329,13 @@ class _SlimmableConvLayer(_SlimmableConv1dBase):
 class _SlimmableInputMixer(_SlimmableConv1dBase):
     """Input mixer: condition -> mid_channels. Slice output only."""
 
-    def max_adjust_size(self) -> int:
+    def _max_adjust_size(self) -> int:
         return self.out_channels
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        adj = self._adjust_size
+        adj = _ratio_to_channels(self._adjust_size, self._max_adjust_size())
         w = self.weight[:adj, :, :]
         b = None if self.bias is None else self.bias[:adj]
         return w, b
@@ -303,7 +344,7 @@ class _SlimmableInputMixer(_SlimmableConv1dBase):
 class _Slimmable1x1(_SlimmableConv1dBase):
     """1x1 conv in residual path. Slice both in and out (must be equal for slimmable)."""
 
-    def max_adjust_size(self) -> int:
+    def _max_adjust_size(self) -> int:
         if self.in_channels != self.out_channels:
             raise NotImplementedError(
                 "Slimmable 1x1 conv with different input and output channels not implemented"
@@ -313,7 +354,7 @@ class _Slimmable1x1(_SlimmableConv1dBase):
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        adj = self._adjust_size
+        adj = _ratio_to_channels(self._adjust_size, self._max_adjust_size())
         w = self.weight[:adj, :adj, :]
         b = None if self.bias is None else self.bias[:adj]
         return w, b
@@ -322,7 +363,7 @@ class _Slimmable1x1(_SlimmableConv1dBase):
 class _SlimmableHeadRechannel(_SlimmableConv1dBase):
     """Head rechannel: channels -> 1. Slice input channels only."""
 
-    def max_adjust_size(self) -> int:
+    def _max_adjust_size(self) -> int:
         return self.in_channels
 
     def _get_adjusted_weight_and_bias(
@@ -332,7 +373,7 @@ class _SlimmableHeadRechannel(_SlimmableConv1dBase):
             raise NotImplementedError(
                 "Slimmable head rechannel only implemented for 1 output channel"
             )
-        adj = self._adjust_size
+        adj = _ratio_to_channels(self._adjust_size, self._max_adjust_size())
         w = self.weight[:, :adj, :]
         b = self.bias
         return w, b
@@ -805,7 +846,7 @@ class _LayerArray(_nn.Module):
         config = _deepcopy(self._config)
         # Drop internal keys; export flat FiLM keys for C++/loadmodel
         config.pop("film_params", None)
-        config.pop("slimmable", None)
+        slimmable = config.pop("slimmable", None)
         film_params = self._config.get("film_params", {}) or {}
         for key in film_params:
             fp = _film_params_from_dict(film_params[key])
@@ -832,6 +873,8 @@ class _LayerArray(_nn.Module):
         config["activation"] = activations
         config["gating_mode"] = gating_modes
         config["secondary_activation"] = secondary_activations
+        if slimmable:
+            config["slimmable"] = {"method": _SLIMMABLE_METHOD, "kwargs": {}}
         return config
 
     def export_weights(self) -> _torch.Tensor:
@@ -956,7 +999,8 @@ class _WaveNet(_Slimmable, _nn.Module):
         processed_configs = []
         for lc in layers_configs:
             lc_copy = _deepcopy(lc)
-            slimmable = bool(lc_copy.pop("slimmable", None))
+            slimmable_val = lc_copy.pop("slimmable", None)
+            slimmable = _parse_slimmable_config(slimmable_val)
             lc_copy["slimmable"] = slimmable
             processed_configs.append(lc_copy)
 
@@ -965,16 +1009,6 @@ class _WaveNet(_Slimmable, _nn.Module):
         )
         self._head = None if head_config is None else _Head(**head_config)
         self._head_scale = head_scale
-
-    def max_adjust_size(self) -> int:
-        if not self._slimmable:
-            return 1
-        sizes = [
-            m.max_adjust_size()
-            for m in self.modules()
-            if m is not self and isinstance(m, _Slimmable)
-        ]
-        return min(sizes) if sizes else 1
 
     @property
     def receptive_field(self) -> int:

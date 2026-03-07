@@ -1063,7 +1063,7 @@ class TestSlimmableWaveNet:
                     "dilations": [1, 2],
                     "activation": "Tanh",
                     "head_bias": True,
-                    "slimmable": {},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
             "head_scale": 1.0,
@@ -1093,7 +1093,7 @@ class TestSlimmableWaveNet:
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
-                    "slimmable": {},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
             "head_scale": 1.0,
@@ -1120,7 +1120,7 @@ class TestSlimmableWaveNet:
                     "activation": "Tanh",
                     "head_bias": True,
                     "head_1x1_config": {"active": True, "out_channels": 2},
-                    "slimmable": {},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
             "head_scale": 1.0,
@@ -1142,7 +1142,7 @@ class TestSlimmableWaveNet:
                     "activation": "Tanh",
                     "head_bias": True,
                     "film_params": {"conv_pre_film": {"active": True}},
-                    "slimmable": {},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
             "head_scale": 1.0,
@@ -1178,7 +1178,7 @@ class TestSlimmableWaveNet:
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
-                    "slimmable": {},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
             "head_scale": 1.0,
@@ -1201,12 +1201,73 @@ class TestSlimmableWaveNet:
                     "activation": "Tanh",
                     "head_bias": True,
                     "groups_input": 2,
-                    "slimmable": {},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
             "head_scale": 1.0,
         }
         with _pytest.raises(NotImplementedError, match="groups"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_multiple_layer_arrays_raises(self):
+        """Slimmable + more than one layer array raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                },
+                {
+                    "input_size": 4,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                },
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="more than one layer array"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_unsupported_format_raises(self):
+        """Slimmable with unsupported format raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {},  # Need to define how to slim!
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="slice_channels_uniform"):
+            _WaveNet.init_from_config(config)
+
+        # Some other unsupported method
+        config["layers_configs"][0]["slimmable"] = {
+            "method": "other_method",
+            "kwargs": {},
+        }
+        with _pytest.raises(NotImplementedError, match="slice_channels_uniform"):
             _WaveNet.init_from_config(config)
 
 

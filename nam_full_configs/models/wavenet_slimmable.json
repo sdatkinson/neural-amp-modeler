@@ -22,19 +22,7 @@
                         64,
                         128,
                         256,
-                        512
-                    ],
-                    "activation": "Tanh",
-                    "head_bias": false,
-                    "slimmable": {}
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 16,
-                    "channels": 8,
-                    "head_size": 1,
-                    "kernel_size": 3,
-                    "dilations": [
+                        512,
                         1,
                         2,
                         4,
@@ -48,7 +36,10 @@
                     ],
                     "activation": "Tanh",
                     "head_bias": true,
-                    "slimmable": {}
+                    "slimmable": {
+                        "method": "slice_channels_uniform",
+                        "kwargs": {}
+                    }
                 }
             ],
             "head_scale": 0.02
