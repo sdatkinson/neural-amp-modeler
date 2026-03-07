@@ -2,6 +2,7 @@
 # Created Date: Friday May 5th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import numpy as _np
 import pytest as _pytest
 import torch as _torch
 
@@ -1044,6 +1045,169 @@ class TestFiLM:
         film2.import_weights(film1.export_weights(), 0)
         y2 = film2(x, c)
         assert _torch.allclose(y1, y2)
+
+
+class TestSlimmableWaveNet:
+    """Tests for slimmable (channel-slicing) WaveNet training."""
+
+    def test_slimmable_config_builds_and_forward(self):
+        """WaveNet with slimmable config builds and forward runs in train and eval."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+
+        model.train()
+        y_train = model(x)
+        assert y_train.shape == x.shape
+
+        model.eval()
+        y_eval = model(x)
+        assert y_eval.shape == x.shape
+
+    def test_slimmable_export_full_size(self):
+        """Slimmable WaveNet exports full-size weights."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        weights = model._export_weights()
+        assert isinstance(weights, (list, _torch.Tensor, _np.ndarray))
+        if hasattr(weights, "shape"):
+            assert weights.ndim == 1
+        else:
+            assert len(weights) > 0
+
+    def test_slimmable_with_head1x1_raises(self):
+        """Slimmable + head 1x1 raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 2,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "head_1x1_config": {"active": True, "out_channels": 2},
+                    "slimmable": {},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="head 1x1"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_film_raises(self):
+        """Slimmable + FiLM raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "film_params": {"conv_pre_film": {"active": True}},
+                    "slimmable": {},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="FiLM"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_condition_dsp_raises(self):
+        """Slimmable + condition_dsp raises NotImplementedError."""
+        cond_config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {},
+                }
+            ],
+            "head_scale": 1.0,
+            "condition_dsp": {"name": "WaveNet", "config": cond_config},
+        }
+        with _pytest.raises(NotImplementedError, match="condition_dsp"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_groups_raises(self):
+        """Slimmable + groups > 1 raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "groups_input": 2,
+                    "slimmable": {},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="groups"):
+            _WaveNet.init_from_config(config)
 
 
 if __name__ == "__main__":
