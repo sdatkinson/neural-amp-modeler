@@ -27,18 +27,18 @@ import torch as _torch
 import torch.nn as _nn
 from pydantic import BaseModel as _BaseModel
 
-from ._abc import ImportsWeights as _ImportsWeights
-from ._activations import (
+from .._abc import ImportsWeights as _ImportsWeights
+from .._activations import (
     PairBlend as _PairBlend,
     PairMultiply as _PairMultiply,
     PairingActivation as _PairingActivation,
     export_activation_config as _export_activation_config,
     get_activation as _get_activation,
 )
-from .base import BaseNet as _BaseNet
-from ._constants import MODEL_VERSION as _EXPORT_VERSION
-from .metadata import Date as _Date
-from ._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
+from ..base import BaseNet as _BaseNet
+from .._constants import MODEL_VERSION as _EXPORT_VERSION
+from ..metadata import Date as _Date
+from .._names import ACTIVATION_NAME as _ACTIVATION_NAME, CONV_NAME as _CONV_NAME
 
 _logger = _logging.getLogger(__name__)
 
