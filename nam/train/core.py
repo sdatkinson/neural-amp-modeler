@@ -15,14 +15,12 @@ from enum import Enum as _Enum
 from functools import partial as _partial
 from pathlib import Path as _Path
 from time import time as _time
-from typing import (
-    Dict as _Dict,
-    NamedTuple as _NamedTuple,
-    Optional as _Optional,
-    Sequence as _Sequence,
-    Tuple as _Tuple,
-    Union as _Union,
-)
+from typing import Dict as _Dict
+from typing import NamedTuple as _NamedTuple
+from typing import Optional as _Optional
+from typing import Sequence as _Sequence
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
 import matplotlib.pyplot as _plt
 import numpy as _np
@@ -34,21 +32,20 @@ from pytorch_lightning.utilities.warnings import (
 )
 from torch.utils.data import DataLoader as _DataLoader
 
-from ..data import (
-    AbstractDataset as _AbstractDataset,
-    DataError as _DataError,
-    Split as _Split,
-    init_dataset as _init_dataset,
-    wav_to_np as _wav_to_np,
-    wav_to_tensor as _wav_to_tensor,
-)
+from ..data import AbstractDataset as _AbstractDataset
+from ..data import DataError as _DataError
+from ..data import Split as _Split
+from ..data import init_dataset as _init_dataset
+from ..data import wav_to_np as _wav_to_np
+from ..data import wav_to_tensor as _wav_to_tensor
 from ..models.exportable import Exportable as _Exportable
 from ..models.losses import esr as _ESR
 from ..models.metadata import UserMetadata as _UserMetadata
 from ..util import filter_warnings as _filter_warnings
-from ._version import PROTEUS_VERSION as _PROTEUS_VERSION, Version as _Version
-from .lightning_module import LightningModule as _LightningModule
 from . import metadata as _metadata
+from ._version import PROTEUS_VERSION as _PROTEUS_VERSION
+from ._version import Version as _Version
+from .lightning_module import LightningModule as _LightningModule
 
 # Training using the simplified trainers in NAM is done at 48k.
 STANDARD_SAMPLE_RATE = 48_000.0

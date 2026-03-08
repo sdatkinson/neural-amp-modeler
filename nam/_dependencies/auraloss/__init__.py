@@ -5,6 +5,4 @@
 # https://github.com/Atkinson-Advanced-Modeling/auraloss/commits/main
 
 # Import auraloss sub-modules
-from . import freq
-from . import time
-from . import perceptual
+from . import freq, perceptual, time

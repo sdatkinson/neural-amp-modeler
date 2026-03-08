@@ -7,7 +7,10 @@ Initialize models from .nam files
 """
 
 from copy import deepcopy as _deepcopy
-from typing import Any as _Any, Dict as _Dict, Optional as _Optional, Union as _Union
+from typing import Any as _Any
+from typing import Dict as _Dict
+from typing import Optional as _Optional
+from typing import Union as _Union
 
 import torch as _torch
 

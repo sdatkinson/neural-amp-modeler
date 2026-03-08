@@ -12,13 +12,14 @@ Usage:
 
 import abc as _abc
 import re as _re
-import requests as _requests
-import tkinter as _tk
 import sys as _sys
+import tkinter as _tk
 import webbrowser as _webbrowser
 from dataclasses import dataclass as _dataclass
 from enum import Enum as _Enum
 from functools import partial as _partial
+
+import requests as _requests
 
 try:  # Not supported in Colab
     from idlelib.tooltip import Hovertip
@@ -35,38 +36,30 @@ except ModuleNotFoundError:
 
 from pathlib import Path as _Path
 from tkinter import filedialog as _filedialog
-from typing import (
-    Any as _Any,
-    Callable as _Callable,
-    Dict as _Dict,
-    NamedTuple as _NamedTuple,
-    Optional as _Optional,
-    Sequence as _Sequence,
-)
+from typing import Any as _Any
+from typing import Callable as _Callable
+from typing import Dict as _Dict
+from typing import NamedTuple as _NamedTuple
+from typing import Optional as _Optional
+from typing import Sequence as _Sequence
 
 try:  # 3rd-party and 1st-party imports
     import torch as _torch
 
     from nam import __version__
     from nam.data import Split as _Split
-    from nam.train import core as _core
-    from nam.train.gui._resources import settings as _settings
-    from nam.models.metadata import (
-        GearType as _GearType,
-        UserMetadata as _UserMetadata,
-        ToneType as _ToneType,
-    )
+    from nam.models.metadata import GearType as _GearType
+    from nam.models.metadata import ToneType as _ToneType
+    from nam.models.metadata import UserMetadata as _UserMetadata
 
     # Ok private access here--this is technically allowed access
+    from nam.train import core as _core
     from nam.train import metadata as _metadata
-    from nam.train._names import (
-        INPUT_BASENAMES as _INPUT_BASENAMES,
-        LATEST_VERSION as _LATEST_VERSION,
-    )
-    from nam.train._version import (
-        Version as _Version,
-        get_current_version as _get_current_version,
-    )
+    from nam.train._names import INPUT_BASENAMES as _INPUT_BASENAMES
+    from nam.train._names import LATEST_VERSION as _LATEST_VERSION
+    from nam.train._version import Version as _Version
+    from nam.train._version import get_current_version as _get_current_version
+    from nam.train.gui._resources import settings as _settings
 
     _install_is_valid = True
     _HAVE_ACCELERATOR = _torch.cuda.is_available() or _torch.backends.mps.is_available()

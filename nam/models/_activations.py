@@ -4,13 +4,11 @@
 
 import abc as _abc
 from copy import deepcopy as _deepcopy
-from typing import (
-    Any as _Any,
-    Dict as _Dict,
-    Optional as _Optional,
-    Tuple as _Tuple,
-    Union as _Union,
-)
+from typing import Any as _Any
+from typing import Dict as _Dict
+from typing import Optional as _Optional
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
 import torch as _torch
 import torch.nn as _nn

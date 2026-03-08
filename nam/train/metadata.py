@@ -9,7 +9,8 @@ Information from the simplified trainers that is good to know about.
 # This isn't part of ../metadata because it's not necessarily worth knowing about--only
 # if you're using the simplified trainers!
 
-from typing import List as _List, Optional as _Optional
+from typing import List as _List
+from typing import Optional as _Optional
 
 from pydantic import BaseModel as _BaseModel
 

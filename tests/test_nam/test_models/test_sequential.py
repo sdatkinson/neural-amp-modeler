@@ -5,8 +5,8 @@
 import pytest as _pytest
 import torch as _torch
 
-from nam.models import linear as _linear
 from nam.models import conv_net as _conv_net
+from nam.models import linear as _linear
 from nam.models import sequential as _sequential
 
 from .base import Base as _Base

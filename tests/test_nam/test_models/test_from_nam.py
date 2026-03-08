@@ -5,7 +5,9 @@ Test loading from a .nam file
 import json as _json
 from pathlib import Path as _Path
 from tempfile import TemporaryDirectory as _TemporaryDirectory
-from typing import Callable as _Callable, Optional as _Optional
+from typing import Callable as _Callable
+from typing import Optional as _Optional
+
 import pytest as _pytest
 
 from nam.models import _from_nam

@@ -2,15 +2,16 @@
 # Created Date: Saturday October 18th 2025
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import copy as _copy
 import contextlib as _contextlib
+import copy as _copy
+
 import pytest as _pytest
 
+from nam.models import conv_net as _conv_net
 from nam.models import factory as _factory
 from nam.models import linear as _linear
-from nam.models import conv_net as _conv_net
-from nam.models import sequential as _sequential
 from nam.models import recurrent as _recurrent
+from nam.models import sequential as _sequential
 from nam.models import wavenet as _wavenet
 
 

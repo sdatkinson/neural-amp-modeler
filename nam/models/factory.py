@@ -2,8 +2,8 @@
 Factories (and registry of them) for models
 """
 
-from importlib import import_module as _import_module
 import logging as _logging
+from importlib import import_module as _import_module
 from typing import Any as _Any
 from typing import Callable as _Callable
 from typing import Dict as _Dict
@@ -14,8 +14,8 @@ from .base import BaseNet as _BaseNet
 from .conv_net import ConvNet as _ConvNet
 from .linear import Linear as _Linear
 from .recurrent import LSTM as _LSTM
-from .wavenet import WaveNet as _WaveNet
 from .sequential import Sequential as _Sequential
+from .wavenet import WaveNet as _WaveNet
 
 _logger = _logging.getLogger(__name__)
 

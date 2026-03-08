@@ -6,16 +6,13 @@ import numpy as _np
 import pytest as _pytest
 import torch as _torch
 
-from nam.models._activations import (
-    PairBlend as _PairBlend,
-    PairMultiply as _PairMultiply,
-)
+from nam.models._activations import PairBlend as _PairBlend
+from nam.models._activations import PairMultiply as _PairMultiply
 from nam.models.wavenet import WaveNet as _WaveNet
 from nam.models.wavenet import _FiLM
-from nam.train.core import (
-    Architecture as _Architecture,
-    get_wavenet_config as _get_wavenet_config,
-)
+from nam.train.core import Architecture as _Architecture
+from nam.train.core import get_wavenet_config as _get_wavenet_config
+
 from .base import Base as _Base
 
 _FILM_SLOTS = (
