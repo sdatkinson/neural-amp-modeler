@@ -5,23 +5,22 @@
 import json as _json
 from pathlib import Path as _Path
 from time import time as _time
-from typing import Optional as _Optional, Union as _Union
+from typing import Optional as _Optional
+from typing import Union as _Union
 from warnings import warn as _warn
 
 import matplotlib.pyplot as _plt
 import numpy as _np
 import pytorch_lightning as _pl
+import torch as _torch
 from pytorch_lightning.utilities.warnings import (
     PossibleUserWarning as _PossibleUserWarning,
 )
-import torch as _torch
 from torch.utils.data import DataLoader as _DataLoader
 
-from nam.data import (
-    ConcatDataset as _ConcatDataset,
-    Split as _Split,
-    init_dataset as _init_dataset,
-)
+from nam.data import ConcatDataset as _ConcatDataset
+from nam.data import Split as _Split
+from nam.data import init_dataset as _init_dataset
 from nam.train import lightning_module as _lightning_module
 from nam.util import filter_warnings as _filter_warnings
 

@@ -2,19 +2,17 @@
 # Created Date: Friday May 5th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import numpy as _np
 import pytest as _pytest
 import torch as _torch
 
-from nam.models._activations import (
-    PairBlend as _PairBlend,
-    PairMultiply as _PairMultiply,
-)
+from nam.models._activations import PairBlend as _PairBlend
+from nam.models._activations import PairMultiply as _PairMultiply
 from nam.models.wavenet import WaveNet as _WaveNet
-from nam.models.wavenet import _FiLM
-from nam.train.core import (
-    Architecture as _Architecture,
-    get_wavenet_config as _get_wavenet_config,
-)
+from nam.models.wavenet._film import FiLM as _FiLM
+from nam.train.core import Architecture as _Architecture
+from nam.train.core import get_wavenet_config as _get_wavenet_config
+
 from .base import Base as _Base
 
 _FILM_SLOTS = (
@@ -30,23 +28,36 @@ _FILM_SLOTS = (
 
 
 class TestWaveNet(_Base):
+    """Tests for WaveNet. Uses init_from_config for construction."""
+
+    _DEFAULT_CONFIG = {
+        "layers_configs": [
+            {
+                "input_size": 1,
+                "condition_size": 1,
+                "head_size": 1,
+                "channels": 1,
+                "kernel_size": 1,
+                "dilations": [1],
+                "activation": "Tanh",
+            }
+        ],
+        "head_scale": 1.0,
+    }
+
     @classmethod
     def setup_class(cls):
         C = _WaveNet
         args = ()
-        kwargs = {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "head_size": 1,
-                    "channels": 1,
-                    "kernel_size": 1,
-                    "dilations": [1],
-                }
-            ]
-        }
+        kwargs = {"config": cls._DEFAULT_CONFIG}
         super().setup_class(C, args, kwargs)
+
+    def _construct(self, C=None, args=None, kwargs=None):
+        """Build WaveNet via init_from_config; kwargs may contain 'config'."""
+        C = self._C if C is None else C
+        kwargs = self._kwargs if kwargs is None else kwargs
+        config = kwargs.get("config", self._DEFAULT_CONFIG)
+        return C.init_from_config(config)
 
     def test_import_weights(self):
         config = _get_wavenet_config(_Architecture.FEATHER)
@@ -1044,6 +1055,355 @@ class TestFiLM:
         film2.import_weights(film1.export_weights(), 0)
         y2 = film2(x, c)
         assert _torch.allclose(y1, y2)
+
+
+class TestSlimmableWaveNet:
+    """Tests for slimmable (channel-slicing) WaveNet training."""
+
+    def test_slimmable_config_builds_and_forward(self):
+        """WaveNet with slimmable config builds and forward runs in train and eval."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1, 2],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+
+        model.train()
+        y_train = model(x)
+        assert y_train.shape == x.shape
+
+        model.eval()
+        y_eval = model(x)
+        assert y_eval.shape == x.shape
+
+    def test_slimmable_export_full_size(self):
+        """Slimmable WaveNet exports full-size weights."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        weights = model._export_weights()
+        assert isinstance(weights, (list, _torch.Tensor, _np.ndarray))
+        if hasattr(weights, "shape"):
+            assert weights.ndim == 1
+        else:
+            assert len(weights) > 0
+
+    def test_slimmable_with_head1x1_raises(self):
+        """Slimmable + head 1x1 raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 2,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "head_1x1_config": {"active": True, "out_channels": 2},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="head 1x1"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_film_raises(self):
+        """Slimmable + FiLM raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "film_params": {"conv_pre_film": {"active": True}},
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="FiLM"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_condition_dsp_raises(self):
+        """Slimmable + condition_dsp raises NotImplementedError."""
+        cond_config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 2,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                }
+            ],
+            "head_scale": 1.0,
+            "condition_dsp": {"name": "WaveNet", "config": cond_config},
+        }
+        with _pytest.raises(NotImplementedError, match="condition_dsp"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_groups_raises(self):
+        """Slimmable + groups > 1 raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "groups_input": 2,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="groups"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_with_multiple_layer_arrays_raises(self):
+        """Slimmable + more than one layer array raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                },
+                {
+                    "input_size": 4,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+                },
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="more than one layer array"):
+            _WaveNet.init_from_config(config)
+
+    def test_slimmable_unsupported_format_raises(self):
+        """Slimmable with unsupported format raises NotImplementedError."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {},  # Need to define how to slim!
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(NotImplementedError, match="slice_channels_uniform"):
+            _WaveNet.init_from_config(config)
+
+        # Some other unsupported method
+        config["layers_configs"][0]["slimmable"] = {
+            "method": "other_method",
+            "kwargs": {},
+        }
+        with _pytest.raises(NotImplementedError, match="slice_channels_uniform"):
+            _WaveNet.init_from_config(config)
+
+    # --- Extended slimmable capability tests ---
+
+    def _slimmable_config(self, **layer_overrides):
+        """Base slimmable config with optional layer overrides."""
+        base = {
+            "input_size": 1,
+            "condition_size": 1,
+            "head_size": 1,
+            "channels": 4,
+            "kernel_size": 2,
+            "dilations": [1, 2],
+            "activation": "Tanh",
+            "head_bias": True,
+            "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
+        }
+        base.update(layer_overrides)
+        return {"layers_configs": [base], "head_scale": 1.0}
+
+    def test_slimmable_is_slimmable_returns_true(self):
+        """Slimmable model reports is_slimmable() as True."""
+        config = self._slimmable_config()
+        model = _WaveNet.init_from_config(config)
+        assert model._net.is_slimmable() is True
+
+    def test_slimmable_set_slimming_forward_at_different_ratios(self):
+        """Forward runs at various set_slimming values (0.25, 0.5, 1.0)."""
+        config = self._slimmable_config()
+        model = _WaveNet.init_from_config(config)
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+        model.eval()
+        for ratio in (0.25, 0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
+        model._net.set_slimming(1.0)
+
+    def test_slimmable_context_adjust_to_random_restores(self):
+        """context_adjust_to_random restores full width after exit."""
+        config = self._slimmable_config()
+        model = _WaveNet.init_from_config(config)
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+        model.eval()
+        y_full = model(x)
+        with model._net.context_adjust_to_random():
+            _ = model(x)
+        # After context exit, should be back to full
+        y_after = model(x)
+        assert _torch.allclose(y_full, y_after)
+
+    def test_slimmable_weight_import_export_roundtrip(self):
+        """Weight export/import roundtrip preserves full-width behavior."""
+        config = self._slimmable_config()
+        model_1 = _WaveNet.init_from_config(config)
+        model_2 = _WaveNet.init_from_config(config)
+        rf = model_1.receptive_field
+        x = _torch.randn(2, rf + 23)
+        model_1.eval()
+        model_2.eval()
+        y1 = model_1(x)
+        y2_before = model_2(x)
+        model_2._net.import_weights(
+            _torch.from_numpy(model_1._export_weights().astype(_np.float32)), 0
+        )
+        y2_after = model_2(x)
+        assert not _torch.allclose(y2_before, y1)
+        assert _torch.allclose(y2_after, y1)
+
+    def test_slimmable_with_layer1x1_builds_and_forward(self):
+        """Slimmable with layer1x1 (bottleneck == channels) builds and runs."""
+        config = self._slimmable_config(
+            channels=4,
+            bottleneck=4,
+            layer_1x1_config={"active": True, "groups": 1},
+        )
+        model = _WaveNet.init_from_config(config)
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+        model.eval()
+        for ratio in (0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
+
+    def test_slimmable_with_pairing_activation_builds_and_forward(self):
+        """Slimmable with PairMultiply activation builds and runs."""
+        config = self._slimmable_config(
+            channels=4,
+            activation={
+                "name": "PairMultiply",
+                "primary": "Tanh",
+                "secondary": "Sigmoid",
+            },
+        )
+        model = _WaveNet.init_from_config(config)
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+        model.eval()
+        for ratio in (0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
+
+    def test_slimmable_export_config_includes_slimmable(self):
+        """Exported config includes slimmable when model is slimmable."""
+        config = self._slimmable_config()
+        model = _WaveNet.init_from_config(config)
+        exported = model._export_config()
+        assert "slimmable" in exported["layers"][0]
+        assert exported["layers"][0]["slimmable"] == {
+            "method": "slice_channels_uniform",
+            "kwargs": {},
+        }
+
+    def test_slimmable_layer1x1_groups_raises(self):
+        """Slimmable + layer1x1 groups != 1 raises NotImplementedError."""
+        config = self._slimmable_config()
+        config["layers_configs"][0]["layer_1x1_config"] = {
+            "active": True,
+            "groups": 2,
+        }
+        with _pytest.raises(NotImplementedError, match="layer 1x1 groups"):
+            _WaveNet.init_from_config(config)
 
 
 if __name__ == "__main__":

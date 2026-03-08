@@ -137,3 +137,7 @@ def nam_full():
         args.no_show,
         make_plots=not args.no_plots,
     )
+
+
+if __name__ == "__main__":
+    nam_full()

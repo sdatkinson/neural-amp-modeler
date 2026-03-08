@@ -9,6 +9,7 @@ Loss functions
 from typing import Optional as _Optional
 
 import torch as _torch
+
 from .._dependencies.auraloss.freq import (
     MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss,
 )

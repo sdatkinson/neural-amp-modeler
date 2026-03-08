@@ -14,14 +14,12 @@ from copy import deepcopy as _deepcopy
 from dataclasses import dataclass as _dataclass
 from enum import Enum as _Enum
 from pathlib import Path as _Path
-from typing import (
-    Any as _Any,
-    Callable as _Callable,
-    Optional as _Optional,
-    Sequence as _Sequence,
-    Tuple as _Tuple,
-    Union as _Union,
-)
+from typing import Any as _Any
+from typing import Callable as _Callable
+from typing import Optional as _Optional
+from typing import Sequence as _Sequence
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
 import librosa as _librosa
 import numpy as _np
@@ -30,10 +28,8 @@ import wavio as _wavio
 from torch.utils.data import Dataset as _Dataset
 from tqdm import tqdm as _tqdm
 
-from ._core import (
-    InitializableFromConfig as _InitializableFromConfig,
-    WithTeardown as _WithTeardown,
-)
+from ._core import InitializableFromConfig as _InitializableFromConfig
+from ._core import WithTeardown as _WithTeardown
 from ._handshake import HandshakeError as _HandshakeError
 
 logger = _logging.getLogger(__name__)

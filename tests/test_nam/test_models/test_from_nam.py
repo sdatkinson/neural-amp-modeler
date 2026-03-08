@@ -5,7 +5,9 @@ Test loading from a .nam file
 import json as _json
 from pathlib import Path as _Path
 from tempfile import TemporaryDirectory as _TemporaryDirectory
-from typing import Callable as _Callable, Optional as _Optional
+from typing import Callable as _Callable
+from typing import Optional as _Optional
+
 import pytest as _pytest
 
 from nam.models import _from_nam
@@ -99,9 +101,9 @@ def _compare_lstm_configs(
 @_pytest.mark.parametrize(
     "factory,kwargs,comparison",
     (
-        # A standard WaveNet
+        # A standard WaveNet (use init_from_config; WaveNet is built from config)
         (
-            _WaveNet,  # i.e. .__init__()
+            lambda **kw: _WaveNet.init_from_config(kw),
             {
                 "layers_configs": [
                     {

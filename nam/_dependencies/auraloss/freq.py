@@ -1,9 +1,10 @@
-import torch
-import numpy as np
-from typing import List, Any
+from typing import Any, List
 
+import numpy as np
+import torch
+
+from .perceptual import FIRFilter, SumAndDifference
 from .utils import apply_reduction, get_window
-from .perceptual import SumAndDifference, FIRFilter
 
 
 class SpectralConvergenceLoss(torch.nn.Module):

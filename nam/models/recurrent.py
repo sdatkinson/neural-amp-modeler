@@ -12,7 +12,8 @@ import abc as _abc
 import json as _json
 from pathlib import Path as _Path
 from tempfile import TemporaryDirectory as _TemporaryDirectory
-from typing import Optional as _Optional, Tuple as _Tuple
+from typing import Optional as _Optional
+from typing import Tuple as _Tuple
 
 import numpy as _np
 import torch as _torch

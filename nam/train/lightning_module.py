@@ -10,19 +10,17 @@ along with loss function boilerplate.
 For the base *PyTorch* model containing the actual architecture, see `..models.base`.
 """
 
+import logging as _logging
 from dataclasses import dataclass as _dataclass
 from enum import Enum as _Enum
-from typing import (
-    Callable as _Callable,
-    Any as _Any,
-    Dict as _Dict,
-    NamedTuple as _NamedTuple,
-    Optional as _Optional,
-    Tuple as _Tuple,
-    Union as _Union,
-)
+from typing import Any as _Any
+from typing import Callable as _Callable
+from typing import Dict as _Dict
+from typing import NamedTuple as _NamedTuple
+from typing import Optional as _Optional
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
-import logging as _logging
 import pytorch_lightning as _pl
 import torch as _torch
 import torch.nn as _nn
@@ -31,16 +29,15 @@ from .._core import InitializableFromConfig as _InitializableFromConfig
 from .._dependencies import auraloss as _auraloss
 from ..models.base import BaseNet as _BaseNet
 from ..models.conv_net import ConvNet as _ConvNet
+from ..models.factory import init as _init_model
+from ..models.factory import register as _register_model
 from ..models.linear import Linear as _Linear
-from ..models.losses import (
-    apply_pre_emphasis_filter as _apply_pre_emphasis_filter,
-    esr as _esr,
-    multi_resolution_stft_loss as _multi_resolution_stft_loss,
-    mse as _mse,
-    mse_fft as _mse_fft,
-)
+from ..models.losses import apply_pre_emphasis_filter as _apply_pre_emphasis_filter
+from ..models.losses import esr as _esr
+from ..models.losses import mse as _mse
+from ..models.losses import mse_fft as _mse_fft
+from ..models.losses import multi_resolution_stft_loss as _multi_resolution_stft_loss
 from ..models.recurrent import LSTM as _LSTM
-from ..models.factory import init as _init_model, register as _register_model
 from ..models.wavenet import WaveNet as _WaveNet
 from ..util import init as _init
 

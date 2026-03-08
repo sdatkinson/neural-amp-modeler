@@ -1,6 +1,6 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal
-import matplotlib.pyplot as plt
 
 
 def compare_filters(iir_b, iir_a, fir_b, fs=1):

@@ -4,10 +4,7 @@
 import pytest as _pytest
 import torch as _torch
 
-from nam.models._activations import (
-    PairingActivation,
-    get_activation,
-)
+from nam.models._activations import PairingActivation, get_activation
 
 # -----------------------------------------------------------------------------
 # PyTorch core library activations

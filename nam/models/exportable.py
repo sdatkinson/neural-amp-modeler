@@ -8,19 +8,18 @@ import logging as _logging
 from datetime import datetime as _datetime
 from enum import Enum as _Enum
 from pathlib import Path as _Path
-from typing import (
-    Any as _Any,
-    Dict as _Dict,
-    Optional as _Optional,
-    Sequence as _Sequence,
-    Tuple as _Tuple,
-    Union as _Union,
-)
+from typing import Any as _Any
+from typing import Dict as _Dict
+from typing import Optional as _Optional
+from typing import Sequence as _Sequence
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
 import numpy as _np
 
 from ._constants import MODEL_VERSION as _MODEL_VERSION
-from .metadata import Date as _Date, UserMetadata as _UserMetadata
+from .metadata import Date as _Date
+from .metadata import UserMetadata as _UserMetadata
 
 logger = _logging.getLogger(__name__)
 
@@ -37,6 +36,11 @@ def _cast_enums(d: _Dict[_Any, _Any]) -> _Dict[_Any, _Any]:
             val = _cast_enums(val)
         out[key] = val
     return out
+
+
+_JsonDumpable = (
+    dict[str, "_JsonDumpable"] | list["_JsonDumpable"] | str | int | float | bool | None
+)
 
 
 class Exportable(_abc.ABC):
@@ -118,7 +122,7 @@ class Exportable(_abc.ABC):
         )
 
     @_abc.abstractmethod
-    def _export_config(self):
+    def _export_config(self) -> _JsonDumpable:
         """
         Creates the JSON of the model's archtecture hyperparameters (number of layers,
         number of units, etc)
@@ -147,7 +151,7 @@ class Exportable(_abc.ABC):
     def _get_export_architecture(self) -> str:
         return self.__class__.__name__
 
-    def _get_export_dict(self):
+    def _get_export_dict(self) -> _Dict[str, _JsonDumpable]:
         return {
             "version": _MODEL_VERSION,
             "metadata": self._get_non_user_metadata(),
@@ -156,7 +160,7 @@ class Exportable(_abc.ABC):
             "weights": self._export_weights().tolist(),
         }
 
-    def _get_non_user_metadata(self) -> _Dict[str, _Union[str, int, float]]:
+    def _get_non_user_metadata(self) -> _Dict[str, _JsonDumpable]:
         """
         Get any metadata that's non-user-provided (date, loudness, gain)
         """
