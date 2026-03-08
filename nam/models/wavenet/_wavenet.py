@@ -18,6 +18,7 @@ from .._constants import MODEL_VERSION as _EXPORT_VERSION
 from .._names import ACTIVATION_NAME as _ACTIVATION_NAME
 from .._names import CONV_NAME as _CONV_NAME
 from ..metadata import Date as _Date
+from ._conv import Conv1d as _Conv1d
 from ._layer_array import LayerArray as _LayerArray
 from ._layer_array import film_params_from_dict as _film_params_from_dict
 from ._slimmable import Slimmable as _Slimmable
@@ -37,7 +38,7 @@ class _Head(_nn.Module):
         def block(cx, cy):
             net = _nn.Sequential()
             net.add_module(_ACTIVATION_NAME, _get_activation(activation))
-            net.add_module(_CONV_NAME, Conv1d(cx, cy, 1))
+            net.add_module(_CONV_NAME, _Conv1d(cx, cy, 1))
             return net
 
         assert num_layers > 0

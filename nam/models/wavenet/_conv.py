@@ -2,18 +2,13 @@
 Convolutional layers for WaveNet.
 """
 
-import abc as _abc
 from typing import NamedTuple as _NamedTuple
-from typing import Optional as _Optional
 from typing import Sequence as _Sequence
-from typing import Tuple as _Tuple
 
-import numpy as _np
 import torch as _torch
 import torch.nn as _nn
 
 from .._abc import ImportsWeights as _ImportsWeights
-from ._slimmable import Slimmable as _Slimmable
 
 
 class Conv1d(_nn.Conv1d, _ImportsWeights):

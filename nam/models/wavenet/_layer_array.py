@@ -1,10 +1,8 @@
-from copy import deepcopy as _deepcopy
 from typing import Any as _Any
 from typing import Dict as _Dict
 from typing import Optional as _Optional
 from typing import Sequence as _Sequence
 from typing import Tuple as _Tuple
-from typing import Union as _Union
 
 import torch as _torch
 import torch.nn as _nn
