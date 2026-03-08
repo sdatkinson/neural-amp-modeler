@@ -88,7 +88,14 @@ def _validate_slimmable_config(
     - layer_1x1 with groups != 1
     """
 
-    if any("slimmable" in lc for lc in layers_configs) and len(layers_configs) > 1:
+    def _has_slimmable(lc):
+        s = lc.get("slimmable")
+        return s is not None and (not isinstance(s, dict) or s.get("method"))
+
+    if not any(_has_slimmable(lc) for lc in layers_configs):
+        return
+
+    if len(layers_configs) > 1:
         raise NotImplementedError(
             "Slimmable training with more than one layer array may have bugs"
         )
@@ -97,18 +104,18 @@ def _validate_slimmable_config(
             "Slimmable training with condition_dsp is not supported"
         )
     for lc in layers_configs:
-        if "slimmable" not in lc:
+        if not _has_slimmable(lc):
             continue
         if lc.get("groups_input", 1) != 1 or lc.get("groups_input_mixin", 1) != 1:
             raise NotImplementedError(
                 "Slimmable training with groups > 1 is not supported"
             )
-        head_1x1 = lc.get("head_1x1_config") or lc.get("head1x1") or {}
+        head_1x1 = lc.get("head_1x1_config") or {}
         if isinstance(head_1x1, dict) and head_1x1.get("active", False):
             raise NotImplementedError(
                 "Slimmable training with head 1x1 is not supported"
             )
-        layer_1x1 = lc.get("layer_1x1_config") or lc.get("layer1x1") or {}
+        layer_1x1 = lc.get("layer_1x1_config") or {}
         if isinstance(layer_1x1, dict) and layer_1x1.get("groups", 1) != 1:
             raise NotImplementedError(
                 "Slimmable training with layer 1x1 groups != 1 is not supported"
@@ -156,6 +163,7 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
 
         condition_dsp_config = config.pop("condition_dsp", None)
         layers_configs = config.pop("layers_configs", [])
+        _validate_slimmable_config(layers_configs, condition_dsp_config)
         head_config = config.pop("head", None)
         head_scale = config.pop("head_scale", 1.0)
 
@@ -202,8 +210,8 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
             # Build condition_dsp export dict without running forward (condition_dsp
             # may have multiple output channels; WaveNet wrapper asserts 1 channel).
             assert isinstance(
-                self._condition_dsp, _WaveNet
-            ), "The following assumes that the condition DSP is a _WaveNet"
+                self._condition_dsp, WaveNet
+            ), "The following assumes that the condition DSP is a WaveNet"
             t = _datetime.now()
             condition_dsp_dict = {
                 "version": _EXPORT_VERSION,

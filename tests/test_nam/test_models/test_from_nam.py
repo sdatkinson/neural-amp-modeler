@@ -101,9 +101,9 @@ def _compare_lstm_configs(
 @_pytest.mark.parametrize(
     "factory,kwargs,comparison",
     (
-        # A standard WaveNet
+        # A standard WaveNet (use init_from_config; WaveNet is built from config)
         (
-            _WaveNet,  # i.e. .__init__()
+            lambda **kw: _WaveNet.init_from_config(kw),
             {
                 "layers_configs": [
                     {

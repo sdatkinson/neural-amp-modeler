@@ -78,9 +78,11 @@ def _nam_layer_activation_to_init(
 
 def _convert_nam_layer_array_config(layer_config: _Dict[str, _Any]) -> _Dict[str, _Any]:
     """
-    Convert a layer array config from .nam export format to _LayerArray __init__
-    kwargs. Strips gating_mode / secondary_activation and re-parses activation.
-    Renames head1x1 (export key) to head_1x1_config, layer1x1 to layer_1x1_config.
+    Convert a layer array config from .nam export format to _LayerArray init format.
+    .nam files use head1x1, layer1x1, and flat FiLM keys (conv_pre_film, etc.).
+    Strips gating_mode / secondary_activation and re-parses activation.
+    Renames head1x1 -> head_1x1_config, layer1x1 -> layer_1x1_config.
+    Collects flat FiLM keys into film_params for internal use.
     """
     lc = _deepcopy(layer_config)
     gating_modes = lc.pop("gating_mode", None)
@@ -101,7 +103,8 @@ def _convert_nam_layer_array_config(layer_config: _Dict[str, _Any]) -> _Dict[str
             new_activation.append(_nam_layer_activation_to_init(prim, gmode, sec))
         lc["activation"] = new_activation
 
-    # FiLM params: collect flat keys into film_params for _LayerArray
+    # FiLM: .nam uses flat keys only; discard film_params if present, collect flat keys
+    assert "film_params" not in lc
     _film_keys = (
         "conv_pre_film",
         "conv_post_film",
@@ -123,15 +126,16 @@ def _convert_nam_layer_array_config(layer_config: _Dict[str, _Any]) -> _Dict[str
 
 
 def _init_wavenet(config, sample_rate: _Optional[float]) -> _WaveNet:
-    # This might have some issues with activation parameters no setting appropriately.
+    # This might have some issues with activation parameters not setting appropriately.
     # Need to look closer.
     layers_configs = [_convert_nam_layer_array_config(lc) for lc in config["layers"]]
-    return _WaveNet(
-        layers_configs=layers_configs,
-        head_config=config["head"],
-        head_scale=config["head_scale"],
-        sample_rate=sample_rate,
-    )
+    full_config = {
+        "layers_configs": layers_configs,
+        "head": config["head"],
+        "head_scale": config["head_scale"],
+        "sample_rate": sample_rate,
+    }
+    return _WaveNet.init_from_config(full_config)
 
 
 def init_from_nam(config) -> _BaseNet:

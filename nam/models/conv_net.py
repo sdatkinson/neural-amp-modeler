@@ -18,7 +18,6 @@ import torch as _torch
 import torch.nn as _nn
 import torch.nn.functional as _F
 
-from .. import __version__
 from ..data import wav_to_tensor as _wav_to_tensor
 from ._activations import PairingActivation as _PairingActivation
 from ._activations import get_activation as _get_activation

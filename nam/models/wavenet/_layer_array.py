@@ -120,14 +120,17 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
         kernel_size = config.pop("kernel_size")
         activation: _nn.Module = config.pop("activation")
 
+        film_params = config.pop("film_params", dict())
         film_configs = {
-            name: _FiLMParamsConfig.model_validate(config.pop(name, dict()))
+            name: _FiLMParamsConfig.model_validate(film_params.get(name, {}))
             for name in _FILM_NAMES
         }
 
-        head_1x1_config = _Head1x1Config.model_validate(config.pop("head1x1", dict()))
+        head_1x1_config = _Head1x1Config.model_validate(
+            config.pop("head_1x1_config", dict())
+        )
         layer_1x1_config = _Layer1x1Config.model_validate(
-            config.pop("layer1x1", dict())
+            config.pop("layer_1x1_config", dict())
         )
         groups_input = config.pop("groups_input", 1)
         groups_input_mixin = config.pop("groups_input_mixin", 1)
@@ -504,8 +507,12 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         head_bias = config.pop("head_bias", True)
         bottleneck = config.pop("bottleneck", channels)
 
-        head1x1_config = _Head1x1Config.model_validate(config.pop("head1x1", dict()))
-        layer1x1_config = _Layer1x1Config.model_validate(config.pop("layer1x1", dict()))
+        head1x1_config = _Head1x1Config.model_validate(
+            config.pop("head_1x1_config", dict())
+        )
+        layer1x1_config = _Layer1x1Config.model_validate(
+            config.pop("layer_1x1_config", dict())
+        )
         film_params = config.pop("film_params", dict())
         groups_input = config.pop("groups_input", 1)
         groups_input_mixin = config.pop("groups_input_mixin", 1)
@@ -595,7 +602,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                 if film is None
                 else _FiLMParamsConfig(
                     active=True, shift=film.shift, groups=film.groups
-                )
+                ).model_dump()
             )
 
         activations = []
