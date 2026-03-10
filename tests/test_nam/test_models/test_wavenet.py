@@ -501,6 +501,62 @@ class TestWaveNet(_Base):
         y = model(x)
         assert y.shape == x.shape
 
+    @_pytest.mark.parametrize("pairing_name", ["PairMultiply", "PairBlend"])
+    def test_layer_bottleneck_property_returns_internal_channels_for_pairing(
+        self, pairing_name: str
+    ):
+        """Layer.bottleneck returns internal channel count (not conv.out_channels) for pairing activations."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": {
+                        "name": pairing_name,
+                        "primary": "Tanh",
+                        "secondary": "Sigmoid",
+                    },
+                    "bottleneck": 2,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        layer = model._net._layer_arrays[0]._layers[0]
+        # For pairing, conv outputs 2*bottleneck=4; bottleneck property should return 2.
+        assert layer.conv.out_channels == 4
+        assert layer.bottleneck == 2
+        exported = model._net._layer_arrays[0].export_config()
+        assert exported["bottleneck"] == 2
+
+    def test_layer_bottleneck_property_returns_conv_out_channels_for_simple_activation(
+        self,
+    ):
+        """Layer.bottleneck returns conv.out_channels for non-pairing activations."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "bottleneck": 2,
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        layer = model._net._layer_arrays[0]._layers[0]
+        assert layer.conv.out_channels == 2
+        assert layer.bottleneck == 2
+
     def test_init_from_config_activation_mixed_per_layer(self):
         """WaveNet.init_from_config accepts different activations (basic and pair) per layer."""
         config = {
