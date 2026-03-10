@@ -17,10 +17,15 @@ from . import _conv
 from ._slimmable import Slimmable as _Slimmable
 
 
-def _ratio_to_channels(ratio: float, allowed_channels: _Sequence[int]) -> int:
-    """Convert ratio in [0, 1] to integer channel count, minimum 1."""
+def _ratio_to_channels(
+    ratio: float, allowed_channels: _Sequence[int]
+) -> _Tuple[int, int]:
+    """
+    Convert ratio in [0, 1] to integer channel count, minimum 1.
+    Also return the index of the chosen channel entry.
+    """
     i = min(int(_np.floor(ratio * len(allowed_channels))), len(allowed_channels) - 1)
-    return allowed_channels[i]
+    return allowed_channels[i], i
 
 
 class _AllowedChannelsValueError(ValueError):
@@ -38,6 +43,7 @@ class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
         groups: int = 1,
         allowed_in_channels: _Optional[_Sequence[int]] = None,
         allowed_out_channels: _Optional[_Sequence[int]] = None,
+        boosting: bool = False,
         **kwargs,
     ):
         if groups != 1:
@@ -55,6 +61,7 @@ class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
             if allowed_out_channels is not None
             else tuple(range(1, self.out_channels + 1))
         )
+        self._boosting = boosting
 
         def validate_allowed_channels(
             allowed_channels: _Sequence[int], max_channels: int
@@ -129,17 +136,35 @@ class _SlimmableRechannelIn(_conv.RechannelIn, SlimmableConv1dBase):
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        out_channels = _ratio_to_channels(
+        out_channels, i_out = _ratio_to_channels(
             self._slimming_value, self._allowed_out_channels
         )
-        in_channels = (
-            self.in_channels
-            if self._is_first
-            else _ratio_to_channels(self._slimming_value, self._allowed_in_channels)
+        if self._is_first:
+            in_channels = self.in_channels
+            i_in = 0
+        else:
+            in_channels, i_in = _ratio_to_channels(
+                self._slimming_value, self._allowed_in_channels
+            )
+        w_full = self.weight[:out_channels, :in_channels, :]
+        b_full = None if self.bias is None else self.bias[:out_channels]
+        if not self._boosting or (self._is_first or i_in == 0):
+            return w_full, b_full
+        in_channels_prev = self._allowed_in_channels[i_in - 1]
+        out_channels_prev = self._allowed_out_channels[i_out - 1]
+        w_prev = w_full[:out_channels_prev, :in_channels_prev, :]
+        w_diff = _torch.zeros_like(w_full)
+        w_diff[:out_channels_prev, :in_channels_prev, :] = (
+            self.weight[:out_channels_prev, :in_channels_prev, :].detach() - w_prev
         )
-        w = self.weight[:out_channels, :in_channels, :]
-        b = None if self.bias is None else self.bias[:out_channels]
-        return w, b
+        w = w_full + w_diff
+        if self.bias is None:
+            return w, None
+        b_slice = self.bias[:out_channels]
+        b_prev = b_slice[:out_channels_prev]
+        b_diff = _torch.zeros_like(b_slice)
+        b_diff[:out_channels_prev] = self.bias[:out_channels_prev].detach() - b_prev
+        return w, b_slice + b_diff
 
 
 class _SlimmableLayerConv(_conv.LayerConv, SlimmableConv1dBase):
@@ -182,13 +207,31 @@ class _SlimmableLayerConv(_conv.LayerConv, SlimmableConv1dBase):
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        in_channels = _ratio_to_channels(
+        in_channels, i_in = _ratio_to_channels(
             self._slimming_value, self._allowed_in_channels
         )
         out_channels = 2 * in_channels if self._output_paired else in_channels
-        w = self.weight[:out_channels, :in_channels, :]
-        b = None if self.bias is None else self.bias[:out_channels]
-        return w, b
+        w_full = self.weight[:out_channels, :in_channels, :]
+        b_full = None if self.bias is None else self.bias[:out_channels]
+        if not self._boosting or i_in == 0:
+            return w_full, b_full
+        in_channels_prev = self._allowed_in_channels[i_in - 1]
+        out_channels_prev = (
+            2 * in_channels_prev if self._output_paired else in_channels_prev
+        )
+        w_prev = w_full[:out_channels_prev, :in_channels_prev, :]
+        w_diff = _torch.zeros_like(w_full)
+        w_diff[:out_channels_prev, :in_channels_prev, :] = (
+            self.weight[:out_channels_prev, :in_channels_prev, :].detach() - w_prev
+        )
+        w = w_full + w_diff
+        if self.bias is None:
+            return w, None
+        b_slice = self.bias[:out_channels]
+        b_prev = b_slice[:out_channels_prev]
+        b_diff = _torch.zeros_like(b_slice)
+        b_diff[:out_channels_prev] = self.bias[:out_channels_prev].detach() - b_prev
+        return w, b_slice + b_diff
 
 
 class _SlimmableInputMixer(_conv.InputMixer, SlimmableConv1dBase):
@@ -232,12 +275,27 @@ class _SlimmableInputMixer(_conv.InputMixer, SlimmableConv1dBase):
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        out_channels = _ratio_to_channels(
+        out_channels, i_out = _ratio_to_channels(
             self._slimming_value, self._allowed_out_channels
         )
-        w = self.weight[:out_channels, :, :]
-        b = None if self.bias is None else self.bias[:out_channels]
-        return w, b
+        w_full = self.weight[:out_channels, :, :]
+        b_full = None if self.bias is None else self.bias[:out_channels]
+        if not self._boosting or i_out == 0:
+            return w_full, b_full
+        out_channels_prev = self._allowed_out_channels[i_out - 1]
+        w_prev = w_full[:out_channels_prev, :, :]
+        w_diff = _torch.zeros_like(w_full)
+        w_diff[:out_channels_prev, :, :] = (
+            self.weight[:out_channels_prev, :, :].detach() - w_prev
+        )
+        w = w_full + w_diff
+        if self.bias is None:
+            return w, None
+        b_slice = self.bias[:out_channels]
+        b_prev = b_slice[:out_channels_prev]
+        b_diff = _torch.zeros_like(b_slice)
+        b_diff[:out_channels_prev] = self.bias[:out_channels_prev].detach() - b_prev
+        return w, b_slice + b_diff
 
 
 class _SlimmableLayer1x1(SlimmableConv1dBase):
@@ -246,15 +304,31 @@ class _SlimmableLayer1x1(SlimmableConv1dBase):
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        in_channels = _ratio_to_channels(
+        in_channels, i_in = _ratio_to_channels(
             self._slimming_value, self._allowed_in_channels
         )
-        out_channels = _ratio_to_channels(
+        out_channels, _ = _ratio_to_channels(
             self._slimming_value, self._allowed_out_channels
         )
-        w = self.weight[:out_channels, :in_channels, :]
-        b = None if self.bias is None else self.bias[:out_channels]
-        return w, b
+        w_full = self.weight[:out_channels, :in_channels, :]
+        b_full = None if self.bias is None else self.bias[:out_channels]
+        if not self._boosting or i_in == 0:
+            return w_full, b_full
+        in_channels_prev = self._allowed_in_channels[i_in - 1]
+        out_channels_prev = self._allowed_out_channels[i_in - 1]
+        w_prev = w_full[:out_channels_prev, :in_channels_prev, :]
+        w_diff = _torch.zeros_like(w_full)
+        w_diff[:out_channels_prev, :in_channels_prev, :] = (
+            self.weight[:out_channels_prev, :in_channels_prev, :].detach() - w_prev
+        )
+        w = w_full + w_diff
+        if self.bias is None:
+            return w, None
+        b_slice = self.bias[:out_channels]
+        b_prev = b_slice[:out_channels_prev]
+        b_diff = _torch.zeros_like(b_slice)
+        b_diff[:out_channels_prev] = self.bias[:out_channels_prev].detach() - b_prev
+        return w, b_slice + b_diff
 
 
 class _SlimmableHead1x1(SlimmableConv1dBase):
@@ -321,17 +395,40 @@ class _SlimmableHeadRechannel(_conv.HeadRechannel, SlimmableConv1dBase):
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        in_channels = _ratio_to_channels(
+        in_channels, i_in = _ratio_to_channels(
             self._slimming_value, self._allowed_in_channels
         )
-        out_channels = (
+        if self._is_last:
+            out_channels = self._allowed_out_channels[0]
+            out_channels_prev = out_channels
+            i_out = i_in
+        else:
+            out_channels, i_out = _ratio_to_channels(
+                self._slimming_value, self._allowed_out_channels
+            )
+        w_full = self.weight[:out_channels, :in_channels, :]
+        b_full = None if self.bias is None else self.bias[:out_channels]
+        if not self._boosting or i_in == 0:
+            return w_full, b_full
+        in_channels_prev = self._allowed_in_channels[i_in - 1]
+        out_channels_prev = (
             self._allowed_out_channels[0]
             if self._is_last
-            else _ratio_to_channels(self._slimming_value, self._allowed_out_channels)
+            else self._allowed_out_channels[i_out - 1]
         )
-        w = self.weight[:out_channels, :in_channels, :]
-        b = None if self.bias is None else self.bias[:out_channels]
-        return w, b
+        w_prev = w_full[:out_channels_prev, :in_channels_prev, :]
+        w_diff = _torch.zeros_like(w_full)
+        w_diff[:out_channels_prev, :in_channels_prev, :] = (
+            self.weight[:out_channels_prev, :in_channels_prev, :].detach() - w_prev
+        )
+        w = w_full + w_diff
+        if self.bias is None:
+            return w, None
+        b_slice = self.bias[:out_channels]
+        b_prev = b_slice[:out_channels_prev]
+        b_diff = _torch.zeros_like(b_slice)
+        b_diff[:out_channels_prev] = self.bias[:out_channels_prev].detach() - b_prev
+        return w, b_slice + b_diff
 
 
 class_set = _conv.ClassSet(

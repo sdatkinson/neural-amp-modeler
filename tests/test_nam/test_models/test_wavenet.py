@@ -10,9 +10,11 @@ from nam.models._activations import PairBlend as _PairBlend
 from nam.models._activations import PairMultiply as _PairMultiply
 from nam.models.wavenet import WaveNet as _WaveNet
 from nam.models.wavenet._film import FiLM as _FiLM
+from nam.models.wavenet._slimmable import Slimmable as _Slimmable
 from nam.models.wavenet._slimmable_conv import (
     SlimmableConv1dBase as _SlimmableConv1dBase,
 )
+from nam.models.wavenet._slimmable_conv import class_set as _slimmable_class_set
 from nam.train.core import Architecture as _Architecture
 from nam.train.core import get_wavenet_config as _get_wavenet_config
 
@@ -1572,6 +1574,116 @@ class TestSlimmableWaveNet:
             y = model(x)
             assert y.shape == x.shape
         model._net.set_slimming(1.0)
+
+    # --- Boosting tests ---
+
+    def test_boosting_same_weight_bias_values_as_non_boosting(self):
+        """
+        Weight and bias tensors from _get_adjusted_weight_and_bias are identical
+        regardless of whether _boosting is True or False.
+        """
+        allowed = (3, 12)
+        slimming_ratio = 1.0  # Uses 12 channels, previous would be 3
+        for layer_cls, layer_kwargs in [
+            (
+                _slimmable_class_set.LayerConv,
+                {
+                    "in_channels": 12,
+                    "out_channels": 24,
+                    "kernel_size": 3,
+                    "allowed_in_channels": allowed,
+                    "allowed_out_channels": (6, 24),
+                    "output_paired": True,
+                },
+            ),
+            (
+                _slimmable_class_set.InputMixer,
+                {
+                    "in_channels": 1,
+                    "out_channels": 24,
+                    "kernel_size": 1,
+                    "allowed_in_channels": (1,),
+                    "allowed_out_channels": (6, 24),
+                    "output_paired": True,
+                    "bias": False,
+                },
+            ),
+            (
+                _slimmable_class_set.Layer1x1,
+                {
+                    "in_channels": 12,
+                    "out_channels": 12,
+                    "kernel_size": 1,
+                    "allowed_in_channels": allowed,
+                    "allowed_out_channels": allowed,
+                },
+            ),
+            (
+                _slimmable_class_set.HeadRechannel,
+                {
+                    "in_channels": 12,
+                    "out_channels": 1,
+                    "kernel_size": 1,
+                    "allowed_in_channels": allowed,
+                    "allowed_out_channels": (1,),
+                    "is_last": True,
+                },
+            ),
+        ]:
+            layer_no_boost = layer_cls(boosting=False, **layer_kwargs)
+            layer_boost = layer_cls(boosting=True, **layer_kwargs)
+            with _torch.no_grad():
+                layer_boost.weight.copy_(layer_no_boost.weight)
+                if layer_no_boost.bias is not None:
+                    layer_boost.bias.copy_(layer_no_boost.bias)
+            layer_no_boost.set_slimming(slimming_ratio)
+            layer_boost.set_slimming(slimming_ratio)
+            w_no, b_no = layer_no_boost._get_adjusted_weight_and_bias()
+            w_yes, b_yes = layer_boost._get_adjusted_weight_and_bias()
+            assert _torch.allclose(
+                w_no, w_yes
+            ), f"{layer_cls.__name__}: weight mismatch"
+            if b_no is not None and b_yes is not None:
+                assert _torch.allclose(
+                    b_no, b_yes
+                ), f"{layer_cls.__name__}: bias mismatch"
+
+    def test_boosting_grads_to_previous_entries_are_zero(self):
+        """
+        When backpropagating with _boosting=True, gradients to the 'previous'
+        (next-smallest channel count) entries in weight and bias are zero.
+        """
+        allowed = (3, 12)
+        slimming_ratio = 1.0  # Current=12, previous=3
+        layer = _slimmable_class_set.LayerConv(
+            in_channels=12,
+            out_channels=24,
+            kernel_size=3,
+            allowed_in_channels=allowed,
+            allowed_out_channels=(6, 24),
+            output_paired=True,
+            boosting=True,
+        )
+        assert isinstance(layer, _Slimmable)
+        layer.set_slimming(slimming_ratio)
+        # Previous slice: out_prev=6, in_prev=3
+        out_prev, in_prev = 6, 3
+        x = _torch.randn(2, 12, 20, requires_grad=True)
+        w, b = layer._get_adjusted_weight_and_bias()
+        out = _torch.nn.functional.conv1d(x, w, b, stride=1, padding=layer.padding)
+        loss = out.sum()
+        loss.backward()
+        assert layer.weight.grad is not None
+        grad_prev = layer.weight.grad[:out_prev, :in_prev, :]
+        assert _torch.allclose(
+            grad_prev, _torch.zeros_like(grad_prev)
+        ), "Gradients to previous weight entries should be zero"
+        if layer.bias is not None and layer.bias.requires_grad:
+            assert layer.bias.grad is not None
+            grad_bias_prev = layer.bias.grad[:out_prev]
+            assert _torch.allclose(
+                grad_bias_prev, _torch.zeros_like(grad_bias_prev)
+            ), "Gradients to previous bias entries should be zero"
 
 
 if __name__ == "__main__":

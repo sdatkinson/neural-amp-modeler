@@ -130,6 +130,11 @@ def _get_conv_factory_set(
             "(single layer array); multi-array support is not yet implemented"
         )
     allowed_tuple = tuple(allowed)
+    boosting = (
+        slimmable_config.get("kwargs", {}).get("boosting", False)
+        if slimmable_config
+        else False
+    )
 
     cls = conv_class_set
 
@@ -148,6 +153,7 @@ def _get_conv_factory_set(
             allowed_in_channels=allowed_in,
             allowed_out_channels=allowed_out,
             is_first=is_first,
+            boosting=boosting,
             **kwargs,
         )
 
@@ -172,6 +178,7 @@ def _get_conv_factory_set(
             allowed_in_channels=allowed_in,
             allowed_out_channels=allowed_out,
             output_paired=output_paired,
+            boosting=boosting,
             **kwargs,
         )
 
@@ -195,6 +202,7 @@ def _get_conv_factory_set(
             allowed_in_channels=allowed_in,
             allowed_out_channels=allowed_out,
             output_paired=output_paired,
+            boosting=boosting,
             **kwargs,
         )
 
@@ -208,6 +216,7 @@ def _get_conv_factory_set(
             *args,
             allowed_in_channels=allowed_both,
             allowed_out_channels=allowed_both,
+            boosting=boosting,
             **kwargs,
         )
 
@@ -229,6 +238,7 @@ def _get_conv_factory_set(
             allowed_in_channels=allowed_in,
             allowed_out_channels=allowed_out,
             is_last=is_last,
+            boosting=boosting,
             **kwargs,
         )
 
