@@ -37,7 +37,8 @@
                             "allowed_channels": [
                                 3,
                                 12
-                            ]
+                            ],
+                            "boosting": true
                         }
                     }
                 }
