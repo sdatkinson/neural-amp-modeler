@@ -10,6 +10,9 @@ from nam.models._activations import PairBlend as _PairBlend
 from nam.models._activations import PairMultiply as _PairMultiply
 from nam.models.wavenet import WaveNet as _WaveNet
 from nam.models.wavenet._film import FiLM as _FiLM
+from nam.models.wavenet._slimmable_conv import (
+    SlimmableConv1dBase as _SlimmableConv1dBase,
+)
 from nam.train.core import Architecture as _Architecture
 from nam.train.core import get_wavenet_config as _get_wavenet_config
 
@@ -1460,6 +1463,115 @@ class TestSlimmableWaveNet:
         }
         with _pytest.raises(NotImplementedError, match="layer 1x1 groups"):
             _WaveNet.init_from_config(config)
+
+    # --- allowed_channels tests ---
+
+    def _allowed_channels_config(
+        self,
+        channels: int = 12,
+        allowed: tuple[int, ...] = (3, 12),
+        layer1x1_active: bool = True,
+        activation: str | dict = "LeakyReLU",
+    ) -> dict:
+        """Config with allowed_channels. Single layer array, no head1x1/FiLM."""
+        layer = {
+            "input_size": 1,
+            "condition_size": 1,
+            "head_size": 1,
+            "channels": channels,
+            "kernel_size": 2,
+            "dilations": [1, 2],
+            "activation": activation,
+            "head_bias": True,
+            "slimmable": {
+                "method": "slice_channels_uniform",
+                "kwargs": {"allowed_channels": list(allowed)},
+            },
+        }
+        if layer1x1_active:
+            layer["layer_1x1_config"] = {"active": True, "groups": 1}
+        return {"layers_configs": [layer], "head_scale": 1.0}
+
+    def _ratio_to_channels(self, ratio: float, allowed: tuple[int, ...]) -> int:
+        """Same logic as slimmable_conv._ratio_to_channels."""
+        n = len(allowed)
+        i = min(int(_np.floor(ratio * n)), n - 1)
+        return allowed[max(0, i)]
+
+    def _collect_slimmable_convs(self, model: _WaveNet):
+        """Collect all SlimmableConv1dBase modules (excluding Head1x1)."""
+        convs = []
+        for m in model._net.modules():
+            if isinstance(m, _SlimmableConv1dBase):
+                # Skip Head1x1 (not implemented for slimmable)
+                if "Head1x1" in type(m).__name__:
+                    continue
+                convs.append(m)
+        return convs
+
+    def test_allowed_channels_adjusted_weight_bias_shapes(self):
+        """_get_adjusted_weight_and_bias returns expected shapes at each slimming ratio."""
+        config = self._allowed_channels_config(channels=12, allowed=(3, 12))
+        model = _WaveNet.init_from_config(config)
+        model.eval()
+        net = model._net
+        convs = self._collect_slimmable_convs(model)
+
+        for ratio in (0.0, 1.0):
+            net.set_slimming(ratio)
+            ch = self._ratio_to_channels(ratio, (3, 12))
+
+            for conv in convs:
+                w, b = conv._get_adjusted_weight_and_bias()
+                # Conv1d weight: (out_ch, in_ch, kernel)
+                assert w.ndim == 3
+                out_ch, in_ch, k = w.shape
+                assert out_ch >= 1 and in_ch >= 1 and k >= 1
+                # No dimension exceeds full size
+                assert out_ch <= conv.out_channels
+                assert in_ch <= conv.in_channels
+                assert k == conv.weight.shape[2]
+                if b is not None:
+                    assert b.ndim == 1
+                    assert b.shape[0] == out_ch
+                # Bias should match output channels
+                assert b is None or b.numel() == out_ch
+
+    def test_allowed_channels_forward_passes(self):
+        """Forward runs at all slimming ratios for allowed_channels config."""
+        config = self._allowed_channels_config(channels=12, allowed=(3, 12))
+        model = _WaveNet.init_from_config(config)
+        model.eval()
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+
+        for ratio in (0.0, 0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
+        model._net.set_slimming(1.0)
+
+    def test_allowed_channels_with_pairing_activation_forward(self):
+        """allowed_channels + PairMultiply forward at different ratios."""
+        config = self._allowed_channels_config(
+            channels=12,
+            allowed=(3, 12),
+            activation={
+                "name": "PairMultiply",
+                "primary": "Tanh",
+                "secondary": "Sigmoid",
+            },
+        )
+        model = _WaveNet.init_from_config(config)
+        model.eval()
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+
+        for ratio in (0.0, 0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
+        model._net.set_slimming(1.0)
 
 
 if __name__ == "__main__":

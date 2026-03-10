@@ -152,7 +152,6 @@ def wav_to_np(
         preroll: _Optional[int] = None,
         info: bool = False,
     ):
-
         x_wav, float_sample_rate = _librosa.load(str(filename), sr=None, mono=False)
         sample_rate = int(float_sample_rate)
         if _np.abs(sample_rate - float_sample_rate) > 0.0001:

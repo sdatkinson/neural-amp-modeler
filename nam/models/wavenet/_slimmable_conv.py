@@ -6,6 +6,7 @@ Implements the "channel slicing" method introduced in https://arxiv.org/abs/2511
 
 import abc as _abc
 from typing import Optional as _Optional
+from typing import Sequence as _Sequence
 from typing import Tuple as _Tuple
 
 import numpy as _np
@@ -16,20 +17,67 @@ from . import _conv
 from ._slimmable import Slimmable as _Slimmable
 
 
-def _ratio_to_channels(ratio: float, max_size: int) -> int:
+def _ratio_to_channels(ratio: float, allowed_channels: _Sequence[int]) -> int:
     """Convert ratio in [0, 1] to integer channel count, minimum 1."""
-    return 1 + min(int(_np.floor((ratio * max_size))), max_size - 1)
+    i = min(int(_np.floor(ratio * len(allowed_channels))), len(allowed_channels) - 1)
+    return allowed_channels[i]
 
 
-class _SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
+class _AllowedChannelsValueError(ValueError):
+    """Error raised when allowed channels are invalid."""
+
+    pass
+
+
+class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
     """Base for slimmable 1D conv layers. Subclasses implement _get_adjusted_weight_and_bias."""
 
-    def __init__(self, *args, groups: int = 1, **kwargs):
+    def __init__(
+        self,
+        *args,
+        groups: int = 1,
+        allowed_in_channels: _Optional[_Sequence[int]] = None,
+        allowed_out_channels: _Optional[_Sequence[int]] = None,
+        **kwargs,
+    ):
         if groups != 1:
             raise NotImplementedError(
                 "Slimmable conv layers with groups != 1 are not implemented"
             )
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, groups=groups, **kwargs)
+        self._allowed_in_channels = (
+            allowed_in_channels
+            if allowed_in_channels is not None
+            else tuple(range(1, self.in_channels + 1))
+        )
+        self._allowed_out_channels = (
+            allowed_out_channels
+            if allowed_out_channels is not None
+            else tuple(range(1, self.out_channels + 1))
+        )
+
+        def validate_allowed_channels(
+            allowed_channels: _Sequence[int], max_channels: int
+        ) -> None:
+            if len(allowed_channels) == 0:
+                raise _AllowedChannelsValueError("Allowed channels must be non-empty")
+            if any(c > max_channels for c in allowed_channels):
+                raise _AllowedChannelsValueError(
+                    f"Allowed channels must be less than or equal to {max_channels}"
+                )
+            if any(c < 1 for c in allowed_channels):
+                raise _AllowedChannelsValueError(
+                    "Allowed channels must be greater than 0"
+                )
+            if len(allowed_channels) != len(set(allowed_channels)):
+                raise _AllowedChannelsValueError("Allowed channels must be unique")
+            if any(c % self.groups != 0 for c in allowed_channels):
+                raise _AllowedChannelsValueError(
+                    "Allowed channels must be divisible by groups"
+                )
+
+        validate_allowed_channels(self._allowed_in_channels, self.in_channels)
+        validate_allowed_channels(self._allowed_out_channels, self.out_channels)
 
     def forward(self, input: _torch.Tensor) -> _torch.Tensor:
         w, b = (
@@ -49,94 +97,167 @@ class _SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
         pass
 
 
-class _SlimmableRechannelIn(_SlimmableConv1dBase, _conv.RechannelIn):
+class _SlimmableRechannelIn(_conv.RechannelIn, SlimmableConv1dBase):
     """Rechannel into a layer array. First layer: slice out only. Later: slice in and out."""
 
-    def __init__(self, *args, is_first: bool = True, **kwargs):
+    def __init__(
+        self,
+        in_channels: int,
+        *args,
+        allowed_in_channels: _Optional[_Sequence[int]] = None,
+        is_first: bool = True,
+        **kwargs,
+    ):
         """
         :param is_first: Whether this is the first layer array in the WaveNet. If it is,
             then the input doesn't care about slimming, so you need to make sure that
             you always accept it at the same size.
         """
-        super().__init__(*args, **kwargs)
+        if is_first:
+            allowed_in_channels = (
+                [in_channels] if allowed_in_channels is None else allowed_in_channels
+            )
+            if len(allowed_in_channels) != 1 or allowed_in_channels[0] != in_channels:
+                raise ValueError(
+                    "Input channels must be fixed for the first layer array's rechannel-in layer."
+                )
+        super().__init__(
+            in_channels, *args, allowed_in_channels=allowed_in_channels, **kwargs
+        )
         self._is_first = is_first
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        out_channels = _ratio_to_channels(self._slimming_value, self.out_channels)
+        out_channels = _ratio_to_channels(
+            self._slimming_value, self._allowed_out_channels
+        )
         in_channels = (
             self.in_channels
             if self._is_first
-            else _ratio_to_channels(self._slimming_value, self.in_channels)
+            else _ratio_to_channels(self._slimming_value, self._allowed_in_channels)
         )
         w = self.weight[:out_channels, :in_channels, :]
         b = None if self.bias is None else self.bias[:out_channels]
         return w, b
 
 
-class _SlimmableConvLayer(_SlimmableConv1dBase, _conv.LayerConv):
+class _SlimmableLayerConv(_conv.LayerConv, SlimmableConv1dBase):
     """Layer conv: channels -> mid_channels. Gated: mid=2*ch, slice w[:2*adj,:adj,:]."""
 
-    def __init__(self, *args, output_paired: bool = False, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        *args,
+        output_paired: bool = False,
+        allowed_in_channels: _Optional[_Sequence[int]] = None,
+        allowed_out_channels: _Optional[_Sequence[int]] = None,
+        **kwargs,
+    ):
+        if output_paired:
+            allowed_in_channels = (
+                tuple(range(1, in_channels + 1))
+                if allowed_in_channels is None
+                else allowed_in_channels
+            )
+            allowed_out_channels = (
+                tuple(range(2, out_channels + 1, 2))
+                if allowed_out_channels is None
+                else allowed_out_channels
+            )
+            if any(c % 2 != 0 for c in allowed_out_channels):
+                raise ValueError("Output channels must be even if output is paired")
+
+        super().__init__(
+            in_channels,
+            out_channels,
+            *args,
+            allowed_in_channels=allowed_in_channels,
+            allowed_out_channels=allowed_out_channels,
+            **kwargs,
+        )
         self._output_paired = output_paired
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        max_channels = self.in_channels
-        in_channels = _ratio_to_channels(self._slimming_value, max_channels)
+        in_channels = _ratio_to_channels(
+            self._slimming_value, self._allowed_in_channels
+        )
         out_channels = 2 * in_channels if self._output_paired else in_channels
         w = self.weight[:out_channels, :in_channels, :]
         b = None if self.bias is None else self.bias[:out_channels]
         return w, b
 
 
-class _SlimmableInputMixer(_SlimmableConv1dBase, _conv.InputMixer):
+class _SlimmableInputMixer(_conv.InputMixer, SlimmableConv1dBase):
     """Input mixer: condition -> mid_channels. Slice output only."""
 
-    def __init__(self, *args, output_paired: bool = False, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        *args,
+        allowed_in_channels: _Optional[_Sequence[int]] = None,
+        allowed_out_channels: _Optional[_Sequence[int]] = None,
+        output_paired: bool = False,
+        **kwargs,
+    ):
+        allowed_in_channels = (
+            [in_channels] if allowed_in_channels is None else allowed_in_channels
+        )
+        if len(allowed_in_channels) != 1 or allowed_in_channels[0] != in_channels:
+            raise ValueError("Input channels must be 1 and equal to the input channels")
+        if output_paired:
+            allowed_out_channels = (
+                tuple(range(2, out_channels + 1, 2))
+                if allowed_out_channels is None
+                else allowed_out_channels
+            )
+            if any(c % 2 != 0 for c in allowed_out_channels):
+                raise ValueError("Output channels must be even if output is paired")
+
+        super().__init__(
+            in_channels,
+            out_channels,
+            *args,
+            allowed_in_channels=allowed_in_channels,
+            allowed_out_channels=allowed_out_channels,
+            output_paired=output_paired,
+            **kwargs,
+        )
         self._output_paired = output_paired
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        max_single_channels = (
-            self.out_channels // 2 if self._output_paired else self.out_channels
-        )
-        out_single_channels = _ratio_to_channels(
-            self._slimming_value, max_single_channels
-        )
-        out_channels = (
-            2 * out_single_channels if self._output_paired else out_single_channels
+        out_channels = _ratio_to_channels(
+            self._slimming_value, self._allowed_out_channels
         )
         w = self.weight[:out_channels, :, :]
         b = None if self.bias is None else self.bias[:out_channels]
         return w, b
 
 
-class _SlimmableLayer1x1(_SlimmableConv1dBase):
+class _SlimmableLayer1x1(SlimmableConv1dBase):
     """1x1 conv in residual path. Slice both in and out (must be equal for slimmable)."""
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        def max_adjust_size() -> int:
-            if self.in_channels != self.out_channels:
-                raise NotImplementedError(
-                    "Slimmable 1x1 conv with different input and output channels not implemented"
-                )
-            return self.in_channels
-
-        adj = _ratio_to_channels(self._slimming_value, max_adjust_size())
-        w = self.weight[:adj, :adj, :]
-        b = None if self.bias is None else self.bias[:adj]
+        in_channels = _ratio_to_channels(
+            self._slimming_value, self._allowed_in_channels
+        )
+        out_channels = _ratio_to_channels(
+            self._slimming_value, self._allowed_out_channels
+        )
+        w = self.weight[:out_channels, :in_channels, :]
+        b = None if self.bias is None else self.bias[:out_channels]
         return w, b
 
 
-class _SlimmableHead1x1(_SlimmableConv1dBase):
+class _SlimmableHead1x1(SlimmableConv1dBase):
     """
     1x1 conv to the head collector
     """
@@ -161,21 +282,52 @@ class _SlimmableHead1x1(_SlimmableConv1dBase):
         # return w, b
 
 
-class _SlimmableHeadRechannel(_SlimmableConv1dBase, _conv.HeadRechannel):
-    """Head rechannel: channels -> 1. Slice input channels only."""
+class _SlimmableHeadRechannel(_conv.HeadRechannel, SlimmableConv1dBase):
+    """
+    Head rechannel: output size si fixed on the last layer array."""
 
-    def __init__(self, *args, is_last: bool = False, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        *args,
+        allowed_in_channels: _Optional[_Sequence[int]] = None,
+        allowed_out_channels: _Optional[_Sequence[int]] = None,
+        is_last: bool = False,
+        **kwargs,
+    ):
+        if is_last:
+            allowed_out_channels = (
+                [out_channels] if allowed_out_channels is None else allowed_out_channels
+            )
+            if (
+                len(allowed_out_channels) != 1
+                or allowed_out_channels[0] != out_channels
+            ):
+                raise ValueError(
+                    "Output channels must be fixed for the last layer array's head rechannel layer."
+                )
+
+        super().__init__(
+            in_channels,
+            out_channels,
+            *args,
+            allowed_in_channels=allowed_in_channels,
+            allowed_out_channels=allowed_out_channels,
+            **kwargs,
+        )
         self._is_last = is_last
 
     def _get_adjusted_weight_and_bias(
         self,
     ) -> _Tuple[_torch.Tensor, _Optional[_torch.Tensor]]:
-        in_channels = _ratio_to_channels(self._slimming_value, self.in_channels)
+        in_channels = _ratio_to_channels(
+            self._slimming_value, self._allowed_in_channels
+        )
         out_channels = (
-            self.out_channels
+            self._allowed_out_channels[0]
             if self._is_last
-            else _ratio_to_channels(self._slimming_value, self.out_channels)
+            else _ratio_to_channels(self._slimming_value, self._allowed_out_channels)
         )
         w = self.weight[:out_channels, :in_channels, :]
         b = None if self.bias is None else self.bias[:out_channels]
@@ -184,7 +336,7 @@ class _SlimmableHeadRechannel(_SlimmableConv1dBase, _conv.HeadRechannel):
 
 class_set = _conv.ClassSet(
     RechannelIn=_SlimmableRechannelIn,
-    LayerConv=_SlimmableConvLayer,
+    LayerConv=_SlimmableLayerConv,
     InputMixer=_SlimmableInputMixer,
     Layer1x1=_SlimmableLayer1x1,
     Head1x1=_SlimmableHead1x1,

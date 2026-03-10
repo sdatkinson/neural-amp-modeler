@@ -30,7 +30,16 @@
                         227
                     ],
                     "activation": "LeakyReLU",
-                    "head_bias": true
+                    "head_bias": true,
+                    "slimmable": {
+                        "method": "slice_channels_uniform",
+                        "kwargs": {
+                            "allowed_channels": [
+                                3,
+                                12
+                            ]
+                        }
+                    }
                 }
             ],
             "head_scale": 0.01
