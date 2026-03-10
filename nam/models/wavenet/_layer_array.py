@@ -257,10 +257,14 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
 
     @property
     def bottleneck(self) -> int:
-        # Internal channel count. For pairing activations, conv outputs 2*bottleneck.
-        if isinstance(self._activation, _PairingActivation):
-            return self.conv.out_channels // 2
-        return self.conv.out_channels
+        """
+        The number of channels after the activation
+        """
+        return (
+            self.conv.out_channels // 2
+            if isinstance(self._activation, _PairingActivation)
+            else self.conv.out_channels
+        )
 
     @property
     def conv_pre_film(self) -> _Optional[_FiLM]:
