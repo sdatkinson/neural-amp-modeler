@@ -29,7 +29,7 @@ class _AllowedChannelsValueError(ValueError):
     pass
 
 
-class _SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
+class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
     """Base for slimmable 1D conv layers. Subclasses implement _get_adjusted_weight_and_bias."""
 
     def __init__(
@@ -97,7 +97,7 @@ class _SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
         pass
 
 
-class _SlimmableRechannelIn(_conv.RechannelIn, _SlimmableConv1dBase):
+class _SlimmableRechannelIn(_conv.RechannelIn, SlimmableConv1dBase):
     """Rechannel into a layer array. First layer: slice out only. Later: slice in and out."""
 
     def __init__(
@@ -142,7 +142,7 @@ class _SlimmableRechannelIn(_conv.RechannelIn, _SlimmableConv1dBase):
         return w, b
 
 
-class _SlimmableLayerConv(_conv.LayerConv, _SlimmableConv1dBase):
+class _SlimmableLayerConv(_conv.LayerConv, SlimmableConv1dBase):
     """Layer conv: channels -> mid_channels. Gated: mid=2*ch, slice w[:2*adj,:adj,:]."""
 
     def __init__(
@@ -191,7 +191,7 @@ class _SlimmableLayerConv(_conv.LayerConv, _SlimmableConv1dBase):
         return w, b
 
 
-class _SlimmableInputMixer(_conv.InputMixer, _SlimmableConv1dBase):
+class _SlimmableInputMixer(_conv.InputMixer, SlimmableConv1dBase):
     """Input mixer: condition -> mid_channels. Slice output only."""
 
     def __init__(
@@ -240,7 +240,7 @@ class _SlimmableInputMixer(_conv.InputMixer, _SlimmableConv1dBase):
         return w, b
 
 
-class _SlimmableLayer1x1(_SlimmableConv1dBase):
+class _SlimmableLayer1x1(SlimmableConv1dBase):
     """1x1 conv in residual path. Slice both in and out (must be equal for slimmable)."""
 
     def _get_adjusted_weight_and_bias(
@@ -257,7 +257,7 @@ class _SlimmableLayer1x1(_SlimmableConv1dBase):
         return w, b
 
 
-class _SlimmableHead1x1(_SlimmableConv1dBase):
+class _SlimmableHead1x1(SlimmableConv1dBase):
     """
     1x1 conv to the head collector
     """
@@ -282,7 +282,7 @@ class _SlimmableHead1x1(_SlimmableConv1dBase):
         # return w, b
 
 
-class _SlimmableHeadRechannel(_conv.HeadRechannel, _SlimmableConv1dBase):
+class _SlimmableHeadRechannel(_conv.HeadRechannel, SlimmableConv1dBase):
     """
     Head rechannel: output size si fixed on the last layer array."""
 

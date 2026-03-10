@@ -21,6 +21,7 @@ from ._conv import class_set as _basic_class_set
 from ._film import FiLM as _FiLM
 from ._slimmable import SLIMMABLE_METHOD as _SLIMMABLE_METHOD
 from ._slimmable import Slimmable as _Slimmable
+from ._slimmable_conv import SlimmableConv1dBase as _SlimmableConv1dBase
 from ._slimmable_conv import class_set as _slimmable_class_set
 
 
@@ -64,6 +65,26 @@ def film_params_from_dict(d: _Optional[_Dict]) -> _FiLMParamsConfig:
     )
 
 
+class _ConvFactorySet:
+    """Holds conv factory callables that inject allowed_* when constructing layers."""
+
+    def __init__(
+        self,
+        RechannelIn: _Any,
+        LayerConv: _Any,
+        InputMixer: _Any,
+        Layer1x1: _Any,
+        Head1x1: _Any,
+        HeadRechannel: _Any,
+    ):
+        self.RechannelIn = RechannelIn
+        self.LayerConv = LayerConv
+        self.InputMixer = InputMixer
+        self.Layer1x1 = Layer1x1
+        self.Head1x1 = Head1x1
+        self.HeadRechannel = HeadRechannel
+
+
 def _get_conv_class_set(slimmable_config: _Optional[dict]) -> _conv.ClassSet:
     if slimmable_config is None:
         return _basic_class_set
@@ -74,6 +95,151 @@ def _get_conv_class_set(slimmable_config: _Optional[dict]) -> _conv.ClassSet:
             f"Slimmable config only supports method '{_SLIMMABLE_METHOD}', "
             f"got {slimmable_config.get('method', 'missing')!r}"
         )
+
+
+def _get_conv_factory_set(
+    slimmable_config: _Optional[dict],
+    *,
+    is_first: bool,
+    is_last: bool,
+    input_size: int,
+    condition_size: int,
+    channels: int,
+    bottleneck: int,
+    head_size: int,
+    head_rechannel_in_channels: int,
+) -> _conv.ClassSet | _ConvFactorySet:
+    """
+    Return a conv set (classes or factories) for constructing conv layers.
+    When allowed_channels is in slimmable kwargs, returns factories that inject
+    allowed_in_channels/allowed_out_channels. Otherwise returns the class set.
+    """
+    conv_class_set = _get_conv_class_set(slimmable_config)
+    allowed = (
+        slimmable_config.get("kwargs", {}).get("allowed_channels")
+        if slimmable_config
+        else None
+    )
+    if allowed is None:
+        return conv_class_set
+
+    # allowed_channels provided: must be single layer array for now
+    if not is_first or not is_last:
+        raise ValueError(
+            "allowed_channels is only supported when is_first and is_last "
+            "(single layer array); multi-array support is not yet implemented"
+        )
+    allowed_tuple = tuple(allowed)
+
+    cls = conv_class_set
+
+    # RechannelIn: is_first → allowed_in=[input_size], allowed_out=allowed_tuple
+    # Slimmable base validates allowed_* vs max channels; raises _AllowedChannelsValueError
+    def rechannel_in_factory(
+        in_ch: int, out_ch: int, *args: _Any, is_first: bool = True, **kwargs: _Any
+    ) -> _Any:
+        assert issubclass(cls.RechannelIn, _SlimmableConv1dBase)
+        allowed_in = (in_ch,) if is_first else allowed_tuple
+        allowed_out = allowed_tuple
+        return cls.RechannelIn(
+            in_ch,
+            out_ch,
+            *args,
+            allowed_in_channels=allowed_in,
+            allowed_out_channels=allowed_out,
+            is_first=is_first,
+            **kwargs,
+        )
+
+    # LayerConv: allowed_in=allowed_tuple; paired → allowed_out=2*allowed_in
+    # Slimmable base validates; raises _AllowedChannelsValueError if invalid
+    def layer_conv_factory(
+        in_ch: int,
+        out_ch: int,
+        *args: _Any,
+        output_paired: bool = False,
+        **kwargs: _Any,
+    ) -> _Any:
+        assert issubclass(cls.LayerConv, _SlimmableConv1dBase)
+        allowed_in = allowed_tuple
+        allowed_out = (
+            tuple(2 * c for c in allowed_tuple) if output_paired else allowed_tuple
+        )
+        return cls.LayerConv(
+            in_ch,
+            out_ch,
+            *args,
+            allowed_in_channels=allowed_in,
+            allowed_out_channels=allowed_out,
+            output_paired=output_paired,
+            **kwargs,
+        )
+
+    # InputMixer: allowed_in=[condition_size], allowed_out like LayerConv
+    def input_mixer_factory(
+        in_ch: int,
+        out_ch: int,
+        *args: _Any,
+        output_paired: bool = False,
+        **kwargs: _Any,
+    ) -> _Any:
+        assert issubclass(cls.InputMixer, _SlimmableConv1dBase)
+        allowed_in = (in_ch,)
+        allowed_out = (
+            tuple(2 * c for c in allowed_tuple) if output_paired else allowed_tuple
+        )
+        return cls.InputMixer(
+            in_ch,
+            out_ch,
+            *args,
+            allowed_in_channels=allowed_in,
+            allowed_out_channels=allowed_out,
+            output_paired=output_paired,
+            **kwargs,
+        )
+
+    # Layer1x1: in and out use same allowed; base validates vs in_channels, out_channels
+    def layer1x1_factory(in_ch: int, out_ch: int, *args: _Any, **kwargs: _Any) -> _Any:
+        allowed_both = allowed_tuple
+        assert issubclass(cls.Layer1x1, _SlimmableConv1dBase)
+        return cls.Layer1x1(
+            in_ch,
+            out_ch,
+            *args,
+            allowed_in_channels=allowed_both,
+            allowed_out_channels=allowed_both,
+            **kwargs,
+        )
+
+    # Head1x1: not fully implemented for slimmable; pass class through (no allowed)
+    def head1x1_factory(in_ch: int, out_ch: int, *args: _Any, **kwargs: _Any) -> _Any:
+        return cls.Head1x1(in_ch, out_ch, *args, **kwargs)
+
+    # HeadRechannel: is_last → allowed_out=[head_size], else allowed_out=allowed_tuple
+    def head_rechannel_factory(
+        in_ch: int, out_ch: int, *args: _Any, is_last: bool = False, **kwargs: _Any
+    ) -> _Any:
+        assert issubclass(cls.HeadRechannel, _SlimmableConv1dBase)
+        allowed_in = allowed_tuple
+        allowed_out = (out_ch,) if is_last else allowed_tuple
+        return cls.HeadRechannel(
+            in_ch,
+            out_ch,
+            *args,
+            allowed_in_channels=allowed_in,
+            allowed_out_channels=allowed_out,
+            is_last=is_last,
+            **kwargs,
+        )
+
+    return _ConvFactorySet(
+        RechannelIn=rechannel_in_factory,
+        LayerConv=layer_conv_factory,
+        InputMixer=input_mixer_factory,
+        Layer1x1=layer1x1_factory,
+        Head1x1=head1x1_factory,
+        HeadRechannel=head_rechannel_factory,
+    )
 
 
 class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
@@ -132,9 +298,7 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
         )
         groups_input = config.pop("groups_input", 1)
         groups_input_mixin = config.pop("groups_input_mixin", 1)
-        slimmable_config = config.pop("slimmable", None)
-
-        conv_class_set = _get_conv_class_set(slimmable_config)
+        conv_factory_set = config.pop("conv_factory_set")
 
         # Input mixer takes care of the bias
         mid_channels = (
@@ -142,7 +306,7 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
         )
         pairing_activation = isinstance(activation, _PairingActivation)
 
-        conv = conv_class_set.LayerConv(
+        conv = conv_factory_set.LayerConv(
             channels,
             mid_channels,
             kernel_size,
@@ -150,7 +314,7 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
             groups=groups_input,
             output_paired=pairing_activation,
         )
-        input_mixer = conv_class_set.InputMixer(
+        input_mixer = conv_factory_set.InputMixer(
             condition_size,
             mid_channels,
             1,
@@ -162,14 +326,14 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
         layer1x1 = (
             None
             if not layer_1x1_config.active
-            else conv_class_set.Layer1x1(
+            else conv_factory_set.Layer1x1(
                 bottleneck, channels, 1, groups=layer_1x1_config.groups
             )
         )
         head1x1 = (
             None
             if not head_1x1_config.active
-            else conv_class_set.Head1x1(
+            else conv_factory_set.Head1x1(
                 bottleneck,
                 head_1x1_config.out_channels,
                 1,
@@ -516,9 +680,22 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         groups_input_mixin = config.pop("groups_input_mixin", 1)
         slimmable_config = config.pop("slimmable", None)
 
-        conv_class_set = _get_conv_class_set(slimmable_config)
+        head_rechannel_in_channels = (
+            head1x1_config.out_channels if head1x1_config.active else bottleneck
+        )
+        conv_factory_set = _get_conv_factory_set(
+            slimmable_config,
+            is_first=is_first,
+            is_last=is_last,
+            input_size=input_size,
+            condition_size=condition_size,
+            channels=channels,
+            bottleneck=bottleneck,
+            head_size=head_size,
+            head_rechannel_in_channels=head_rechannel_in_channels,
+        )
 
-        rechannel = conv_class_set.RechannelIn(
+        rechannel = conv_factory_set.RechannelIn(
             input_size, channels, 1, bias=False, is_first=is_first
         )
 
@@ -550,16 +727,13 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                         "groups_input": groups_input,
                         "groups_input_mixin": groups_input_mixin,
                         "slimmable": slimmable_config,
+                        "conv_factory_set": conv_factory_set,
                     }
                 )
                 for d, a in zip(dilations, a_list)
             ]
         )
-        # Convert the head input to head_size (from head1x1 out_channels or bottleneck)
-        head_rechannel_in_channels = (
-            head1x1_config.out_channels if head1x1_config.active else bottleneck
-        )
-        head_rechannel = conv_class_set.HeadRechannel(
+        head_rechannel = conv_factory_set.HeadRechannel(
             head_rechannel_in_channels, head_size, 1, bias=head_bias, is_last=is_last
         )
 
