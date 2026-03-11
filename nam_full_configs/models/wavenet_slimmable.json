@@ -38,7 +38,8 @@
                                 3,
                                 12
                             ],
-                            "boosting": true
+                            "boosting": true,
+                            "init_strategy": "smallest_and_zeros"
                         }
                     }
                 }

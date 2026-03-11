@@ -34,6 +34,79 @@ class _AllowedChannelsValueError(ValueError):
     pass
 
 
+def _init_smallest_and_zeros(
+    module: _nn.Conv1d,
+    allowed_in_channels: _Sequence[int],
+    allowed_out_channels: _Sequence[int],
+) -> None:
+    """
+    Initialize Conv1d so the slice seen at smallest size gets standard init,
+    and the rest is zeroed. Uses allowed_channels[0] for in/out at smallest.
+    """
+    min_in = allowed_in_channels[0]
+    min_out = allowed_out_channels[0]
+    # Create a temp conv at smallest size; its reset_parameters gives standard init
+    temp = _nn.Conv1d(
+        min_in,
+        min_out,
+        module.kernel_size[0],
+        stride=module.stride[0],
+        padding=module.padding[0],
+        dilation=module.dilation[0],
+        groups=module.groups,
+        bias=module.bias is not None,
+    )
+    temp.reset_parameters()
+    # Copy initialized slice into full-weight tensor
+    module.weight.data[:min_out, :min_in, :] = temp.weight.data
+    # Zero the rest (extra output channels, extra input channels)
+    if min_out < module.out_channels:
+        module.weight.data[min_out:, :, :] = 0.0
+    if min_in < module.in_channels:
+        module.weight.data[:, min_in:, :] = 0.0
+    if module.bias is not None:
+        module.bias.data[:min_out] = temp.bias.data
+        module.bias.data[min_out:] = 0.0
+
+
+def _init_channel_causal(
+    module: _nn.Conv1d,
+    allowed_in_channels: _Sequence[int],
+    allowed_out_channels: _Sequence[int],
+) -> None:
+    """
+    Zero w[:c_out, c_in:, :] for each (c_in, c_out) so that smaller nets' outputs
+    are not influenced by bigger nets' extra input channels. Supports differing
+    allowed_in_channels and allowed_out_channels lengths by iterating through
+    (c_in, c_out) pairs in order of the minimum ratio at which each would be
+    used, alternating c_in and c_out increments according to which threshold
+    is reached next.
+    """
+    n_in = len(allowed_in_channels)
+    n_out = len(allowed_out_channels)
+    # (ratio, 0=in, 1=out, index) so that 'in' is processed before 'out' on ties
+    events: list[tuple[float, int, int]] = []
+    for i in range(1, n_in):
+        events.append((i / n_in, 0, i))
+    for i in range(1, n_out):
+        events.append((i / n_out, 1, i))
+    events.sort(key=lambda e: (e[0], e[1]))
+    i_in, i_out = 0, 0
+    c_in = allowed_in_channels[i_in]
+    c_out = allowed_out_channels[i_out]
+    if c_out < module.out_channels and c_in < module.in_channels:
+        module.weight.data[:c_out, c_in:, :] = 0.0
+    for _ratio, _typ, idx in events:
+        if _typ == 0:
+            i_in = idx
+        else:
+            i_out = idx
+        c_in = allowed_in_channels[i_in]
+        c_out = allowed_out_channels[i_out]
+        if c_out < module.out_channels and c_in < module.in_channels:
+            module.weight.data[:c_out, c_in:, :] = 0.0
+
+
 class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
     """Base for slimmable 1D conv layers. Subclasses implement _get_adjusted_weight_and_bias."""
 
@@ -44,6 +117,7 @@ class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
         allowed_in_channels: _Optional[_Sequence[int]] = None,
         allowed_out_channels: _Optional[_Sequence[int]] = None,
         boosting: bool = False,
+        init_strategy: _Optional[str] = None,
         **kwargs,
     ):
         if groups != 1:
@@ -62,6 +136,15 @@ class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
             else tuple(range(1, self.out_channels + 1))
         )
         self._boosting = boosting
+
+        if init_strategy == "smallest_and_zeros":
+            _init_smallest_and_zeros(
+                self, self._allowed_in_channels, self._allowed_out_channels
+            )
+        elif init_strategy == "channel_causal":
+            _init_channel_causal(
+                self, self._allowed_in_channels, self._allowed_out_channels
+            )
 
         def validate_allowed_channels(
             allowed_channels: _Sequence[int], max_channels: int

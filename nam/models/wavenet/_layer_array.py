@@ -130,11 +130,9 @@ def _get_conv_factory_set(
             "(single layer array); multi-array support is not yet implemented"
         )
     allowed_tuple = tuple(allowed)
-    boosting = (
-        slimmable_config.get("kwargs", {}).get("boosting", False)
-        if slimmable_config
-        else False
-    )
+    slimmable_kwargs = slimmable_config.get("kwargs", {}) if slimmable_config else {}
+    boosting = slimmable_kwargs.get("boosting", False)
+    init_strategy = slimmable_kwargs.get("init_strategy")
 
     cls = conv_class_set
 
@@ -154,6 +152,7 @@ def _get_conv_factory_set(
             allowed_out_channels=allowed_out,
             is_first=is_first,
             boosting=boosting,
+            init_strategy=init_strategy,
             **kwargs,
         )
 
@@ -179,6 +178,7 @@ def _get_conv_factory_set(
             allowed_out_channels=allowed_out,
             output_paired=output_paired,
             boosting=boosting,
+            init_strategy=init_strategy,
             **kwargs,
         )
 
@@ -203,6 +203,7 @@ def _get_conv_factory_set(
             allowed_out_channels=allowed_out,
             output_paired=output_paired,
             boosting=boosting,
+            init_strategy=init_strategy,
             **kwargs,
         )
 
@@ -217,6 +218,7 @@ def _get_conv_factory_set(
             allowed_in_channels=allowed_both,
             allowed_out_channels=allowed_both,
             boosting=boosting,
+            init_strategy=init_strategy,
             **kwargs,
         )
 
@@ -239,6 +241,7 @@ def _get_conv_factory_set(
             allowed_out_channels=allowed_out,
             is_last=is_last,
             boosting=boosting,
+            init_strategy=init_strategy,
             **kwargs,
         )
 

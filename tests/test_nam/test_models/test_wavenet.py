@@ -1575,6 +1575,169 @@ class TestSlimmableWaveNet:
             assert y.shape == x.shape
         model._net.set_slimming(1.0)
 
+    # --- init_strategy smallest_and_zeros tests ---
+
+    def _init_strategy_config(
+        self,
+        channels: int = 12,
+        allowed: tuple[int, ...] = (3, 12),
+        init_strategy: str = "smallest_and_zeros",
+    ) -> dict:
+        """Config with allowed_channels and init_strategy."""
+        layer = {
+            "input_size": 1,
+            "condition_size": 1,
+            "head_size": 1,
+            "channels": channels,
+            "kernel_size": 2,
+            "dilations": [1, 2],
+            "activation": "LeakyReLU",
+            "head_bias": True,
+            "slimmable": {
+                "method": "slice_channels_uniform",
+                "kwargs": {
+                    "allowed_channels": list(allowed),
+                    "init_strategy": init_strategy,
+                },
+            },
+        }
+        layer["layer_1x1_config"] = {"active": True, "groups": 1}
+        return {"layers_configs": [layer], "head_scale": 1.0}
+
+    def test_init_strategy_smallest_and_zeros_weight_bias_layout(self):
+        """With init_strategy=smallest_and_zeros, smallest slice has standard init, rest is zero."""
+        config = self._init_strategy_config(channels=12, allowed=(3, 12))
+        model = _WaveNet.init_from_config(config)
+        convs = self._collect_slimmable_convs(model)
+
+        for conv in convs:
+            min_in = conv._allowed_in_channels[0]
+            min_out = conv._allowed_out_channels[0]
+            w = conv.weight
+            # Smallest slice should have non-zero init (standard Kaiming/etc)
+            small_slice = w[:min_out, :min_in, :]
+            assert small_slice.numel() > 0
+            assert small_slice.abs().sum().item() > 0.0
+            # Extra output channels should be zero
+            if min_out < w.shape[0]:
+                assert w[min_out:, :, :].abs().sum().item() == 0.0
+            # Extra input channels should be zero
+            if min_in < w.shape[1]:
+                assert w[:, min_in:, :].abs().sum().item() == 0.0
+            # Bias: smallest slice non-zero (if bias exists), rest zero
+            if conv.bias is not None:
+                assert conv.bias[:min_out].abs().sum().item() > 0.0
+                if min_out < conv.bias.shape[0]:
+                    assert conv.bias[min_out:].abs().sum().item() == 0.0
+
+    def test_init_strategy_smallest_and_zeros_forward_passes(self):
+        """Model with init_strategy=smallest_and_zeros builds and forward runs at all ratios."""
+        config = self._init_strategy_config(channels=12, allowed=(3, 12))
+        model = _WaveNet.init_from_config(config)
+        model.eval()
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+
+        for ratio in (0.0, 0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
+        model._net.set_slimming(1.0)
+
+    def test_init_strategy_smallest_and_zeros_direct_layer(self):
+        """Direct SlimmableConv1dBase with init_strategy has correct weight/bias layout."""
+        layer = _slimmable_class_set.LayerConv(
+            in_channels=12,
+            out_channels=24,
+            kernel_size=3,
+            allowed_in_channels=(3, 12),
+            allowed_out_channels=(6, 24),
+            output_paired=True,
+            init_strategy="smallest_and_zeros",
+        )
+        min_in, min_out = 3, 6
+        w = layer.weight
+        assert w[:min_out, :min_in, :].abs().sum().item() > 0.0
+        assert w[min_out:, :, :].abs().sum().item() == 0.0
+        assert w[:, min_in:, :].abs().sum().item() == 0.0
+        if layer.bias is not None:
+            assert layer.bias[:min_out].abs().sum().item() > 0.0
+            assert layer.bias[min_out:].abs().sum().item() == 0.0
+
+    def test_init_strategy_none_uses_default_init(self):
+        """With init_strategy absent, model uses default PyTorch init (all params non-zero)."""
+        config = self._allowed_channels_config(channels=12, allowed=(3, 12))
+        # No init_strategy in kwargs
+        model = _WaveNet.init_from_config(config)
+        convs = self._collect_slimmable_convs(model)
+        for conv in convs:
+            assert conv.weight.abs().sum().item() > 0.0
+            if conv.bias is not None:
+                assert conv.bias.abs().sum().item() > 0.0
+
+    def test_init_strategy_channel_causal_full_model(self):
+        """Full model with channel_causal builds and forward runs (RechannelIn has differing lengths)."""
+        config = self._init_strategy_config(
+            channels=12, allowed=(3, 12), init_strategy="channel_causal"
+        )
+        model = _WaveNet.init_from_config(config)
+        model.eval()
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+        for ratio in (0.0, 0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
+
+    def test_init_strategy_channel_causal_direct_layer_same_in_out(self):
+        """Direct Layer1x1 with channel_causal has w[:c, c:, :] zero for each c."""
+        layer = _slimmable_class_set.Layer1x1(
+            in_channels=12,
+            out_channels=12,
+            kernel_size=1,
+            allowed_in_channels=(3, 12),
+            allowed_out_channels=(3, 12),
+            init_strategy="channel_causal",
+        )
+        w = layer.weight
+        for c in (3, 12):
+            if c < w.shape[0] and c < w.shape[1]:
+                assert w[:c, c:, :].abs().sum().item() == 0.0
+
+    def test_init_strategy_channel_causal_direct_layer_different_in_out(self):
+        """LayerConv with paired (c_out=2*c_in) has w[:c_out, c_in:, :] zero for each pair."""
+        layer = _slimmable_class_set.LayerConv(
+            in_channels=12,
+            out_channels=24,
+            kernel_size=3,
+            allowed_in_channels=(3, 12),
+            allowed_out_channels=(6, 24),
+            output_paired=True,
+            init_strategy="channel_causal",
+        )
+        w = layer.weight
+        for c_in, c_out in [(3, 6), (12, 24)]:
+            if c_out < w.shape[0] and c_in < w.shape[1]:
+                assert w[:c_out, c_in:, :].abs().sum().item() == 0.0
+
+    def test_init_strategy_channel_causal_different_lengths(self):
+        """channel_causal with differing allowed_in/out lengths zeros by ratio order."""
+        # allowed_in len 3, allowed_out len 2 -> thresholds in at 1/3,2/3; out at 1/2
+        # Order: (3,6), (6,6), (6,24), (12,24)
+        layer = _slimmable_class_set.LayerConv(
+            in_channels=12,
+            out_channels=24,
+            kernel_size=3,
+            allowed_in_channels=(3, 6, 12),
+            allowed_out_channels=(6, 24),
+            output_paired=True,
+            init_strategy="channel_causal",
+        )
+        w = layer.weight
+        for c_in, c_out in [(3, 6), (6, 6), (6, 24), (12, 24)]:
+            if c_out < w.shape[0] and c_in < w.shape[1]:
+                assert w[:c_out, c_in:, :].abs().sum().item() == 0.0
+
     # --- Boosting tests ---
 
     def test_boosting_same_weight_bias_values_as_non_boosting(self):
