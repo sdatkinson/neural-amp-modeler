@@ -1675,13 +1675,19 @@ class TestSlimmableWaveNet:
             if conv.bias is not None:
                 assert conv.bias.abs().sum().item() > 0.0
 
-    def test_init_strategy_channel_causal_full_model_raises(self):
-        """Full model with channel_causal raises due to RechannelIn's mismatched allowed lengths."""
+    def test_init_strategy_channel_causal_full_model(self):
+        """Full model with channel_causal builds and forward runs (RechannelIn has differing lengths)."""
         config = self._init_strategy_config(
             channels=12, allowed=(3, 12), init_strategy="channel_causal"
         )
-        with _pytest.raises(NotImplementedError, match="same length"):
-            _WaveNet.init_from_config(config)
+        model = _WaveNet.init_from_config(config)
+        model.eval()
+        rf = model.receptive_field
+        x = _torch.randn(2, rf + 16)
+        for ratio in (0.0, 0.5, 1.0):
+            model._net.set_slimming(ratio)
+            y = model(x)
+            assert y.shape == x.shape
 
     def test_init_strategy_channel_causal_direct_layer_same_in_out(self):
         """Direct Layer1x1 with channel_causal has w[:c, c:, :] zero for each c."""
@@ -1714,18 +1720,23 @@ class TestSlimmableWaveNet:
             if c_out < w.shape[0] and c_in < w.shape[1]:
                 assert w[:c_out, c_in:, :].abs().sum().item() == 0.0
 
-    def test_init_strategy_channel_causal_different_lengths_raises(self):
-        """channel_causal raises NotImplementedError when allowed_in/out differ in length."""
-        with _pytest.raises(NotImplementedError, match="same length"):
-            _slimmable_class_set.RechannelIn(
-                in_channels=1,
-                out_channels=12,
-                kernel_size=1,
-                allowed_in_channels=(1,),  # length 1
-                allowed_out_channels=(3, 12),  # length 2
-                is_first=True,
-                init_strategy="channel_causal",
-            )
+    def test_init_strategy_channel_causal_different_lengths(self):
+        """channel_causal with differing allowed_in/out lengths zeros by ratio order."""
+        # allowed_in len 3, allowed_out len 2 -> thresholds in at 1/3,2/3; out at 1/2
+        # Order: (3,6), (6,6), (6,24), (12,24)
+        layer = _slimmable_class_set.LayerConv(
+            in_channels=12,
+            out_channels=24,
+            kernel_size=3,
+            allowed_in_channels=(3, 6, 12),
+            allowed_out_channels=(6, 24),
+            output_paired=True,
+            init_strategy="channel_causal",
+        )
+        w = layer.weight
+        for c_in, c_out in [(3, 6), (6, 6), (6, 24), (12, 24)]:
+            if c_out < w.shape[0] and c_in < w.shape[1]:
+                assert w[:c_out, c_in:, :].abs().sum().item() == 0.0
 
     # --- Boosting tests ---
 

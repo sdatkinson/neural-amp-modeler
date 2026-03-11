@@ -76,17 +76,33 @@ def _init_channel_causal(
 ) -> None:
     """
     Zero w[:c_out, c_in:, :] for each (c_in, c_out) so that smaller nets' outputs
-    are not influenced by bigger nets' extra input channels. Requires
-    allowed_in_channels and allowed_out_channels to have the same length (raises
-    NotImplementedError otherwise). Supports differing in/out values; uses
-    w[:c_out, c_in:, :] = 0 for each (c_in, c_out) pair.
+    are not influenced by bigger nets' extra input channels. Supports differing
+    allowed_in_channels and allowed_out_channels lengths by iterating through
+    (c_in, c_out) pairs in order of the minimum ratio at which each would be
+    used, alternating c_in and c_out increments according to which threshold
+    is reached next.
     """
-    if len(allowed_in_channels) != len(allowed_out_channels):
-        raise NotImplementedError(
-            "init_strategy 'channel_causal' requires allowed_in_channels and "
-            "allowed_out_channels to have the same length"
-        )
-    for c_out, c_in in zip(allowed_out_channels, allowed_in_channels):
+    n_in = len(allowed_in_channels)
+    n_out = len(allowed_out_channels)
+    # (ratio, 0=in, 1=out, index) so that 'in' is processed before 'out' on ties
+    events: list[tuple[float, int, int]] = []
+    for i in range(1, n_in):
+        events.append((i / n_in, 0, i))
+    for i in range(1, n_out):
+        events.append((i / n_out, 1, i))
+    events.sort(key=lambda e: (e[0], e[1]))
+    i_in, i_out = 0, 0
+    c_in = allowed_in_channels[i_in]
+    c_out = allowed_out_channels[i_out]
+    if c_out < module.out_channels and c_in < module.in_channels:
+        module.weight.data[:c_out, c_in:, :] = 0.0
+    for _ratio, _typ, idx in events:
+        if _typ == 0:
+            i_in = idx
+        else:
+            i_out = idx
+        c_in = allowed_in_channels[i_in]
+        c_out = allowed_out_channels[i_out]
         if c_out < module.out_channels and c_in < module.in_channels:
             module.weight.data[:c_out, c_in:, :] = 0.0
 
