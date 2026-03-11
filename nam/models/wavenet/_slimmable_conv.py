@@ -69,6 +69,28 @@ def _init_smallest_and_zeros(
         module.bias.data[min_out:] = 0.0
 
 
+def _init_channel_causal(
+    module: _nn.Conv1d,
+    allowed_in_channels: _Sequence[int],
+    allowed_out_channels: _Sequence[int],
+) -> None:
+    """
+    Zero w[:c_out, c_in:, :] for each (c_in, c_out) so that smaller nets' outputs
+    are not influenced by bigger nets' extra input channels. Requires
+    allowed_in_channels and allowed_out_channels to have the same length (raises
+    NotImplementedError otherwise). Supports differing in/out values; uses
+    w[:c_out, c_in:, :] = 0 for each (c_in, c_out) pair.
+    """
+    if len(allowed_in_channels) != len(allowed_out_channels):
+        raise NotImplementedError(
+            "init_strategy 'channel_causal' requires allowed_in_channels and "
+            "allowed_out_channels to have the same length"
+        )
+    for c_out, c_in in zip(allowed_out_channels, allowed_in_channels):
+        if c_out < module.out_channels and c_in < module.in_channels:
+            module.weight.data[:c_out, c_in:, :] = 0.0
+
+
 class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
     """Base for slimmable 1D conv layers. Subclasses implement _get_adjusted_weight_and_bias."""
 
@@ -101,6 +123,10 @@ class SlimmableConv1dBase(_conv.Conv1d, _Slimmable):
 
         if init_strategy == "smallest_and_zeros":
             _init_smallest_and_zeros(
+                self, self._allowed_in_channels, self._allowed_out_channels
+            )
+        elif init_strategy == "channel_causal":
+            _init_channel_causal(
                 self, self._allowed_in_channels, self._allowed_out_channels
             )
 
