@@ -1825,31 +1825,31 @@ class TestSlimmableWaveNet:
         When backpropagating with _boosting=True, gradients to the 'previous'
         (next-smallest channel count) entries in weight and bias are zero.
         """
-        allowed = (3, 12)
+        allowed_in_channels = (3, 12)
+        allowed_out_channels = tuple(2 * c for c in allowed_in_channels)
         slimming_ratio = 1.0  # Current=12, previous=3
         layer = _slimmable_class_set.LayerConv(
-            in_channels=12,
-            out_channels=24,
+            in_channels=allowed_in_channels[-1],
+            out_channels=allowed_out_channels[-1],
             kernel_size=3,
-            allowed_in_channels=allowed,
-            allowed_out_channels=(6, 24),
+            allowed_in_channels=allowed_in_channels,
+            allowed_out_channels=allowed_out_channels,
             output_paired=True,
             boosting=True,
         )
         assert isinstance(layer, _Slimmable)
         layer.set_slimming(slimming_ratio)
         # Previous slice: out_prev=6, in_prev=3
-        out_prev, in_prev = 6, 3
-        x = _torch.randn(2, 12, 20, requires_grad=True)
-        w, b = layer._get_adjusted_weight_and_bias()
-        out = _torch.nn.functional.conv1d(x, w, b, stride=1, padding=layer.padding)
+        out_prev, in_prev = allowed_out_channels[0], allowed_in_channels[0]
+        x = _torch.randn(2, allowed_in_channels[-1], 20, requires_grad=True)
+        out = layer(x)
         loss = out.sum()
         loss.backward()
         assert layer.weight.grad is not None
         grad_prev = layer.weight.grad[:out_prev, :in_prev, :]
-        assert _torch.allclose(
-            grad_prev, _torch.zeros_like(grad_prev)
-        ), "Gradients to previous weight entries should be zero"
+        assert (
+            grad_prev == 0.0
+        ).all(), "Gradients to previous weight entries should be zero"
         if layer.bias is not None and layer.bias.requires_grad:
             assert layer.bias.grad is not None
             grad_bias_prev = layer.bias.grad[:out_prev]
