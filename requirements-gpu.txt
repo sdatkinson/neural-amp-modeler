@@ -1,0 +1,5 @@
+# requirements-gpu.txt
+# Install PyTorch with CUDA support for GPU acceleration
+# Adjust the CUDA version (cu118) as needed for your system
+
+torch torchvision --index-url https://download.pytorch.org/whl/cu129
