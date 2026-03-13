@@ -1451,10 +1451,19 @@ class TestSlimmableWaveNet:
         model = _WaveNet.init_from_config(config)
         exported = model._export_config()
         assert "slimmable" in exported["layers"][0]
-        assert exported["layers"][0]["slimmable"] == {
-            "method": "slice_channels_uniform",
-            "kwargs": {},
-        }
+        slim = exported["layers"][0]["slimmable"]
+        assert slim["method"] == "slice_channels_uniform"
+        assert "allowed_channels" in slim["kwargs"]
+        assert slim["kwargs"]["allowed_channels"] == [1, 2, 3, 4]
+
+    def test_slimmable_export_config_includes_explicit_allowed_channels(self):
+        """Exported slimmable config includes explicit allowed_channels from build."""
+        config = self._allowed_channels_config(channels=4, allowed=(2, 4))
+        model = _WaveNet.init_from_config(config)
+        exported = model._export_config()
+        slim = exported["layers"][0]["slimmable"]
+        assert slim["method"] == "slice_channels_uniform"
+        assert slim["kwargs"]["allowed_channels"] == [2, 4]
 
     def test_slimmable_layer1x1_groups_raises(self):
         """Slimmable + layer1x1 groups != 1 raises NotImplementedError."""

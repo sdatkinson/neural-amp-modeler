@@ -648,7 +648,10 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
     def get_slimmable_config(self):
         # Quick heuristic: look at the conv.
         if isinstance(self.conv, _Slimmable):
-            return {"method": _SLIMMABLE_METHOD, "kwargs": {}}
+            kwargs = {}
+            if isinstance(self.conv, _SlimmableConv1dBase):
+                kwargs["allowed_channels"] = list(self.conv._allowed_in_channels)
+            return {"method": _SLIMMABLE_METHOD, "kwargs": kwargs}
 
 
 class LayerArray(_nn.Module, _InitializableFromConfig):
