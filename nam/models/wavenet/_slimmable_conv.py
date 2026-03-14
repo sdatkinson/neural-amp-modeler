@@ -348,6 +348,7 @@ class _SlimmableHead1x1(SlimmableConv1dBase):
     """
     1x1 conv to the head collector
     """
+
     def __init__(
         self,
         in_channels: int,

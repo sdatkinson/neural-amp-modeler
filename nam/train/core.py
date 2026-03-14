@@ -1738,13 +1738,13 @@ def validate_data(
         try:
             ds = _init_dataset(data_config, split)
             ds.teardown()
-            pytorch_data_split_validation_dict[
-                split.value
-            ] = _PyTorchDataSplitValidation(passed=True, msg=None)
+            pytorch_data_split_validation_dict[split.value] = (
+                _PyTorchDataSplitValidation(passed=True, msg=None)
+            )
         except _DataError as e:
-            pytorch_data_split_validation_dict[
-                split.value
-            ] = _PyTorchDataSplitValidation(passed=False, msg=str(e))
+            pytorch_data_split_validation_dict[split.value] = (
+                _PyTorchDataSplitValidation(passed=False, msg=str(e))
+            )
     pytorch_data_validation = _PyTorchDataValidation(
         passed=all(v.passed for v in pytorch_data_split_validation_dict.values()),
         **pytorch_data_split_validation_dict,
