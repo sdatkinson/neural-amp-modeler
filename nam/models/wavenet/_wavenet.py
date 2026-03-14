@@ -75,6 +75,31 @@ class _Head(_nn.Module):
         return i
 
 
+_SLIMMABLE_TOP_KEYS = frozenset({"method", "kwargs"})
+_SLIMMABLE_KWARGS_KEYS = frozenset({"allowed_channels", "boosting", "init_strategy"})
+
+
+def _validate_slimmable_dict(s: _Dict, layer_idx: int) -> None:
+    """
+    Validate slimmable config dict for unrecognized keys.
+    Raises ValueError if any top-level or kwargs keys are unrecognized.
+    """
+    extra_top = set(s) - _SLIMMABLE_TOP_KEYS
+    if extra_top:
+        raise ValueError(
+            f"Layer {layer_idx} slimmable config: unrecognized keys {sorted(extra_top)!r}. "
+            f"Allowed: {sorted(_SLIMMABLE_TOP_KEYS)!r}"
+        )
+    kwargs = s.get("kwargs")
+    if isinstance(kwargs, dict):
+        extra_kwargs = set(kwargs) - _SLIMMABLE_KWARGS_KEYS
+        if extra_kwargs:
+            raise ValueError(
+                f"Layer {layer_idx} slimmable kwargs: unrecognized keys "
+                f"{sorted(extra_kwargs)!r}. Allowed: {sorted(_SLIMMABLE_KWARGS_KEYS)!r}"
+            )
+
+
 def _validate_slimmable_config(
     layers_configs: _Sequence[_Dict],
     condition_dsp: _Optional[_Dict],
@@ -87,6 +112,7 @@ def _validate_slimmable_config(
     - head_1x1
     - FiLM
     - layer_1x1 with groups != 1
+    Raises ValueError if any slimmable config or kwargs has unrecognized keys.
     """
 
     def _has_slimmable(lc):
@@ -104,9 +130,12 @@ def _validate_slimmable_config(
         raise NotImplementedError(
             "Slimmable training with condition_dsp is not supported"
         )
-    for lc in layers_configs:
+    for i, lc in enumerate(layers_configs):
         if not _has_slimmable(lc):
             continue
+        s = lc.get("slimmable")
+        if isinstance(s, dict):
+            _validate_slimmable_dict(s, i)
         if lc.get("groups_input", 1) != 1 or lc.get("groups_input_mixin", 1) != 1:
             raise NotImplementedError(
                 "Slimmable training with groups > 1 is not supported"

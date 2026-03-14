@@ -1341,6 +1341,42 @@ class TestSlimmableWaveNet:
         with _pytest.raises(NotImplementedError, match="slice_channels_uniform"):
             _WaveNet.init_from_config(config)
 
+    def test_slimmable_unrecognized_keys_raises(self):
+        """Slimmable config with unrecognized keys raises ValueError."""
+        # Unrecognized kwargs key (e.g. typo: allow_channels vs allowed_channels)
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 4,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                    "head_bias": True,
+                    "slimmable": {
+                        "method": "slice_channels_uniform",
+                        "kwargs": {
+                            "allow_channels": [2, 4]
+                        },  # typo: should be allowed_channels
+                    },
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        with _pytest.raises(ValueError, match="unrecognized keys.*allow_channels"):
+            _WaveNet.init_from_config(config)
+
+        # Unrecognized top-level key in slimmable
+        config["layers_configs"][0]["slimmable"] = {
+            "method": "slice_channels_uniform",
+            "typo_key": "oops",
+            "kwargs": {},
+        }
+        with _pytest.raises(ValueError, match="unrecognized keys.*typo_key"):
+            _WaveNet.init_from_config(config)
+
     # --- Extended slimmable capability tests ---
 
     def _slimmable_config(self, **layer_overrides):
