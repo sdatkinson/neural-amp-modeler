@@ -103,6 +103,32 @@ class TestWaveNet(_Base):
         y = model(x)  # Pre-pads
         assert y.shape == x.shape
 
+    def test_init_from_config_kernel_size_list_of_int(self):
+        """WaveNet.init_from_config accepts kernel_size as a list of ints per layer."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_size": [2, 3],
+                    "dilations": [1, 2],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        # Receptive field with per-layer kernel/dilation: 1 + (2-1)*1 + (3-1)*2 = 6
+        assert model.receptive_field == 6
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)  # Pre-pads
+        assert y.shape == x.shape
+        exported = model._export_config()
+        layer_cfg = exported["layers"][0]
+        assert layer_cfg["kernel_size"] == [2, 3]
+
     @_pytest.mark.parametrize("pairing_name", ["PairMultiply", "PairBlend"])
     def test_init_from_config_activation_dict_pairing(self, pairing_name: str):
         """

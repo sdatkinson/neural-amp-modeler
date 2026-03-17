@@ -738,7 +738,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         else:
             kernel_sizes = kernel_size
         assert isinstance(
-            kernel_size, _Sequence
+            kernel_sizes, _Sequence
         ), "kernel_size must be a int or sequence"
         assert (
             len(kernel_sizes) == num_layers
@@ -750,7 +750,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                     {
                         "condition_size": condition_size,
                         "channels": channels,
-                        "kernel_size": kernel_size,
+                        "kernel_size": k,
                         "dilations": d,
                         "activation": a,
                         "bottleneck": bottleneck,
@@ -778,7 +778,11 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
 
     @property
     def receptive_field(self) -> int:
-        return 1 + (self._kernel_size - 1) * sum(self._dilations)
+        total = 1
+        for layer in self._layers:
+            assert isinstance(layer, _Layer)
+            total += (layer.kernel_size - 1) * layer.dilation
+        return total
 
     def export_config(self):
         # Use first layer for things that are assumed to be constant across layers.
@@ -824,7 +828,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             "condition_size": first_layer.input_mixer.in_channels,
             "head_size": self._head_rechannel.out_channels,
             "channels": first_layer.channels,
-            "kernel_size": first_layer.kernel_size,
+            "kernel_size": [layer.kernel_size for layer in self._layers],
             "dilations": self._dilations,
             "activation": activations,
             "head_bias": self._head_rechannel.bias is not None,
@@ -893,12 +897,6 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             assert isinstance(layer, _Layer)
             dilations.append(layer.dilation)
         return dilations
-
-    @property
-    def _kernel_size(self) -> int:
-        first_layer = self._layers[0]
-        assert isinstance(first_layer, _Layer)
-        return first_layer.kernel_size
 
     @classmethod
     def _parse_slimmable_config(cls, val: _Any) -> bool:
