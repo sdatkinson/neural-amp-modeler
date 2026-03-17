@@ -733,6 +733,16 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                 activation, _Sequence
             ), "activation must be a string, dict, or sequence"
         a_list = [_get_activation(a) for a in activation]
+        if isinstance(kernel_size, int):
+            kernel_sizes = [kernel_size] * num_layers
+        else:
+            kernel_sizes = kernel_size
+        assert isinstance(
+            kernel_size, _Sequence
+        ), "kernel_size must be a int or sequence"
+        assert (
+            len(kernel_sizes) == num_layers
+        ), "kernel_sizes must be the same length as dilations"
 
         layers = _nn.ModuleList(
             [
@@ -753,7 +763,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                         "conv_factory_set": conv_factory_set,
                     }
                 )
-                for d, a in zip(dilations, a_list)
+                for k, d, a in zip(kernel_sizes, dilations, a_list)
             ]
         )
         head_rechannel = conv_factory_set.HeadRechannel(
