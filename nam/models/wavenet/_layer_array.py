@@ -686,7 +686,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         condition_size = config.pop("condition_size")
         head_size = config.pop("head_size")
         channels = config.pop("channels")
-        kernel_size = config.pop("kernel_size")
+        kernel_sizes = config.pop("kernel_sizes")
         dilations = config.pop("dilations")
         activation = config.pop("activation")
         head_bias = config.pop("head_bias", True)
@@ -733,13 +733,11 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                 activation, _Sequence
             ), "activation must be a string, dict, or sequence"
         a_list = [_get_activation(a) for a in activation]
-        if isinstance(kernel_size, int):
-            kernel_sizes = [kernel_size] * num_layers
-        else:
-            kernel_sizes = kernel_size
+        if isinstance(kernel_sizes, int):
+            kernel_sizes = [kernel_sizes] * num_layers
         assert isinstance(
             kernel_sizes, _Sequence
-        ), "kernel_size must be a int or sequence"
+        ), "kernel_sizes must be a int or sequence"
         assert (
             len(kernel_sizes) == num_layers
         ), "kernel_sizes must be the same length as dilations"
@@ -828,7 +826,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             "condition_size": first_layer.input_mixer.in_channels,
             "head_size": self._head_rechannel.out_channels,
             "channels": first_layer.channels,
-            "kernel_size": [layer.kernel_size for layer in self._layers],
+            "kernel_sizes": [layer.kernel_size for layer in self._layers],
             "dilations": self._dilations,
             "activation": activations,
             "head_bias": self._head_rechannel.bias is not None,

@@ -127,7 +127,7 @@ class TestWaveNet(_Base):
         assert y.shape == x.shape
         exported = model._export_config()
         layer_cfg = exported["layers"][0]
-        assert layer_cfg["kernel_size"] == [2, 3]
+        assert layer_cfg["kernel_sizes"] == [2, 3]
 
     @_pytest.mark.parametrize("pairing_name", ["PairMultiply", "PairBlend"])
     def test_init_from_config_activation_dict_pairing(self, pairing_name: str):
