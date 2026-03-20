@@ -1494,8 +1494,6 @@ def train(
         )
     sample_rate = train_dataloader.dataset.sample_rate
     model.net.sample_rate = sample_rate
-    if model._spectral_band is not None:
-        model._spectral_band.update_sample_rate(sample_rate)
 
     # Put together the metadata that's needed in checkpoints:
     settings_metadata = _metadata.Settings(ignore_checks=ignore_checks)
