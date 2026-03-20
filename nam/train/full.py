@@ -139,6 +139,7 @@ def main(
 ):
     if not outdir.exists():
         raise RuntimeError(f"No output location found at {outdir}")
+
     # Write
     for basename, config in (
         ("data", data_config),
@@ -165,6 +166,8 @@ def main(
             f"{dataset_train.sample_rate}, {dataset_validation.sample_rate}"
         )
     model.net.sample_rate = dataset_train.sample_rate
+    if model._spectral_band is not None:
+        model._spectral_band.update_sample_rate(dataset_train.sample_rate)
 
     # Perform handshakes:
     dataset_train.handshake(model.net)

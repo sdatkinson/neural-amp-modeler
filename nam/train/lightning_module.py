@@ -32,6 +32,7 @@ from ..models.conv_net import ConvNet as _ConvNet
 from ..models.factory import init as _init_model
 from ..models.factory import register as _register_model
 from ..models.linear import Linear as _Linear
+from ..models.losses import SpectralBandLoss as _SpectralBandLoss
 from ..models.losses import apply_pre_emphasis_filter as _apply_pre_emphasis_filter
 from ..models.losses import esr as _esr
 from ..models.losses import mse as _mse
@@ -97,6 +98,7 @@ class LossConfig(_InitializableFromConfig):
     pre_emph_coef: _Optional[float] = None
     pre_emph_mrstft_weight: _Optional[float] = None
     pre_emph_mrstft_coef: _Optional[float] = None
+    spectral_band: _Optional[_Dict[str, _Any]] = None
     custom_losses: _Optional[_Dict[str, _CustomLoss]] = None
 
     @classmethod
@@ -162,6 +164,7 @@ class LossConfig(_InitializableFromConfig):
             "mrstft_weight": mrstft_weight,
             "pre_emph_mrstft_weight": config.get("pre_emph_mrstft_weight"),
             "pre_emph_mrstft_coef": config.get("pre_emph_mrstft_coef"),
+            "spectral_band": config.get("spectral_band"),
             "custom_losses": custom_losses,
         }
 
@@ -211,6 +214,22 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         # Keeping it on-device is preferable, but if that fails, then remember to drop
         # it to cpu from then on.
         self._mrstft_device: _Optional[_torch.device] = None
+        # Create _spectral_band eagerly when configured so checkpoint loading (strict=True) works
+        if self._loss_config.spectral_band is not None:
+            cfg = self._loss_config.spectral_band
+            sample_rate = int(getattr(self._net, "sample_rate", None) or 48000)
+            self._spectral_band = _SpectralBandLoss(
+                sample_rate=sample_rate,
+                fft_size=cfg.get("fft_size", 4096),
+                hop_length=cfg.get("hop_length"),
+                low_hz=cfg.get("low_hz", 8000),
+                high_hz=cfg.get("high_hz", 12000),
+                weight=1.0,
+                penalize=cfg.get("penalize", "excess"),
+                log_scale=cfg.get("log_scale", True),
+            )
+        else:
+            self._spectral_band = None
 
     @classmethod
     def init_from_config(cls, config):
@@ -403,6 +422,13 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         if self._loss_config.mrstft_weight is not None:
             loss_dict["MRSTFT"] = _LossItem(
                 self._loss_config.mrstft_weight, self._mrstft_loss(preds, targets)
+            )
+        # Spectral band loss (penalize energy in problem band, e.g. 7–12 kHz ring)
+        if self._spectral_band is not None:
+            weight = self._loss_config.spectral_band.get("weight", 0.1)
+            loss_dict["SpectralBand"] = _LossItem(
+                weight,
+                self._spectral_band(preds, targets),
             )
         # Pre-emphasized MRSTFT
         if self._loss_config.pre_emph_mrstft_weight is not None:
