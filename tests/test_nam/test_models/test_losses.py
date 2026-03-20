@@ -70,5 +70,21 @@ def test_mrstft_loss_doesnt_fall_back_to_cpu():
     _losses.multi_resolution_stft_loss(preds, targets, device="mps")
 
 
+def test_spectral_band_loss():
+    """SpectralBandLoss penalizes error in specified frequency band."""
+    loss = _losses.SpectralBandLoss(
+        sample_rate=44100,
+        low_hz=7000,
+        high_hz=12000,
+        penalize="excess",
+        weight=1.0,
+    )
+    pred = _torch.randn(2, 16000)
+    target = _torch.randn(2, 16000)
+    out = loss(pred, target)
+    assert out.dim() == 0
+    assert out.item() >= 0
+
+
 if __name__ == "__main__":
     _pytest.main()
