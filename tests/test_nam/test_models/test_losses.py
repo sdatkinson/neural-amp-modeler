@@ -86,5 +86,18 @@ def test_spectral_band_loss():
     assert out.item() >= 0
 
 
+@_pytest.mark.skipif(not _torch.cuda.is_available(), reason="CUDA not available")
+def test_spectral_band_loss_cuda_inputs_loss_module_on_cpu():
+    """Regression: loss held outside Lightning _net stays on CPU; preds are on GPU."""
+    loss = _losses.SpectralBandLoss(
+        sample_rate=44100, low_hz=7000, high_hz=12000, penalize="excess"
+    )
+    pred = _torch.randn(2, 16000, device="cuda")
+    target = _torch.randn(2, 16000, device="cuda")
+    out = loss(pred, target)
+    assert out.dim() == 0
+    assert out.item() >= 0
+
+
 if __name__ == "__main__":
     _pytest.main()

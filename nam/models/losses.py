@@ -203,9 +203,13 @@ class SpectralBandLoss(_nn.Module):
         pred_spec = mean_spectrum(pred)
         target_spec = mean_spectrum(target)
 
+        # Custom losses may not be submodules of the Lightning module, so buffers can
+        # stay on CPU while preds run on CUDA — align mask with spectrum tensors.
+        band_mask = self.band_mask.to(device=pred_spec.device, dtype=pred_spec.dtype)
+
         if self.penalize == "excess":
-            band_error = _torch.relu(pred_spec - target_spec) * self.band_mask
+            band_error = _torch.relu(pred_spec - target_spec) * band_mask
         else:
-            band_error = _torch.relu(target_spec - pred_spec) * self.band_mask
+            band_error = _torch.relu(target_spec - pred_spec) * band_mask
 
         return self.weight * _torch.mean(band_error**2)
