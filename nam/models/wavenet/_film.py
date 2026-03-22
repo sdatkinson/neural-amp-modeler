@@ -22,6 +22,7 @@ class FiLM(_nn.Module, _ImportsWeights):
         input_dim: int,
         shift: bool = True,
         groups: int = 1,
+        stable: bool = False,
     ):
         super().__init__()
         self._shift = shift
@@ -29,6 +30,8 @@ class FiLM(_nn.Module, _ImportsWeights):
         self._film = _FiLMConv(
             condition_size, out_channels, 1, bias=True, groups=groups
         )
+        if stable:
+            raise NotImplementedError("FiLM with stable=True is not yet supported")
 
         # Initialize to identity:
         # self._film.weight.data.zero_()  # Independent of condition input

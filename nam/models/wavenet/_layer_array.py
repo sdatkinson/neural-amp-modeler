@@ -17,6 +17,7 @@ from .._activations import export_activation_config as _export_activation_config
 from .._activations import get_activation as _get_activation
 from . import _conv
 from ._conv import InputMixer as _InputMixer
+from ._conv import apply_stable as _apply_stable
 from ._conv import class_set as _basic_class_set
 from ._film import FiLM as _FiLM
 from ._slimmable import SLIMMABLE_METHOD as _SLIMMABLE_METHOD
@@ -312,6 +313,7 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
         groups_input = config.pop("groups_input", 1)
         groups_input_mixin = config.pop("groups_input_mixin", 1)
         conv_factory_set = config.pop("conv_factory_set")
+        stable = config.pop("stable", False)
 
         # Input mixer takes care of the bias
         mid_channels = (
@@ -335,6 +337,9 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
             groups=groups_input_mixin,
             output_paired=pairing_activation,
         )
+        if stable:
+            _apply_stable(conv)
+            _apply_stable(input_mixer)
 
         layer1x1 = (
             None
@@ -343,6 +348,8 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
                 bottleneck, channels, 1, groups=layer_1x1_config.groups
             )
         )
+        if layer1x1 is not None and stable:
+            _apply_stable(layer1x1)
         head1x1 = (
             None
             if not head_1x1_config.active
@@ -353,6 +360,8 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
                 groups=head_1x1_config.groups,
             )
         )
+        if head1x1 is not None and stable:
+            _apply_stable(head1x1)
 
         # FiLM modules (optional at each position)
         def maybe_film(
@@ -365,6 +374,7 @@ class _Layer(_nn.Module, _InitializableFromConfig, _ImportsWeights):
                 input_dim=in_dim,
                 shift=fp.shift,
                 groups=fp.groups,
+                stable=stable,
             )
 
         if film_configs["layer1x1_post_film"].active and not layer_1x1_config.active:
@@ -680,6 +690,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
     def parse_config(cls, config: _Dict) -> _Dict:
         config = super().parse_config(config)
 
+        stable = config.pop("stable", False)
         is_first = config.pop("is_first")
         is_last = config.pop("is_last")
         input_size = config.pop("input_size")
@@ -721,6 +732,8 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         rechannel = conv_factory_set.RechannelIn(
             input_size, channels, 1, bias=False, is_first=is_first
         )
+        if stable:
+            _apply_stable(rechannel)
 
         num_layers = len(dilations)
 
@@ -759,6 +772,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                         "groups_input_mixin": groups_input_mixin,
                         "slimmable": slimmable_config,
                         "conv_factory_set": conv_factory_set,
+                        "stable": stable,
                     }
                 )
                 for k, d, a in zip(kernel_sizes, dilations, a_list)
@@ -767,6 +781,8 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         head_rechannel = conv_factory_set.HeadRechannel(
             head_rechannel_in_channels, head_size, 1, bias=head_bias, is_last=is_last
         )
+        if stable:
+            _apply_stable(head_rechannel)
 
         return dict(
             rechannel=rechannel,

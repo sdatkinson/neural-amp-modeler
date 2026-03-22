@@ -46,6 +46,13 @@ class Conv1d(_nn.Conv1d, _ImportsWeights):
         return i
 
 
+def apply_stable(conv: Conv1d) -> None:
+    """Set conv bias to zero and disable grads. For use when stable=True."""
+    if conv.bias is not None:
+        conv.bias.data.zero_()
+        conv.bias.requires_grad = False
+
+
 # NOTE: we could have the __init__s (silently?) drop extra arguments. That'd
 # be cleaner in terms of these classes not needing to knwo about the other
 # implementations. The flip-side is that it could be dangerous in terms of hard-to-find

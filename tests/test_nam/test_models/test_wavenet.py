@@ -42,7 +42,7 @@ class TestWaveNet(_Base):
                 "condition_size": 1,
                 "head_size": 1,
                 "channels": 1,
-                "kernel_size": 1,
+                "kernel_sizes": 1,
                 "dilations": [1],
                 "activation": "Tanh",
             }
@@ -81,6 +81,76 @@ class TestWaveNet(_Base):
         assert not _torch.allclose(y2_before, y1)
         assert _torch.allclose(y2_after, y1)
 
+    def test_init_from_config_stable(self):
+        """With stable=True, conv biases are zero and grads are disabled."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_sizes": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head": {
+                "in_channels": 1,
+                "channels": 2,
+                "activation": "Tanh",
+                "num_layers": 1,
+                "out_channels": 1,
+            },
+            "head_scale": 1.0,
+            "stable": True,
+        }
+        model = _WaveNet.init_from_config(config)
+        net = model._net  # internal _WaveNet
+        for m in net.modules():
+            if hasattr(m, "bias") and m.bias is not None:
+                assert (
+                    not m.bias.requires_grad
+                ), f"{type(m).__name__}.bias should have requires_grad=False"
+                assert _torch.allclose(
+                    m.bias, _torch.zeros_like(m.bias)
+                ), "bias should be zero"
+        x = _torch.randn(1, net.receptive_field + 8)
+        y = model(x)
+        assert y.shape == (1, net.receptive_field + 8)
+
+    def test_stable_zero_input_zero_output(self):
+        """With stable=True, zero input produces zero output."""
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head_size": 1,
+                    "channels": 2,
+                    "kernel_sizes": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head": {
+                "in_channels": 1,
+                "channels": 2,
+                "activation": "Tanh",
+                "num_layers": 1,
+                "out_channels": 1,
+            },
+            "head_scale": 1.0,
+            "stable": True,
+        }
+        model = _WaveNet.init_from_config(config)
+        net = model._net
+        x = _torch.zeros(1, net.receptive_field + 8)
+        y = model(x)
+        assert _torch.allclose(
+            y, _torch.zeros_like(y)
+        ), "Zero input should produce zero output"
+
     def test_init_from_config_activation_list_of_str(self):
         """WaveNet.init_from_config accepts activation as a list of str per layer."""
         config = {
@@ -90,7 +160,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": ["Tanh", "ReLU"],
                 }
@@ -112,7 +182,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": [2, 3],
+                    "kernel_sizes": [2, 3],
                     "dilations": [1, 2],
                     "activation": "Tanh",
                 }
@@ -142,7 +212,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": {
                         "name": pairing_name,
@@ -172,7 +242,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": "Tanh",
                     "bottleneck": 2,
@@ -195,7 +265,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": "Tanh",
                 }
@@ -219,7 +289,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": "Tanh",
                     "bottleneck": 2,
@@ -243,7 +313,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "bottleneck": 4,
@@ -266,7 +336,7 @@ class TestWaveNet(_Base):
                     "condition_size": 2,  # divisible by groups_input_mixin for build
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "bottleneck": 4,
@@ -290,7 +360,7 @@ class TestWaveNet(_Base):
                     "condition_size": 2,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "groups_input": 2,
@@ -311,7 +381,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -332,7 +402,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": "Tanh",
                     "bottleneck": 4,  # Needs to match channels if layer1x1 is inactive
@@ -358,7 +428,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "bottleneck": 2,  # Must match channels if layer1x1 is inactive
@@ -391,7 +461,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -413,7 +483,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": "Tanh",
                     "bottleneck": 2,
@@ -444,7 +514,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "bottleneck": 2,
@@ -474,7 +544,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "bottleneck": 2,
@@ -511,7 +581,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": {
                         "name": "PairMultiply",
@@ -541,7 +611,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": {
                         "name": pairing_name,
@@ -572,7 +642,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "bottleneck": 2,
@@ -594,7 +664,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": [
                         "ReLU",
@@ -627,7 +697,7 @@ class TestWaveNet(_Base):
             "condition_size": 1,
             "head_size": 1,
             "channels": 2,
-            "kernel_size": 2,
+            "kernel_sizes": 2,
             "dilations": [1],
             "activation": "Tanh",
             "film_params": {
@@ -661,7 +731,7 @@ class TestWaveNet(_Base):
             "condition_size": 1,
             "head_size": 1,
             "channels": 2,
-            "kernel_size": 2,
+            "kernel_sizes": 2,
             "dilations": [1],
             "activation": "Tanh",
             "film_params": {
@@ -693,7 +763,7 @@ class TestWaveNet(_Base):
             "condition_size": 1,
             "head_size": 1,
             "channels": 2,
-            "kernel_size": 2,
+            "kernel_sizes": 2,
             "dilations": [1],
             "activation": "Tanh",
             "film_params": {
@@ -730,7 +800,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "bottleneck": 2,
@@ -754,7 +824,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "film_params": {
@@ -778,7 +848,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -805,7 +875,7 @@ class TestWaveNet(_Base):
                             "condition_size": 1,
                             "head_size": 2,
                             "channels": 2,
-                            "kernel_size": 2,
+                            "kernel_sizes": 2,
                             "dilations": [1],
                             "activation": "Tanh",
                         }
@@ -819,7 +889,7 @@ class TestWaveNet(_Base):
                     "condition_size": 2,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -847,7 +917,7 @@ class TestWaveNet(_Base):
                             "condition_size": 1,
                             "head_size": 1,
                             "channels": 2,
-                            "kernel_size": 2,
+                            "kernel_sizes": 2,
                             "dilations": [1],
                             "activation": "Tanh",
                         }
@@ -861,7 +931,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -886,7 +956,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -904,7 +974,7 @@ class TestWaveNet(_Base):
                             "condition_size": 1,
                             "head_size": 1,
                             "channels": 2,
-                            "kernel_size": 2,
+                            "kernel_sizes": 2,
                             "dilations": [1],
                             "activation": "Tanh",
                         }
@@ -943,7 +1013,7 @@ class TestWaveNet(_Base):
                             "condition_size": 1,
                             "head_size": 2,
                             "channels": 2,
-                            "kernel_size": 2,
+                            "kernel_sizes": 2,
                             "dilations": [1],
                             "activation": "Tanh",
                         }
@@ -957,7 +1027,7 @@ class TestWaveNet(_Base):
                     "condition_size": 2,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "film_params": {
@@ -995,7 +1065,7 @@ class TestWaveNet(_Base):
                             "condition_size": 1,
                             "head_size": 2,
                             "channels": 2,
-                            "kernel_size": 3,
+                            "kernel_sizes": 3,
                             "dilations": [2],  # rf = 1 + (3-1)*2 = 5, c has L-4
                             "activation": "Tanh",
                         }
@@ -1009,7 +1079,7 @@ class TestWaveNet(_Base):
                     "condition_size": 2,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],  # zconv has L-1
                     "activation": "Tanh",
                 }
@@ -1037,7 +1107,7 @@ class TestWaveNet(_Base):
                             "condition_size": 1,
                             "head_size": 2,
                             "channels": 2,
-                            "kernel_size": 2,
+                            "kernel_sizes": 2,
                             "dilations": [1, 2],
                             "activation": "Tanh",
                         }
@@ -1051,7 +1121,7 @@ class TestWaveNet(_Base):
                     "condition_size": 2,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -1075,7 +1145,7 @@ class TestWaveNet(_Base):
                     "condition_size": 1,
                     "head_size": 2,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                 }
@@ -1087,7 +1157,7 @@ class TestWaveNet(_Base):
             "condition_size": 2,
             "head_size": 1,
             "channels": 2,
-            "kernel_size": 2,
+            "kernel_sizes": 2,
             "dilations": [1],
             "activation": "Tanh",
         }
@@ -1156,7 +1226,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1, 2],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1186,7 +1256,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1212,7 +1282,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 2,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1234,7 +1304,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1256,7 +1326,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1271,7 +1341,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 2,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1293,7 +1363,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1315,7 +1385,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1326,7 +1396,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 2,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1347,7 +1417,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1377,7 +1447,7 @@ class TestSlimmableWaveNet:
                     "condition_size": 1,
                     "head_size": 1,
                     "channels": 4,
-                    "kernel_size": 2,
+                    "kernel_sizes": 2,
                     "dilations": [1],
                     "activation": "Tanh",
                     "head_bias": True,
@@ -1412,7 +1482,7 @@ class TestSlimmableWaveNet:
             "condition_size": 1,
             "head_size": 1,
             "channels": 4,
-            "kernel_size": 2,
+            "kernel_sizes": 2,
             "dilations": [1, 2],
             "activation": "Tanh",
             "head_bias": True,
@@ -1552,7 +1622,7 @@ class TestSlimmableWaveNet:
             "condition_size": 1,
             "head_size": 1,
             "channels": channels,
-            "kernel_size": 2,
+            "kernel_sizes": 2,
             "dilations": [1, 2],
             "activation": activation,
             "head_bias": True,
@@ -1660,7 +1730,7 @@ class TestSlimmableWaveNet:
             "condition_size": 1,
             "head_size": 1,
             "channels": channels,
-            "kernel_size": 2,
+            "kernel_sizes": 2,
             "dilations": [1, 2],
             "activation": "LeakyReLU",
             "head_bias": True,

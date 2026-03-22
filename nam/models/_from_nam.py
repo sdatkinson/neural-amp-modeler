@@ -122,10 +122,9 @@ def _convert_nam_layer_array_config(layer_config: _Dict[str, _Any]) -> _Dict[str
     if film_params:
         lc["film_params"] = film_params
 
-    # Kernel sizes: support legacy "kernel_size" (int or list) and new "kernel_sizes"
-    if "kernel_sizes" in lc and "kernel_size" not in lc:
-        # New-format .nam: prefer explicit list of per-layer kernel sizes
-        lc["kernel_size"] = lc.pop("kernel_sizes")
+    # Kernel sizes: convert legacy "kernel_size" to "kernel_sizes"
+    if "kernel_size" in lc:
+        lc["kernel_sizes"] = lc.pop("kernel_size")
 
     return lc
 

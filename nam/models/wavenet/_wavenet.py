@@ -19,6 +19,7 @@ from .._names import ACTIVATION_NAME as _ACTIVATION_NAME
 from .._names import CONV_NAME as _CONV_NAME
 from ..metadata import Date as _Date
 from ._conv import Conv1d as _Conv1d
+from ._conv import apply_stable as _apply_stable
 from ._layer_array import LayerArray as _LayerArray
 from ._layer_array import film_params_from_dict as _film_params_from_dict
 from ._slimmable import Slimmable as _Slimmable
@@ -32,13 +33,17 @@ class _Head(_nn.Module):
         activation: str,
         num_layers: int,
         out_channels: int,
+        stable: bool = False,
     ):
         super().__init__()
 
         def block(cx, cy):
             net = _nn.Sequential()
             net.add_module(_ACTIVATION_NAME, _get_activation(activation))
-            net.add_module(_CONV_NAME, _Conv1d(cx, cy, 1))
+            conv = _Conv1d(cx, cy, 1)
+            if stable:
+                _apply_stable(conv)
+            net.add_module(_CONV_NAME, conv)
             return net
 
         assert num_layers > 0
@@ -191,6 +196,7 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
     def parse_config(cls, config: _Dict) -> _Dict:
         config = super().parse_config(config)
 
+        stable = config.pop("stable", False)
         condition_dsp_config = config.pop("condition_dsp", None)
         layers_configs = config.pop("layers_configs", [])
         _validate_slimmable_config(layers_configs, condition_dsp_config)
@@ -200,16 +206,22 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
         if condition_dsp_config is not None:
             if condition_dsp_config.get("name") != "WaveNet":
                 raise NotImplementedError("Only WaveNet condition DSP is supported")
-            condition_dsp = WaveNet.init_from_config(condition_dsp_config["config"])
+            cond_config = dict(condition_dsp_config["config"])
+            cond_config["stable"] = stable
+            condition_dsp = WaveNet.init_from_config(cond_config)
         else:
             condition_dsp = None
 
         for i, lc in enumerate(layers_configs):
             lc["is_first"] = i == 0
             lc["is_last"] = i == len(layers_configs) - 1
+            lc["stable"] = stable
         layer_arrays = _nn.ModuleList(
             [_LayerArray.init_from_config(lc) for lc in layers_configs]
         )
+        if head_config is not None:
+            head_config = dict(head_config)
+            head_config["stable"] = stable
         head = None if head_config is None else _Head(**head_config)
 
         return dict(
