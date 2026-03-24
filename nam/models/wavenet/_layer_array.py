@@ -686,7 +686,12 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         condition_size = config.pop("condition_size")
         head_size = config.pop("head_size")
         channels = config.pop("channels")
-        kernel_sizes = config.pop("kernel_sizes")
+        if "kernel_sizes" in config:
+            kernel_sizes = config.pop("kernel_sizes")
+        elif "kernel_size" in config:
+            kernel_sizes = config.pop("kernel_size")
+        else:
+            raise KeyError("Either 'kernel_sizes' or 'kernel_size' must be present")
         dilations = config.pop("dilations")
         activation = config.pop("activation")
         head_bias = config.pop("head_bias", True)

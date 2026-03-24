@@ -15,7 +15,7 @@ from nam.models import _from_nam
 from nam.models.linear import Linear as _Linear
 from nam.models.recurrent import LSTM as _LSTM
 from nam.models.wavenet import WaveNet as _WaveNet
-from tests import TESTS_ROOT as _TESTS_ROOT
+from tests.resources import resource_path as _resource_path
 
 
 def _default_comparison(expected, actual):
@@ -173,7 +173,7 @@ def test_load_from_nam(
 
 def test_init_from_nam_legacy_kernel_size_int():
     """Old .nam files with integer kernel_size load and re-export correctly."""
-    nam_path = _TESTS_ROOT / "resources/models/identity/wavenet_minimal.nam"
+    nam_path = _resource_path("models/identity/wavenet_minimal.nam")
     with open(nam_path, "r") as fp:
         nam_file_contents = _json.load(fp)
     model = _from_nam.init_from_nam(nam_file_contents)
@@ -187,7 +187,7 @@ def test_init_from_nam_legacy_kernel_size_int():
 def test_init_from_nam_new_kernel_sizes_list_roundtrip(tmp_path):
     """New .nam files with kernel_sizes list load and re-export correctly."""
     # Start from a minimal legacy file and convert to new-format kernel_sizes.
-    nam_path = _TESTS_ROOT / "resources/models/identity/wavenet_minimal.nam"
+    nam_path = _resource_path("models/identity/wavenet_minimal.nam")
     with open(nam_path, "r") as fp:
         nam_file_contents = _json.load(fp)
     # Update config to use kernel_sizes instead of kernel_size
@@ -198,6 +198,7 @@ def test_init_from_nam_new_kernel_sizes_list_roundtrip(tmp_path):
     model = _from_nam.init_from_nam(nam_file_contents)
     assert isinstance(model, _WaveNet)
     export_path = tmp_path / "model_new_kernel_sizes"
+    export_path.mkdir()
     model.export(export_path, basename="model")
     with open(export_path / "model.nam", "r") as fp:
         nam_file_contents2 = _json.load(fp)
