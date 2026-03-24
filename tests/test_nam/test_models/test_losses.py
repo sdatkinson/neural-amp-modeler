@@ -61,6 +61,21 @@ def test_esr():
     assert _torch.allclose(actual_esr, expected_esr)
 
 
+def test_band_esr_identical():
+    b, l = 2, 4096
+    x = _torch.randn(b, l)
+    z = _losses.band_esr(x, x, sample_rate=48000, low_hz=2000.0, high_hz=4000.0)
+    assert z.ndim == 0
+    assert _torch.allclose(z, _torch.zeros(()), atol=1e-5)
+
+
+def test_band_esr_finite():
+    pred = _torch.randn(2, 2048)
+    tgt = _torch.randn(2, 2048)
+    z = _losses.band_esr(pred, tgt, sample_rate=48000, low_hz=1000.0, high_hz=3000.0)
+    assert _torch.isfinite(z)
+
+
 @_requires_mps
 def test_mrstft_loss_doesnt_fall_back_to_cpu():
     preds, targets = _torch.randn((2, 2048))

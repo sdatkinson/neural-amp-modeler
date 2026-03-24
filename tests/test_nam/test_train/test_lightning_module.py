@@ -82,6 +82,25 @@ def test_get_loss_dict():
     assert loss_dict["MRSTFT"].weight is not None
 
 
+def test_get_loss_dict_band_esr():
+    obj = _lightning_module.LightningModule(
+        _MockBaseNet(1.0),
+        loss_config=_lightning_module.LossConfig(
+            mrstft_weight=0.0002,
+            band_esr={
+                "weight": 0.05,
+                "low_hz": 2000.0,
+                "high_hz": 4000.0,
+            },
+        ),
+    )
+    preds = _torch.randn((3, 4096))
+    targets = _torch.randn(preds.shape)
+    loss_dict = obj._get_loss_dict(preds, targets)
+    assert "BandESR" in loss_dict
+    assert loss_dict["BandESR"].value is not None
+
+
 def test_get_loss_dict_custom_loss():
     expected_key = "my_custom_loss"
     expected_weight = 0.1

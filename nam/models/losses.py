@@ -53,6 +53,68 @@ def esr(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
     )
 
 
+def bandpass_filter(
+    x: _torch.Tensor,
+    low_hz: float,
+    high_hz: float,
+    sample_rate: int,
+) -> _torch.Tensor:
+    """
+    Band-limited signal via FFT mask with cosine rolloff at band edges (differentiable).
+
+    Transition width is **5% of the band width** ``(high_hz - low_hz)`` on each edge.
+
+    :param x: (B, L) or (B, 1, L)
+    :return: Same shape as ``x``
+    """
+    squeeze_back = False
+    if x.dim() == 3:
+        x = x.squeeze(1)
+        squeeze_back = True
+    nyq = 0.5 * float(sample_rate)
+    low_hz = max(float(low_hz), 0.0)
+    high_hz = min(float(high_hz), nyq - 1.0)
+    if low_hz >= high_hz:
+        out = _torch.zeros_like(x)
+        return out.unsqueeze(1) if squeeze_back else out
+
+    band_width = high_hz - low_hz
+    tw = max(band_width * 0.05, 1e-6)
+
+    def _soft_edge(f: _torch.Tensor, center: float, width: float) -> _torch.Tensor:
+        t = ((f - center) / width).clamp(-1.0, 1.0)
+        return 0.5 * (1.0 + _torch.cos(_torch.pi * t))
+
+    X = _torch.fft.rfft(x, dim=-1)
+    freqs = _torch.fft.rfftfreq(x.shape[-1], d=1.0 / sample_rate, device=x.device)
+    low_ramp = 1.0 - _soft_edge(freqs, low_hz, tw)
+    high_ramp = 1.0 - _soft_edge(freqs, high_hz, -tw)
+    mask = (low_ramp * high_ramp).clamp(0.0, 1.0).to(dtype=x.dtype)
+    y = _torch.fft.irfft(X * mask, n=x.shape[-1], dim=-1)
+    return y.unsqueeze(1) if squeeze_back else y
+
+
+def band_esr(
+    pred: _torch.Tensor,
+    target: _torch.Tensor,
+    sample_rate: int,
+    low_hz: float,
+    high_hz: float,
+) -> _torch.Tensor:
+    """
+    ESR on bandpass-filtered signals. Same structure as :func:`esr`:
+    ``mean(error^2) / mean(target^2)`` along time, then mean over batch.
+
+    :param pred: (B, L) or (B, 1, L)
+    :param target: Same shape as pred
+    """
+    pred_b = bandpass_filter(pred, low_hz, high_hz, sample_rate)
+    target_b = bandpass_filter(target, low_hz, high_hz, sample_rate)
+    error = pred_b - target_b
+    esr = (error**2).mean(dim=-1) / (target_b**2).mean(dim=-1)
+    return esr.mean()
+
+
 def multi_resolution_stft_loss(
     preds: _torch.Tensor,
     targets: _torch.Tensor,

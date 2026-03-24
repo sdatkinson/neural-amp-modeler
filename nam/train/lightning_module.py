@@ -34,6 +34,7 @@ from ..models.factory import register as _register_model
 from ..models.linear import Linear as _Linear
 from ..models.losses import SpectralBandLoss as _SpectralBandLoss
 from ..models.losses import apply_pre_emphasis_filter as _apply_pre_emphasis_filter
+from ..models.losses import band_esr as _band_esr
 from ..models.losses import esr as _esr
 from ..models.losses import mse as _mse
 from ..models.losses import mse_fft as _mse_fft
@@ -99,6 +100,7 @@ class LossConfig(_InitializableFromConfig):
     pre_emph_mrstft_weight: _Optional[float] = None
     pre_emph_mrstft_coef: _Optional[float] = None
     spectral_band: _Optional[_Dict[str, _Any]] = None
+    band_esr: _Optional[_Dict[str, _Any]] = None
     custom_losses: _Optional[_Dict[str, _CustomLoss]] = None
 
     @classmethod
@@ -123,6 +125,12 @@ class LossConfig(_InitializableFromConfig):
         def parse_val_loss():
             # TODO: Pydantic
             value = config.get("val_loss", "mse")
+            if value in ("BandESR", "band_esr"):
+                if config.get("band_esr") is None:
+                    raise cls.ValLossNameError(
+                        "val_loss BandESR requires loss.band_esr to be set"
+                    )
+                return "BandESR"
             try:
                 return ValidationLoss(value)
             except ValueError:
@@ -165,6 +173,7 @@ class LossConfig(_InitializableFromConfig):
             "pre_emph_mrstft_weight": config.get("pre_emph_mrstft_weight"),
             "pre_emph_mrstft_coef": config.get("pre_emph_mrstft_coef"),
             "spectral_band": config.get("spectral_band"),
+            "band_esr": config.get("band_esr"),
             "custom_losses": custom_losses,
         }
 
@@ -429,6 +438,23 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
             loss_dict["SpectralBand"] = _LossItem(
                 weight,
                 self._spectral_band(preds, targets),
+            )
+        # Band ESR (same ratio form as full-band ESR; uses FFT band mask)
+        if self._loss_config.band_esr is not None:
+            cfg = self._loss_config.band_esr
+            sr = int(
+                getattr(self._net, "sample_rate", None) or 48000
+            )
+            weight = cfg.get("weight", 0.1)
+            loss_dict["BandESR"] = _LossItem(
+                weight,
+                _band_esr(
+                    preds,
+                    targets,
+                    sample_rate=sr,
+                    low_hz=cfg.get("low_hz", 8000.0),
+                    high_hz=cfg.get("high_hz", 12000.0),
+                ),
             )
         # Pre-emphasized MRSTFT
         if self._loss_config.pre_emph_mrstft_weight is not None:
