@@ -686,7 +686,12 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         condition_size = config.pop("condition_size")
         head_size = config.pop("head_size")
         channels = config.pop("channels")
-        kernel_size = config.pop("kernel_size")
+        if "kernel_sizes" in config:
+            kernel_sizes = config.pop("kernel_sizes")
+        elif "kernel_size" in config:
+            kernel_sizes = config.pop("kernel_size")
+        else:
+            raise KeyError("Either 'kernel_sizes' or 'kernel_size' must be present")
         dilations = config.pop("dilations")
         activation = config.pop("activation")
         head_bias = config.pop("head_bias", True)
@@ -733,6 +738,14 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                 activation, _Sequence
             ), "activation must be a string, dict, or sequence"
         a_list = [_get_activation(a) for a in activation]
+        if isinstance(kernel_sizes, int):
+            kernel_sizes = [kernel_sizes] * num_layers
+        assert isinstance(
+            kernel_sizes, _Sequence
+        ), "kernel_sizes must be a int or sequence"
+        assert (
+            len(kernel_sizes) == num_layers
+        ), "kernel_sizes must be the same length as dilations"
 
         layers = _nn.ModuleList(
             [
@@ -740,7 +753,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                     {
                         "condition_size": condition_size,
                         "channels": channels,
-                        "kernel_size": kernel_size,
+                        "kernel_size": k,
                         "dilations": d,
                         "activation": a,
                         "bottleneck": bottleneck,
@@ -753,7 +766,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
                         "conv_factory_set": conv_factory_set,
                     }
                 )
-                for d, a in zip(dilations, a_list)
+                for k, d, a in zip(kernel_sizes, dilations, a_list)
             ]
         )
         head_rechannel = conv_factory_set.HeadRechannel(
@@ -768,7 +781,11 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
 
     @property
     def receptive_field(self) -> int:
-        return 1 + (self._kernel_size - 1) * sum(self._dilations)
+        total = 1
+        for layer in self._layers:
+            assert isinstance(layer, _Layer)
+            total += (layer.kernel_size - 1) * layer.dilation
+        return total
 
     def export_config(self):
         # Use first layer for things that are assumed to be constant across layers.
@@ -814,7 +831,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             "condition_size": first_layer.input_mixer.in_channels,
             "head_size": self._head_rechannel.out_channels,
             "channels": first_layer.channels,
-            "kernel_size": first_layer.kernel_size,
+            "kernel_sizes": [layer.kernel_size for layer in self._layers],
             "dilations": self._dilations,
             "activation": activations,
             "head_bias": self._head_rechannel.bias is not None,
@@ -883,12 +900,6 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             assert isinstance(layer, _Layer)
             dilations.append(layer.dilation)
         return dilations
-
-    @property
-    def _kernel_size(self) -> int:
-        first_layer = self._layers[0]
-        assert isinstance(first_layer, _Layer)
-        return first_layer.kernel_size
 
     @classmethod
     def _parse_slimmable_config(cls, val: _Any) -> bool:
