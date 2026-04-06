@@ -3,36 +3,36 @@
 Local Installation
 ==================
 
-Step 1: Install uv
-^^^^^^^^^^^^^^^^^^
-
-This is a Python package, and it depends on other packages to work. To manage
-all this, it's recommended to use uv. Install it from
-https://github.com/astral-sh/uv
-
-Step 2: Install NAM
+Installing with pip
 ^^^^^^^^^^^^^^^^^^^
 
-Install NAM with uv:
+This is a Python package, and it depends on other packages to work. If you
+already have Python installed, you can install NAM using pip:
 
 .. code-block:: console
 
-   $ uv pip install neural-amp-modeler
-
-Or, for the latest development version:
-
-.. code-block:: console
-
-   $ uv pip install -e .
+   $ pip install neural-amp-modeler
 
 To update an existing installation:
 
 .. code-block:: console
 
-   uv pip install --upgrade neural-amp-modeler
+   $ pip install --upgrade neural-amp-modeler
+
+Installing with uv (optional)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you prefer using uv, you can install NAM with it:
+
+.. code-block:: console
+
+   $ uv pip install neural-amp-modeler
+
+uv is recommended if you want faster installs, GPU support, or are developing
+the package. Install it from https://github.com/astral-sh/uv
 
 Local development installation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 If you're interested in developing this package, use uv to install the
 development dependencies:
