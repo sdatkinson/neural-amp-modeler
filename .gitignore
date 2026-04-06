@@ -112,6 +112,7 @@ env.bak/
 venv.bak/
 venv-*/
 tmp/
+uv.lock
 
 # Spyder project settings
 .spyderproject

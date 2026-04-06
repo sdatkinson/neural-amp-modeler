@@ -3,48 +3,63 @@
 Local Installation
 ==================
 
-Step 1: Get Miniconda
-^^^^^^^^^^^^^^^^^^^^^
+Step 1: Install uv
+^^^^^^^^^^^^^^^^^^
 
-This is a Python package, and it depends on other packages to work. To manage 
-all this, it's recommended to use Miniconda. Get it from 
-https://docs.anaconda.com/miniconda/
+This is a Python package, and it depends on other packages to work. To manage
+all this, it's recommended to use uv. Install it from
+https://github.com/astral-sh/uv
 
 Step 2: Install NAM
 ^^^^^^^^^^^^^^^^^^^
 
-Now that we have Miniconda, we can install NAM using it.
-
-(Windows / Linux users) If your computer has an nVIDIA GPU, you should install a
-GPU-compatible version of PyTorch first. 
-`The PyTorch website <https://pytorch.org/get-started/locally/>`_ will always
-have the most up-to-date guidance for this. Currently, this is the command:
+Install NAM with uv:
 
 .. code-block:: console
 
-   $ pip install torch --index-url https://download.pytorch.org/whl/cu129
+   $ uv pip install neural-amp-modeler
 
-Then, install NAM using pip:
+Or, for the latest development version:
 
 .. code-block:: console
 
-   $ pip install neural-amp-modeler
+   $ uv pip install -e .
 
 To update an existing installation:
 
 .. code-block:: console
 
-   pip install --upgrade neural-amp-modeler
+   uv pip install --upgrade neural-amp-modeler
 
 Local development installation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you're interested in developing this package, there are Anaconda environment
-definitions included in the ``environments/`` directory. Use the one that's
-appropriate for the platform you're developing on. The
-``.github/workflows/python-pckage.yml`` is also helpful if you want to be sure
-that you're testing your developments in the same way that contributions will be
-automatically tested (via GitHub Actions).
+If you're interested in developing this package, use uv to install the
+development dependencies:
+
+.. code-block:: console
+
+   $ uv sync --extra dev
+
+GPU Support (NVIDIA)
+^^^^^^^^^^^^^^^^^^^^
+
+If your computer has an NVIDIA GPU, you can install a GPU-compatible version
+of PyTorch by adding the ``gpu`` extra:
+
+.. code-block:: console
+
+   $ uv sync --extra gpu
+
+Or for development with GPU support:
+
+.. code-block:: console
+
+   $ uv sync --extra gpu --extra dev
+
+The ``gpu`` extra will automatically install PyTorch with CUDA support from
+PyTorch's index. For other GPU configurations (e.g., Apple Silicon MPS), the
+standard ``torch`` package works automatically.
 
 
 Trouble using the GPU?
