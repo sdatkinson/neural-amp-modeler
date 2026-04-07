@@ -33,6 +33,10 @@ class Head(_nn.Module):
         out_channels: int,
         kernel_sizes: _Sequence[int],
     ) -> None:
+        """
+        :param in_channels: Must match the last layer array's ``head_channels``
+            (``head_size``); supplied by ``WaveNet`` construction, not the JSON head dict.
+        """
         super().__init__()
         ks = list(kernel_sizes)
         if len(ks) < 1:
@@ -66,8 +70,9 @@ class Head(_nn.Module):
             cin = channels
         self._layers = layers
 
+        # in_channels is implied by the last layer array's head_channels / head_size;
+        # omit from export so configs stay single-source.
         self._config: _Dict[str, _Any] = {
-            "in_channels": in_channels,
             "channels": channels,
             "activation": activation,
             "out_channels": out_channels,

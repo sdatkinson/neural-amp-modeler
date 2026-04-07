@@ -1115,7 +1115,6 @@ class TestWaveNetHead:
     """Tests for WaveNet ``head`` (post-stack Conv1d head)."""
 
     _HEAD = {
-        "in_channels": 3,
         "channels": 3,
         "activation": "LeakyReLU",
         "out_channels": 1,

@@ -787,6 +787,14 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             total += (layer.kernel_size - 1) * layer.dilation
         return total
 
+    @property
+    def head_channels(self) -> int:
+        """
+        Channel width of the head path after this layer array (output of
+        ``head_rechannel``), i.e. the ``head_size`` hyperparameter.
+        """
+        return self._head_rechannel.out_channels
+
     def export_config(self):
         # Use first layer for things that are assumed to be constant across layers.
         first_layer = self._layers[0]

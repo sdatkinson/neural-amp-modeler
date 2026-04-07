@@ -155,7 +155,19 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
         layer_arrays = _nn.ModuleList(
             [_LayerArray.init_from_config(lc) for lc in layers_configs]
         )
-        head = None if head_config is None else _Head(**head_config)
+        head = None
+        if head_config is not None:
+            if len(layer_arrays) == 0:
+                raise ValueError("WaveNet head requires at least one layer array")
+            head_in_channels = layer_arrays[-1].head_channels
+            hc = dict(head_config)
+            legacy_in = hc.pop("in_channels", None)
+            if legacy_in is not None and legacy_in != head_in_channels:
+                raise ValueError(
+                    "head config in_channels does not match last layer array head_size "
+                    f"({legacy_in} != {head_in_channels})"
+                )
+            head = _Head(in_channels=head_in_channels, **hc)
 
         return dict(
             condition_dsp=condition_dsp,
