@@ -2,10 +2,15 @@
 # Created Date: Friday May 5th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import json as _json
+from pathlib import Path as _Path
+from tempfile import TemporaryDirectory as _TemporaryDirectory
+
 import numpy as _np
 import pytest as _pytest
 import torch as _torch
 
+from nam.models import _from_nam
 from nam.models._activations import PairBlend as _PairBlend
 from nam.models._activations import PairMultiply as _PairMultiply
 from nam.models.wavenet import WaveNet as _WaveNet
@@ -1104,6 +1109,87 @@ class TestWaveNet(_Base):
             f"receptive_field should be {expected_rf} (main + condition_dsp), "
             f"got {model.receptive_field}"
         )
+
+
+class TestWaveNetHead:
+    """Tests for WaveNet ``head`` (post-stack Conv1d head)."""
+
+    _HEAD = {
+        "in_channels": 3,
+        "channels": 3,
+        "activation": "LeakyReLU",
+        "num_layers": 1,
+        "out_channels": 1,
+        "kernel_size": 6,
+    }
+
+    @staticmethod
+    def _layer_config(head_size: int) -> dict:
+        return {
+            "input_size": 1,
+            "condition_size": 1,
+            "head_size": head_size,
+            "channels": 4,
+            "kernel_size": 2,
+            "dilations": [1],
+            "activation": "Tanh",
+        }
+
+    def test_head_receptive_field_stacked_with_layer_array(self):
+        """RF includes head: base + head_rf - 1 (one act→conv block, k=6 → head_rf = 6)."""
+        base_rf = 1 + (2 - 1) * 1  # one layer, kernel 2, dilation 1
+        head_rf = 1 + 1 * (6 - 1)  # num_layers == 1 convolution in the head
+        expected = base_rf + head_rf - 1
+        config = {
+            "layers_configs": [self._layer_config(3)],
+            "head": dict(self._HEAD),
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        assert model.receptive_field == expected
+
+    def test_head_forward_smoke(self):
+        config = {
+            "layers_configs": [self._layer_config(3)],
+            "head": dict(self._HEAD),
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        x = _torch.randn(1, model.receptive_field + 8)
+        y = model(x)
+        assert y.shape == x.shape
+
+    def test_import_weights_roundtrip_with_head(self):
+        config = {
+            "layers_configs": [self._layer_config(3)],
+            "head": dict(self._HEAD),
+            "head_scale": 1.0,
+        }
+        model_1 = _WaveNet.init_from_config(config)
+        model_2 = _WaveNet.init_from_config(config)
+        x = _torch.randn(2, model_1.receptive_field + 23)
+        y1 = model_1(x)
+        y2_before = model_2(x)
+        model_2.import_weights(model_1._export_weights())
+        y2_after = model_2(x)
+        assert not _torch.allclose(y2_before, y1)
+        assert _torch.allclose(y2_after, y1)
+
+    def test_init_from_nam_roundtrip_with_head(self):
+        config = {
+            "layers_configs": [self._layer_config(3)],
+            "head": dict(self._HEAD),
+            "head_scale": 0.5,
+            "sample_rate": 48000,
+        }
+        model = _WaveNet.init_from_config(config)
+        with _TemporaryDirectory() as tmpdir:
+            model.export(_Path(tmpdir), basename="model")
+            with open(_Path(tmpdir, "model.nam"), "r") as fp:
+                nam_contents = _json.load(fp)
+            model2 = _from_nam.init_from_nam(nam_contents)
+        x = _torch.randn(1, model.receptive_field + 8)
+        assert _torch.allclose(model(x), model2(x))
 
 
 class TestFiLM:
