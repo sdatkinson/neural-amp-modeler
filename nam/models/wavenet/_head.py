@@ -4,6 +4,7 @@
 from copy import deepcopy as _deepcopy
 from typing import Any as _Any
 from typing import Dict as _Dict
+from typing import Sequence as _Sequence
 from typing import Union as _Union
 
 import torch as _torch
@@ -17,8 +18,8 @@ from ._conv import Conv1d as _Conv1d
 
 class Head(_nn.Module):
     """
-    ``num_layers`` blocks, each ``activation`` then ``Conv1d`` with shared
-    ``kernel_size`` (stride 1, padding 0, dilation 1, groups 1, bias True).
+    ``len(kernel_sizes)`` blocks, each ``activation`` then ``Conv1d`` with the
+    corresponding kernel size (stride 1, padding 0, dilation 1, groups 1, bias True).
 
     The first block applies an activation before its convolution, matching the
     historical WaveNet head layout.
@@ -29,18 +30,16 @@ class Head(_nn.Module):
         in_channels: int,
         channels: int,
         activation: _Union[str, _Dict[str, _Any]],
-        num_layers: int,
         out_channels: int,
-        kernel_size: int,
+        kernel_sizes: _Sequence[int],
     ) -> None:
         super().__init__()
-        if num_layers < 1:
-            raise ValueError(f"num_layers must be >= 1, got {num_layers}")
+        ks = list(kernel_sizes)
+        if len(ks) < 1:
+            raise ValueError("kernel_sizes must be non-empty")
+        self._kernel_sizes = ks
 
-        self._num_layers = num_layers
-        self._kernel_size = kernel_size
-
-        def block(cx: int, cy: int) -> _nn.Sequential:
+        def block(cx: int, cy: int, kernel_size: int) -> _nn.Sequential:
             net = _nn.Sequential()
             net.add_module(_ACTIVATION_NAME, _get_activation(activation))
             net.add_module(
@@ -58,11 +57,12 @@ class Head(_nn.Module):
             )
             return net
 
+        num_layers = len(ks)
         layers = _nn.Sequential()
         cin = in_channels
         for i in range(num_layers):
             cout = channels if i != num_layers - 1 else out_channels
-            layers.add_module(f"layer_{i}", block(cin, cout))
+            layers.add_module(f"layer_{i}", block(cin, cout, ks[i]))
             cin = channels
         self._layers = layers
 
@@ -70,14 +70,13 @@ class Head(_nn.Module):
             "in_channels": in_channels,
             "channels": channels,
             "activation": activation,
-            "num_layers": num_layers,
             "out_channels": out_channels,
-            "kernel_size": kernel_size,
+            "kernel_sizes": _deepcopy(ks),
         }
 
     @property
     def receptive_field(self) -> int:
-        return 1 + self._num_layers * (self._kernel_size - 1)
+        return 1 + sum(k - 1 for k in self._kernel_sizes)
 
     def export_config(self) -> _Dict[str, _Any]:
         return _deepcopy(self._config)

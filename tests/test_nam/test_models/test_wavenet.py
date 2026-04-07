@@ -1118,9 +1118,8 @@ class TestWaveNetHead:
         "in_channels": 3,
         "channels": 3,
         "activation": "LeakyReLU",
-        "num_layers": 1,
         "out_channels": 1,
-        "kernel_size": 6,
+        "kernel_sizes": [6],
     }
 
     @staticmethod
@@ -1138,7 +1137,7 @@ class TestWaveNetHead:
     def test_head_receptive_field_stacked_with_layer_array(self):
         """RF includes head: base + head_rf - 1 (one act→conv block, k=6 → head_rf = 6)."""
         base_rf = 1 + (2 - 1) * 1  # one layer, kernel 2, dilation 1
-        head_rf = 1 + 1 * (6 - 1)  # num_layers == 1 convolution in the head
+        head_rf = 1 + (6 - 1)  # one block, kernel_sizes [6]
         expected = base_rf + head_rf - 1
         config = {
             "layers_configs": [self._layer_config(3)],
