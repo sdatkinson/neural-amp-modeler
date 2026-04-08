@@ -19,7 +19,6 @@ from ._layer_array import LayerArray as _LayerArray
 from ._layer_array import film_params_from_dict as _film_params_from_dict
 from ._slimmable import Slimmable as _Slimmable
 
-
 _SLIMMABLE_TOP_KEYS = frozenset({"method", "kwargs"})
 _SLIMMABLE_KWARGS_KEYS = frozenset({"allowed_channels", "boosting", "init_strategy"})
 
@@ -106,6 +105,11 @@ def _validate_slimmable_config(
             "layer1x1_post_film",
             "head1x1_post_film",
         )
+        h = lc.get("head")
+        if isinstance(h, dict) and h.get("kernel_size", 1) != 1:
+            raise NotImplementedError(
+                "Slimmable training with head rechannel kernel_size != 1 is not supported"
+            )
         for key in film_keys:
             fp = film_params.get(key)
             if fp and _film_params_from_dict(fp).active:
@@ -164,7 +168,7 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
             legacy_in = hc.pop("in_channels", None)
             if legacy_in is not None and legacy_in != head_in_channels:
                 raise ValueError(
-                    "head config in_channels does not match last layer array head_size "
+                    "head config in_channels does not match last layer array head_channels "
                     f"({legacy_in} != {head_in_channels})"
                 )
             head = _Head(in_channels=head_in_channels, **hc)

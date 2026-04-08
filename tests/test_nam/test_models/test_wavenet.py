@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory as _TemporaryDirectory
 import numpy as _np
 import pytest as _pytest
 import torch as _torch
+from pydantic import ValidationError as _ValidationError
 
 from nam.models import _from_nam
 from nam.models._activations import PairBlend as _PairBlend
@@ -45,7 +46,7 @@ class TestWaveNet(_Base):
             {
                 "input_size": 1,
                 "condition_size": 1,
-                "head_size": 1,
+                "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                 "channels": 1,
                 "kernel_size": 1,
                 "dilations": [1],
@@ -93,7 +94,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1, 2],
@@ -115,7 +116,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": [2, 3],
                     "dilations": [1, 2],
@@ -134,6 +135,85 @@ class TestWaveNet(_Base):
         layer_cfg = exported["layers"][0]
         assert layer_cfg["kernel_sizes"] == [2, 3]
 
+    def test_layer_config_requires_head_object(self):
+        with _pytest.raises(KeyError, match="head"):
+            _WaveNet.init_from_config(
+                {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "channels": 1,
+                            "kernel_size": 1,
+                            "dilations": [1],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                }
+            )
+
+    def test_head_requires_kernel_size(self):
+        with _pytest.raises(_ValidationError):
+            _WaveNet.init_from_config(
+                {
+                    "layers_configs": [
+                        {
+                            "input_size": 1,
+                            "condition_size": 1,
+                            "head": {"out_channels": 1, "bias": True},
+                            "channels": 1,
+                            "kernel_size": 1,
+                            "dilations": [1],
+                            "activation": "Tanh",
+                        }
+                    ],
+                    "head_scale": 1.0,
+                }
+            )
+
+    def test_head_rechannel_kernel_gt1_export_roundtrip(self):
+        config = {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 3, "bias": False},
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+        model = _WaveNet.init_from_config(config)
+        exported = model._export_config()
+        assert exported["layers"][0]["head"]["kernel_size"] == 3
+        model2 = _WaveNet.init_from_config(config)
+        model2.import_weights(model._export_weights())
+        x = _torch.randn(1, max(model.receptive_field, model2.receptive_field) + 8)
+        assert _torch.allclose(model(x), model2(x))
+
+    def test_layer_array_receptive_field_includes_head_rechannel_kernel(self):
+        model = _WaveNet.init_from_config(
+            {
+                "layers_configs": [
+                    {
+                        "input_size": 1,
+                        "condition_size": 1,
+                        "head": {"out_channels": 1, "kernel_size": 5, "bias": True},
+                        "channels": 1,
+                        "kernel_size": 1,
+                        "dilations": [1],
+                        "activation": "Tanh",
+                    }
+                ],
+                "head_scale": 1.0,
+            }
+        )
+        assert model._net._layer_arrays[0].receptive_field == 1 + (5 - 1)
+
     @_pytest.mark.parametrize("pairing_name", ["PairMultiply", "PairBlend"])
     def test_init_from_config_activation_dict_pairing(self, pairing_name: str):
         """
@@ -145,7 +225,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -175,7 +255,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1, 2],
@@ -198,7 +278,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1, 2],
@@ -222,7 +302,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1, 2],
@@ -246,7 +326,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -269,7 +349,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 2,  # divisible by groups_input_mixin for build
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -293,7 +373,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 2,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -314,7 +394,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -335,7 +415,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1, 2],
@@ -361,7 +441,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -394,7 +474,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -416,7 +496,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1, 2],
@@ -447,7 +527,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -477,7 +557,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -514,7 +594,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -544,7 +624,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -575,7 +655,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -597,7 +677,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1, 2],
@@ -630,7 +710,7 @@ class TestWaveNet(_Base):
         layer_config = {
             "input_size": 1,
             "condition_size": 1,
-            "head_size": 1,
+            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
             "channels": 2,
             "kernel_size": 2,
             "dilations": [1],
@@ -664,7 +744,7 @@ class TestWaveNet(_Base):
         layer_config = {
             "input_size": 1,
             "condition_size": 1,
-            "head_size": 1,
+            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
             "channels": 2,
             "kernel_size": 2,
             "dilations": [1],
@@ -696,7 +776,7 @@ class TestWaveNet(_Base):
         layer_config = {
             "input_size": 1,
             "condition_size": 1,
-            "head_size": 1,
+            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
             "channels": 2,
             "kernel_size": 2,
             "dilations": [1],
@@ -733,7 +813,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -757,7 +837,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -781,7 +861,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -808,7 +888,7 @@ class TestWaveNet(_Base):
                         {
                             "input_size": 1,
                             "condition_size": 1,
-                            "head_size": 2,
+                            "head": {"out_channels": 2, "kernel_size": 1, "bias": True},
                             "channels": 2,
                             "kernel_size": 2,
                             "dilations": [1],
@@ -822,7 +902,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 2,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -850,7 +930,7 @@ class TestWaveNet(_Base):
                         {
                             "input_size": 1,
                             "condition_size": 1,
-                            "head_size": 1,
+                            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                             "channels": 2,
                             "kernel_size": 2,
                             "dilations": [1],
@@ -864,7 +944,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -889,7 +969,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -907,7 +987,7 @@ class TestWaveNet(_Base):
                         {
                             "input_size": 1,
                             "condition_size": 1,
-                            "head_size": 1,
+                            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                             "channels": 2,
                             "kernel_size": 2,
                             "dilations": [1],
@@ -946,7 +1026,7 @@ class TestWaveNet(_Base):
                         {
                             "input_size": 1,
                             "condition_size": 1,
-                            "head_size": 2,
+                            "head": {"out_channels": 2, "kernel_size": 1, "bias": True},
                             "channels": 2,
                             "kernel_size": 2,
                             "dilations": [1],
@@ -960,7 +1040,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 2,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -998,7 +1078,7 @@ class TestWaveNet(_Base):
                         {
                             "input_size": 1,
                             "condition_size": 1,
-                            "head_size": 2,
+                            "head": {"out_channels": 2, "kernel_size": 1, "bias": True},
                             "channels": 2,
                             "kernel_size": 3,
                             "dilations": [2],  # rf = 1 + (3-1)*2 = 5, c has L-4
@@ -1012,7 +1092,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 2,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],  # zconv has L-1
@@ -1040,7 +1120,7 @@ class TestWaveNet(_Base):
                         {
                             "input_size": 1,
                             "condition_size": 1,
-                            "head_size": 2,
+                            "head": {"out_channels": 2, "kernel_size": 1, "bias": True},
                             "channels": 2,
                             "kernel_size": 2,
                             "dilations": [1, 2],
@@ -1054,7 +1134,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 2,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -1078,7 +1158,7 @@ class TestWaveNet(_Base):
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 2,
+                    "head": {"out_channels": 2, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
@@ -1090,7 +1170,7 @@ class TestWaveNet(_Base):
         main_layer_config = {
             "input_size": 1,
             "condition_size": 2,
-            "head_size": 1,
+            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
             "channels": 2,
             "kernel_size": 2,
             "dilations": [1],
@@ -1122,11 +1202,15 @@ class TestWaveNetHead:
     }
 
     @staticmethod
-    def _layer_config(head_size: int) -> dict:
+    def _layer_config(head_out_channels: int) -> dict:
         return {
             "input_size": 1,
             "condition_size": 1,
-            "head_size": head_size,
+            "head": {
+                "out_channels": head_out_channels,
+                "kernel_size": 1,
+                "bias": True,
+            },
             "channels": 4,
             "kernel_size": 2,
             "dilations": [1],
@@ -1238,12 +1322,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1, 2],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
@@ -1268,12 +1351,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
@@ -1294,12 +1376,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 2,
+                    "head": {"out_channels": 2, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "head_1x1_config": {"active": True, "out_channels": 2},
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
@@ -1316,12 +1397,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "film_params": {"conv_pre_film": {"active": True}},
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
@@ -1338,12 +1418,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                 }
             ],
             "head_scale": 1.0,
@@ -1353,12 +1432,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 2,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
             ],
@@ -1375,12 +1453,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "groups_input": 2,
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 }
@@ -1397,23 +1474,21 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 },
                 {
                     "input_size": 4,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 2,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
                 },
             ],
@@ -1429,12 +1504,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "slimmable": {},  # Need to define how to slim!
                 }
             ],
@@ -1459,12 +1533,11 @@ class TestSlimmableWaveNet:
                 {
                     "input_size": 1,
                     "condition_size": 1,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "channels": 4,
                     "kernel_size": 2,
                     "dilations": [1],
                     "activation": "Tanh",
-                    "head_bias": True,
                     "slimmable": {
                         "method": "slice_channels_uniform",
                         "kwargs": {
@@ -1494,12 +1567,11 @@ class TestSlimmableWaveNet:
         base = {
             "input_size": 1,
             "condition_size": 1,
-            "head_size": 1,
+            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
             "channels": 4,
             "kernel_size": 2,
             "dilations": [1, 2],
             "activation": "Tanh",
-            "head_bias": True,
             "slimmable": {"method": "slice_channels_uniform", "kwargs": {}},
         }
         base.update(layer_overrides)
@@ -1634,12 +1706,11 @@ class TestSlimmableWaveNet:
         layer = {
             "input_size": 1,
             "condition_size": 1,
-            "head_size": 1,
+            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
             "channels": channels,
             "kernel_size": 2,
             "dilations": [1, 2],
             "activation": activation,
-            "head_bias": True,
             "slimmable": {
                 "method": "slice_channels_uniform",
                 "kwargs": {"allowed_channels": list(allowed)},
@@ -1742,12 +1813,11 @@ class TestSlimmableWaveNet:
         layer = {
             "input_size": 1,
             "condition_size": 1,
-            "head_size": 1,
+            "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
             "channels": channels,
             "kernel_size": 2,
             "dilations": [1, 2],
             "activation": "LeakyReLU",
-            "head_bias": True,
             "slimmable": {
                 "method": "slice_channels_uniform",
                 "kwargs": {

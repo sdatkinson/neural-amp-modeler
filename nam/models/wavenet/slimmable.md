@@ -48,7 +48,7 @@ _LayerArray (slimmable=True)
 │   ├── _input_mixer: _SlimmableInputMixer (condition_size → mid_channels)
 │   └── _layer1x1:  _Slimmable1x1 (bottleneck → channels)
 │
-└── _head_rechannel: _SlimmableHeadRechannel (channels → head_size=1)
+└── _head_rechannel: _SlimmableHeadRechannel (channels → ``head.out_channels``; kernel_size 1 only for slimmable)
 ```
 
 ## Slice Semantics (weight tensor w)
