@@ -2,7 +2,6 @@
 The basic WaveNet neural network
 """
 
-from copy import deepcopy as _deepcopy
 from datetime import datetime as _datetime
 from typing import Dict as _Dict
 from typing import Optional as _Optional
@@ -13,67 +12,12 @@ import torch as _torch
 import torch.nn as _nn
 
 from ..._core import InitializableFromConfig as _InitializableFromConfig
-from .._activations import get_activation as _get_activation
 from .._constants import MODEL_VERSION as _EXPORT_VERSION
-from .._names import ACTIVATION_NAME as _ACTIVATION_NAME
-from .._names import CONV_NAME as _CONV_NAME
 from ..metadata import Date as _Date
-from ._conv import Conv1d as _Conv1d
+from ._head import Head as _Head
 from ._layer_array import LayerArray as _LayerArray
 from ._layer_array import film_params_from_dict as _film_params_from_dict
 from ._slimmable import Slimmable as _Slimmable
-
-
-class _Head(_nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        channels: int,
-        activation: str,
-        num_layers: int,
-        out_channels: int,
-    ):
-        super().__init__()
-
-        def block(cx, cy):
-            net = _nn.Sequential()
-            net.add_module(_ACTIVATION_NAME, _get_activation(activation))
-            net.add_module(_CONV_NAME, _Conv1d(cx, cy, 1))
-            return net
-
-        assert num_layers > 0
-
-        layers = _nn.Sequential()
-        cin = in_channels
-        for i in range(num_layers):
-            layers.add_module(
-                f"layer_{i}",
-                block(cin, channels if i != num_layers - 1 else out_channels),
-            )
-            cin = channels
-        self._layers = layers
-
-        self._config = {
-            "channels": channels,
-            "activation": activation,
-            "num_layers": num_layers,
-            "out_channels": out_channels,
-        }
-
-    def export_config(self):
-        return _deepcopy(self._config)
-
-    def export_weights(self) -> _torch.Tensor:
-        return _torch.cat([layer[1].export_weights() for layer in self._layers])
-
-    def forward(self, *args, **kwargs):
-        return self._layers(*args, **kwargs)
-
-    def import_weights(self, weights: _torch.Tensor, i: int) -> int:
-        for layer in self._layers:
-            i = layer[1].import_weights(weights, i)
-        return i
-
 
 _SLIMMABLE_TOP_KEYS = frozenset({"method", "kwargs"})
 _SLIMMABLE_KWARGS_KEYS = frozenset({"allowed_channels", "boosting", "init_strategy"})
@@ -161,6 +105,11 @@ def _validate_slimmable_config(
             "layer1x1_post_film",
             "head1x1_post_film",
         )
+        h = lc.get("head")
+        if isinstance(h, dict) and h.get("kernel_size", 1) != 1:
+            raise NotImplementedError(
+                "Slimmable training with head rechannel kernel_size != 1 is not supported"
+            )
         for key in film_keys:
             fp = film_params.get(key)
             if fp and _film_params_from_dict(fp).active:
@@ -210,7 +159,19 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
         layer_arrays = _nn.ModuleList(
             [_LayerArray.init_from_config(lc) for lc in layers_configs]
         )
-        head = None if head_config is None else _Head(**head_config)
+        head = None
+        if head_config is not None:
+            if len(layer_arrays) == 0:
+                raise ValueError("WaveNet head requires at least one layer array")
+            head_in_channels = layer_arrays[-1].head_channels
+            hc = dict(head_config)
+            legacy_in = hc.pop("in_channels", None)
+            if legacy_in is not None and legacy_in != head_in_channels:
+                raise ValueError(
+                    "head config in_channels does not match last layer array head_channels "
+                    f"({legacy_in} != {head_in_channels})"
+                )
+            head = _Head(in_channels=head_in_channels, **hc)
 
         return dict(
             condition_dsp=condition_dsp,
@@ -226,6 +187,8 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
         )
         if self._condition_dsp is not None:
             receptive_field += self._condition_dsp.receptive_field - 1
+        if self._head is not None:
+            receptive_field += self._head.receptive_field - 1
         return receptive_field
 
     def export_config(self, sample_rate: _Optional[float] = None):
@@ -276,10 +239,16 @@ class WaveNet(_Slimmable, _nn.Module, _InitializableFromConfig):
         return weights.detach().cpu().numpy()
 
     def import_weights(self, weights: _torch.Tensor, i: int = 0) -> int:
-        if self._head is not None:
-            raise NotImplementedError("Head importing isn't implemented yet.")
         for layer in self._layer_arrays:
             i = layer.import_weights(weights, i)
+        if self._head is not None:
+            i = self._head.import_weights(weights, i)
+        tail = float(weights[i])
+        i += 1
+        # Weight blob may store head_scale as float32; keep config value if equal within
+        # tolerance so JSON re-export matches (e.g. 0.02 vs 0.019999999552965164).
+        if abs(tail - self._head_scale) > 1e-5:
+            self._head_scale = tail
         return i
 
     def is_slimmable(self) -> bool:

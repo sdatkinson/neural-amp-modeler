@@ -7,6 +7,7 @@ from typing import Tuple as _Tuple
 import torch as _torch
 import torch.nn as _nn
 from pydantic import BaseModel as _BaseModel
+from pydantic import PositiveInt as _PositiveInt
 
 from ..._core import InitializableFromConfig as _InitializableFromConfig
 from .._abc import ImportsWeights as _ImportsWeights
@@ -36,6 +37,14 @@ class _Head1x1Config(_BaseModel):
 class _Layer1x1Config(_BaseModel):
     active: bool = True
     groups: int = 1
+
+
+class _LayerArrayHeadConfig(_BaseModel):
+    """Per layer-array head rechannel (``layers[i].head`` in export)."""
+
+    out_channels: _PositiveInt
+    kernel_size: _PositiveInt
+    bias: bool
 
 
 class _FiLMParamsConfig(_BaseModel):
@@ -106,7 +115,7 @@ def _get_conv_factory_set(
     condition_size: int,
     channels: int,
     bottleneck: int,
-    head_size: int,
+    head_out_channels: int,
     head_rechannel_in_channels: int,
 ) -> _conv.ClassSet | _ConvFactorySet:
     """
@@ -226,7 +235,7 @@ def _get_conv_factory_set(
     def head1x1_factory(in_ch: int, out_ch: int, *args: _Any, **kwargs: _Any) -> _Any:
         return cls.Head1x1(in_ch, out_ch, *args, **kwargs)
 
-    # HeadRechannel: is_last → allowed_out=[head_size], else allowed_out=allowed_tuple
+    # HeadRechannel: is_last → allowed_out=[head_out_channels], else allowed_out=allowed_tuple
     def head_rechannel_factory(
         in_ch: int, out_ch: int, *args: _Any, is_last: bool = False, **kwargs: _Any
     ) -> _Any:
@@ -684,7 +693,12 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         is_last = config.pop("is_last")
         input_size = config.pop("input_size")
         condition_size = config.pop("condition_size")
-        head_size = config.pop("head_size")
+        if "head" not in config:
+            raise KeyError(
+                "Each layer array config must include a 'head' object with "
+                "'out_channels', 'kernel_size', and 'bias'"
+            )
+        head_cfg = _LayerArrayHeadConfig.model_validate(config.pop("head"))
         channels = config.pop("channels")
         if "kernel_sizes" in config:
             kernel_sizes = config.pop("kernel_sizes")
@@ -694,7 +708,6 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             raise KeyError("Either 'kernel_sizes' or 'kernel_size' must be present")
         dilations = config.pop("dilations")
         activation = config.pop("activation")
-        head_bias = config.pop("head_bias", True)
         bottleneck = config.pop("bottleneck", channels)
 
         head1x1_config = _Head1x1Config.model_validate(
@@ -708,6 +721,11 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         groups_input_mixin = config.pop("groups_input_mixin", 1)
         slimmable_config = config.pop("slimmable", None)
 
+        if slimmable_config is not None and head_cfg.kernel_size != 1:
+            raise NotImplementedError(
+                "Slimmable training with head rechannel kernel_size != 1 is not supported"
+            )
+
         head_rechannel_in_channels = (
             head1x1_config.out_channels if head1x1_config.active else bottleneck
         )
@@ -719,7 +737,7 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             condition_size=condition_size,
             channels=channels,
             bottleneck=bottleneck,
-            head_size=head_size,
+            head_out_channels=head_cfg.out_channels,
             head_rechannel_in_channels=head_rechannel_in_channels,
         )
 
@@ -770,7 +788,11 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             ]
         )
         head_rechannel = conv_factory_set.HeadRechannel(
-            head_rechannel_in_channels, head_size, 1, bias=head_bias, is_last=is_last
+            head_rechannel_in_channels,
+            head_cfg.out_channels,
+            head_cfg.kernel_size,
+            bias=head_cfg.bias,
+            is_last=is_last,
         )
 
         return dict(
@@ -781,11 +803,19 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
 
     @property
     def receptive_field(self) -> int:
-        total = 1
-        for layer in self._layers:
-            assert isinstance(layer, _Layer)
-            total += (layer.kernel_size - 1) * layer.dilation
-        return total
+        return (
+            self._receptive_field_no_head_rechannel
+            + int(self._head_rechannel.kernel_size[0])
+            - 1
+        )
+
+    @property
+    def head_channels(self) -> int:
+        """
+        Channel width of the head path after this layer array (output of
+        ``head_rechannel``), i.e. ``head.out_channels`` in config.
+        """
+        return self._head_rechannel.out_channels
 
     def export_config(self):
         # Use first layer for things that are assumed to be constant across layers.
@@ -829,12 +859,15 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         config = {
             "input_size": self._rechannel.in_channels,
             "condition_size": first_layer.input_mixer.in_channels,
-            "head_size": self._head_rechannel.out_channels,
+            "head": {
+                "out_channels": self._head_rechannel.out_channels,
+                "kernel_size": int(self._head_rechannel.kernel_size[0]),
+                "bias": self._head_rechannel.bias is not None,
+            },
             "channels": first_layer.channels,
             "kernel_sizes": [layer.kernel_size for layer in self._layers],
             "dilations": self._dilations,
             "activation": activations,
-            "head_bias": self._head_rechannel.bias is not None,
             "bottleneck": first_layer.bottleneck,
             "head1x1": head1x1_config.model_dump(),
             "layer1x1": layer1x1_config.model_dump(),
@@ -878,20 +911,36 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         :param x: (B,Dx,L) layer input
         :param c: (B,Dc,L) condition
 
+        Layer array receptive field is R.
+
         :return:
-            (B,Dc,L-R+1) head input
-            (B,Dc,L-R+1) layer output
+            (B,Dc,L-(R-1)) head input
+            (B,Dc,L-(R-1)) layer output
         """
         out_length = min(x.shape[2], c.shape[2]) - (self.receptive_field - 1)
+        out_length_no_head_rechannel = min(x.shape[2], c.shape[2]) - (
+            self._receptive_field_no_head_rechannel - 1
+        )
         x = self._rechannel(x)
         for layer in self._layers:
-            x, head_term = layer(x, c, out_length)  # Ensures head_term sample length
+            x, head_term = layer(
+                x, c, out_length_no_head_rechannel
+            )  # Ensures head_term sample length
             head_input = (
                 head_term
                 if head_input is None
-                else head_input[:, :, -out_length:] + head_term
+                else head_input[:, :, -out_length_no_head_rechannel:] + head_term
             )
-        return self._head_rechannel(head_input), x
+        head_rechannel_output = self._head_rechannel(head_input)
+
+        # Trim x to match loss of sequence length by head_rechannel (valid conv).
+        assert head_rechannel_output.shape[2] == out_length
+        # Residual length can differ from out_length_no_head_rechannel when c is shorter
+        # than x (e.g. condition_dsp): layers min along the condition path.
+        assert x.shape[2] >= out_length
+        x = x[:, :, -out_length:]
+
+        return head_rechannel_output, x
 
     @property
     def _dilations(self) -> _Sequence[int]:
@@ -900,6 +949,14 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
             assert isinstance(layer, _Layer)
             dilations.append(layer.dilation)
         return dilations
+
+    @property
+    def _receptive_field_no_head_rechannel(self) -> int:
+        total = 1
+        for layer in self._layers:
+            assert isinstance(layer, _Layer)
+            total += (layer.kernel_size - 1) * layer.dilation
+        return total
 
     @classmethod
     def _parse_slimmable_config(cls, val: _Any) -> bool:

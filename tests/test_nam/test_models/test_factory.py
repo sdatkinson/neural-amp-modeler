@@ -65,11 +65,14 @@ class TestRegistry:
                             "condition_size": 1,
                             "input_size": 1,
                             "channels": 4,
-                            "head_size": 2,
+                            "head": {
+                                "out_channels": 2,
+                                "kernel_size": 1,
+                                "bias": False,
+                            },
                             "kernel_size": 3,
                             "dilations": [1, 2],
                             "activation": "Tanh",
-                            "head_bias": False,
                         }
                     ],
                     "head_scale": 0.02,
