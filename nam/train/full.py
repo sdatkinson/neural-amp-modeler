@@ -22,6 +22,7 @@ from nam.data import ConcatDataset as _ConcatDataset
 from nam.data import Split as _Split
 from nam.data import init_dataset as _init_dataset
 from nam.train import lightning_module as _lightning_module
+from nam.train.ema import ema_callback_from_learning_config as _ema_callback_from_learning_config
 from nam.util import filter_warnings as _filter_warnings
 
 _torch.manual_seed(0)
@@ -177,8 +178,13 @@ def main(
         dataset_validation, **learning_config["val_dataloader"]
     )
 
+    callbacks = _create_callbacks(learning_config)
+    ema_cb = _ema_callback_from_learning_config(learning_config)
+    if ema_cb is not None:
+        callbacks = [*callbacks, ema_cb]
+
     trainer = _pl.Trainer(
-        callbacks=_create_callbacks(learning_config),
+        callbacks=callbacks,
         default_root_dir=outdir,
         **learning_config["trainer"],
     )

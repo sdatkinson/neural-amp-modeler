@@ -61,6 +61,16 @@ def test_esr():
     assert _torch.allclose(actual_esr, expected_esr)
 
 
+def test_esr_eps_stabilizes_tiny_target_energy():
+    """Denominator mean(y^2)+eps avoids blow-up when the target is near silent."""
+    preds = _torch.tensor([[1.0, 0.0, 0.0]])
+    targets = _torch.zeros_like(preds)
+    eps = 1e-8
+    expected = _torch.mean(_torch.square(preds - targets)) / eps
+    actual = _losses.esr(preds, targets, eps=eps)
+    assert _torch.allclose(actual, expected)
+
+
 @_requires_mps
 def test_mrstft_loss_doesnt_fall_back_to_cpu():
     preds, targets = _torch.randn((2, 2048))

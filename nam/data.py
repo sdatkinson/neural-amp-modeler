@@ -353,6 +353,7 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         require_input_pre_silence: _Optional[
             float
         ] = _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
+        jitter: bool = False,
     ):
         """
         :param x: The input signal. A 1D array.
@@ -394,6 +395,9 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
             seconds) preceding the start of the data set (`start`) have a silent input.
             If it's not, then raise an exception because the output due to it will leak
             into the data set that we're trying to use. If `None`, don't assert.
+        :param jitter: If True, add a random offset (up to ny//4 samples) to each
+            window's start position during iteration. Prevents overfitting to fixed
+            window boundaries. Should only be enabled for training, not validation.
         """
         self._validate_x_y(x, y)
         self._sample_rate = sample_rate
@@ -425,6 +429,7 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         self._y = y
         self._nx = nx
         self._ny = ny if ny is not None else len(x) - nx + 1
+        self._jitter = jitter
 
     def __getitem__(self, idx: int) -> _Tuple[_torch.Tensor, _torch.Tensor]:
         """
@@ -435,6 +440,11 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         if idx >= len(self):
             raise IndexError(f"Attempted to access datum {idx}, but len is {len(self)}")
         i = idx * self._ny
+        if self._jitter:
+            max_jitter = self._ny // 4
+            if max_jitter > 0:
+                max_i = len(self.x) - (self._nx + self._ny - 1)
+                i = min(i + _torch.randint(0, max_jitter, (1,)).item(), max_i)
         j = i + self.y_offset
         return self.x[i : i + self._nx + self._ny - 1], self.y[j : j + self._ny]
 

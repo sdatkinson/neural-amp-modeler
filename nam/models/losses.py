@@ -9,6 +9,7 @@ Loss functions
 from typing import Optional as _Optional
 
 import torch as _torch
+import torch.nn as _nn
 
 from .._dependencies.auraloss.freq import (
     MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss,
@@ -27,12 +28,16 @@ def apply_pre_emphasis_filter(x: _torch.Tensor, coef: float) -> _torch.Tensor:
     return x[..., 1:] - coef * x[..., :-1]
 
 
-def esr(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
+def esr(
+    preds: _torch.Tensor, targets: _torch.Tensor, eps: float = 0.0
+) -> _torch.Tensor:
     """
     ESR of (a batch of) predictions & targets
 
     :param preds: (N,) or (B,N)
     :param targets: Same as preds
+    :param eps: Added to the denominator ``mean(y^2)`` for numerical stability (0 keeps
+        the classic ratio used for validation metrics).
     :return: ()
     """
     if preds.ndim == 1 and targets.ndim == 1:
@@ -45,10 +50,28 @@ def esr(preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
         raise ValueError(
             f"Expect 2D targets (batch_size, num_samples). Got {targets.shape}"
         )
-    return _torch.mean(
-        _torch.mean(_torch.square(preds - targets), dim=1)
-        / _torch.mean(_torch.square(targets), dim=1)
-    )
+    denom = _torch.mean(_torch.square(targets), dim=1) + eps
+    return _torch.mean(_torch.mean(_torch.square(preds - targets), dim=1) / denom)
+
+
+class ESRLoss(_nn.Module):
+    """
+    ``nn.Module`` wrapper around :func:`esr` for use with ``custom_losses`` in the
+    training config (the generic loader expects a constructible module). Typical use is
+    a small ``weight`` (e.g. ``0.05``) as an auxiliary term alongside MSE and MRSTFT.
+    Name the custom loss key ``"ESR"`` if ``val_loss`` is ``"esr"`` so validation
+    resolves that metric from the loss dict.
+
+    Uses ``mean((p-y)^2) / (mean(y^2) + eps)`` with a small default ``eps`` so quiet
+    targets do not explode the ratio.
+    """
+
+    def __init__(self, eps: float = 1e-8):
+        super().__init__()
+        self._eps = eps
+
+    def forward(self, preds: _torch.Tensor, targets: _torch.Tensor) -> _torch.Tensor:
+        return esr(preds, targets, eps=self._eps)
 
 
 def multi_resolution_stft_loss(

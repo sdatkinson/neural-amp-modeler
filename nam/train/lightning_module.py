@@ -68,7 +68,8 @@ class _CustomLoss(_NamedTuple):
 @_dataclass
 class LossConfig(_InitializableFromConfig):
     """
-    :param mse_weight: Weight for the MSE loss term. If None, MSE is not computed.
+    :param mse_weight: If None, MSE is not computed (programmatic use only; not set from
+        JSON loss config).
     :param mrstft_weight: Multi-resolution short-time Fourier transform loss
         coefficient. None means to skip; 2e-4 works pretty well if one wants to use it.
     :param mask_first: How many of the first samples to ignore when computing the loss.
@@ -225,6 +226,10 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
     @classmethod
     def parse_config(cls, config):
         """
+        Optimizer: use ``{"class": "<Name>", "kwargs": {...}}`` with a class from
+        ``torch.optim`` (e.g. ``Adam``, ``AdamW``). A flat ``{"lr": ...}`` dict
+        is still accepted and uses ``Adam`` for backward compatibility.
+
         e.g.
 
         {
@@ -236,7 +241,8 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
                 "dc_weight": 0.1
             },
             "optimizer": {
-                "lr": 0.0003
+                "class": "AdamW",
+                "kwargs": {"lr": 0.0003}
             },
             "lr_scheduler": {
                 "class": "ReduceLROnPlateau",
@@ -275,7 +281,12 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
         return self._net
 
     def configure_optimizers(self):
-        optimizer = _torch.optim.Adam(self.parameters(), **self._optimizer_config)
+        oc = self._optimizer_config
+        if isinstance(oc, dict) and "class" in oc and "kwargs" in oc:
+            opt_cls = getattr(_torch.optim, oc["class"])
+            optimizer = opt_cls(self.parameters(), **oc["kwargs"])
+        else:
+            optimizer = _torch.optim.Adam(self.parameters(), **oc)
         if self._scheduler_config is None:
             return optimizer
         else:

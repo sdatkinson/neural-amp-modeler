@@ -142,5 +142,26 @@ def test_custom_losses_init():
     assert loss.item() == _torch.nn.MSELoss()(preds, targets)
 
 
+def test_esr_loss_module_via_custom_losses_config():
+    from nam.models.losses import esr as _esr
+
+    cfg = {
+        "custom_losses": {
+            "ESR": {
+                "name": "nam.models.losses.ESRLoss",
+                "kwargs": {},
+                "weight": 0.05,
+            }
+        },
+    }
+    parsed = _lightning_module.LossConfig.parse_config(cfg)
+    assert parsed["custom_losses"]["ESR"].weight == 0.05
+    preds = _torch.randn((3, 64))
+    targets = _torch.randn(preds.shape)
+    v = parsed["custom_losses"]["ESR"].func(preds, targets)
+    assert v.shape == ()
+    assert _torch.allclose(v, _esr(preds, targets, eps=1e-8))
+
+
 if __name__ == "__main__":
     _pytest.main()
