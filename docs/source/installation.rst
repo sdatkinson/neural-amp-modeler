@@ -3,45 +3,74 @@
 Local Installation
 ==================
 
-Step 1: Get Miniconda
-^^^^^^^^^^^^^^^^^^^^^
+Step 1: Install Python
+^^^^^^^^^^^^^^^^^^^^^^
 
-This is a Python package, and it depends on other packages to work. To manage 
-all this, it's recommended to use Miniconda. Get it from 
-https://docs.anaconda.com/miniconda/
+Install Python 3.9 or newer.
 
-Step 2: Install NAM
-^^^^^^^^^^^^^^^^^^^
+Step 2: Create a virtual environment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Now that we have Miniconda, we can install NAM using it.
+It's recommended to install NAM in a virtual environment.
+
+On macOS / Linux:
+
+.. code-block:: console
+
+   $ python -m venv .venv
+   $ source .venv/bin/activate
+   $ python -m pip install --upgrade pip
+
+On Windows:
+
+.. code-block:: console
+
+   > python -m venv .venv
+   > .venv\Scripts\activate
+   > python -m pip install --upgrade pip
+
+Step 3: Install PyTorch
+^^^^^^^^^^^^^^^^^^^^^^^
 
 (Windows / Linux users) If your computer has an nVIDIA GPU, you should install a
-GPU-compatible version of PyTorch first. 
-`The PyTorch website <https://pytorch.org/get-started/locally/>`_ will always
-have the most up-to-date guidance for this. Currently, this is the command:
+GPU-compatible version of PyTorch first. `The PyTorch website
+<https://pytorch.org/get-started/locally/>`_ will always have the most up-to-date
+instructions for this.
 
-.. code-block:: console
-   $ pip install -r requirements-gpu.txt
-
-Then, install NAM using pip:
+If you're not using an NVIDIA GPU, install the default PyTorch package:
 
 .. code-block:: console
 
-   $ pip install neural-amp-modeler
+   $ python -m pip install torch
+
+Step 4: Install NAM
+^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: console
+
+   $ python -m pip install neural-amp-modeler
 
 To update an existing installation:
 
 .. code-block:: console
 
-   pip install --upgrade neural-amp-modeler
+   $ python -m pip install --upgrade neural-amp-modeler
 
 Local development installation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you're interested in developing this package, there are Anaconda environment
-definitions included in the ``environments/`` directory. Use the one that's
-appropriate for the platform you're developing on. The
-``.github/workflows/python-pckage.yml`` is also helpful if you want to be sure
+Create and activate a virtual environment, then install NAM in editable mode.
+Install whatever tooling you need for development alongside it:
+
+.. code-block:: console
+
+   $ python -m venv .venv
+   $ source .venv/bin/activate
+   $ python -m pip install --upgrade pip
+   $ python -m pip install -e .
+   $ python -m pip install pytest pytest-mock flake8 black pre-commit
+
+``.github/workflows/python-package.yml`` is also helpful if you want to be sure
 that you're testing your developments in the same way that contributions will be
 automatically tested (via GitHub Actions).
 
@@ -80,7 +109,7 @@ To uninstall PyTorch and reinstall it, you can do:
 
 .. code-block:: console
 
-   $ pip uninstall torch torchvision torchaudio
+   $ python -m pip uninstall torch torchvision torchaudio
 
 and then use the install command above (or check the PyTorch website for the
 most up-to-date instructions). If you notice that this documentation is out of 
