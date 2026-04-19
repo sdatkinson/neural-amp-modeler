@@ -21,12 +21,20 @@ On macOS / Linux:
    $ source .venv/bin/activate
    $ python -m pip install --upgrade pip
 
-On Windows:
+On Windows, in ``cmd.exe``:
 
 .. code-block:: console
 
    > python -m venv .venv
    > .venv\Scripts\activate
+   > python -m pip install --upgrade pip
+
+On Windows, in PowerShell:
+
+.. code-block:: console
+
+   > python -m venv .venv
+   > .\.venv\Scripts\Activate.ps1
    > python -m pip install --upgrade pip
 
 Step 3: Install PyTorch
@@ -60,8 +68,8 @@ Local development installation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Create and activate a virtual environment, then install NAM in editable mode
-with its test dependencies. Install any additional development tooling you need
-alongside it:
+with its test dependencies. On Windows, use the activation command above for
+your shell. Install any additional development tooling you need alongside it:
 
 .. code-block:: console
 
@@ -80,7 +88,7 @@ Trouble using the GPU?
 ^^^^^^^^^^^^^^^^^^^^^^
 
 If you're using a Windows or Linux machine with an NVIDIA GPU and NAM isn't
-using it (Apple machines with Apple Silicon don't use an nVIDIA GPU, but MPS, an 
+using it (Apple machines with Apple Silicon don't use an NVIDIA GPU, but MPS, an 
 accelerator with somewhat similar functionality), the reason is 99.999% probably
 an issue with your PyTorch installation, not NAM. Google (or ChatGPT) should be 
 able to help you fix the issue, but here are a few handy things you can do (in 
