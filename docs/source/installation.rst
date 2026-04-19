@@ -3,46 +3,83 @@
 Local Installation
 ==================
 
-Step 1: Get Miniconda
-^^^^^^^^^^^^^^^^^^^^^
+Step 1: Install Python
+^^^^^^^^^^^^^^^^^^^^^^
 
-This is a Python package, and it depends on other packages to work. To manage 
-all this, it's recommended to use Miniconda. Get it from 
-https://docs.anaconda.com/miniconda/
+Install Python 3.9 or newer.
 
-Step 2: Install NAM
+Step 2: Create a virtual environment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+It's recommended to install NAM in a virtual environment.
+
+On macOS / Linux:
+
+.. code-block:: console
+
+   $ python -m venv .venv
+   $ source .venv/bin/activate
+   $ python -m pip install --upgrade pip
+
+On Windows, in ``cmd.exe``:
+
+.. code-block:: console
+
+   > python -m venv .venv
+   > .venv\Scripts\activate
+   > python -m pip install --upgrade pip
+
+On Windows, in PowerShell:
+
+.. code-block:: console
+
+   > python -m venv .venv
+   > .\.venv\Scripts\Activate.ps1
+   > python -m pip install --upgrade pip
+
+Step 3: Install PyTorch
+^^^^^^^^^^^^^^^^^^^^^^^
+
+If your computer has an NVIDIA GPU, install a GPU-compatible version of
+PyTorch using the instructions on the PyTorch website:
+
+https://pytorch.org/get-started/locally/
+
+If you're not using an NVIDIA GPU, install the default CPU version of PyTorch:
+
+.. code-block:: console
+
+   $ python -m pip install torch
+
+Step 4: Install NAM
 ^^^^^^^^^^^^^^^^^^^
 
-Now that we have Miniconda, we can install NAM using it.
-
-(Windows / Linux users) If your computer has an nVIDIA GPU, you should install a
-GPU-compatible version of PyTorch first. 
-`The PyTorch website <https://pytorch.org/get-started/locally/>`_ will always
-have the most up-to-date guidance for this. Currently, this is the command:
-
 .. code-block:: console
 
-   $ pip install torch --index-url https://download.pytorch.org/whl/cu129
-
-Then, install NAM using pip:
-
-.. code-block:: console
-
-   $ pip install neural-amp-modeler
+   $ python -m pip install neural-amp-modeler
 
 To update an existing installation:
 
 .. code-block:: console
 
-   pip install --upgrade neural-amp-modeler
+   $ python -m pip install --upgrade neural-amp-modeler
 
 Local development installation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you're interested in developing this package, there are Anaconda environment
-definitions included in the ``environments/`` directory. Use the one that's
-appropriate for the platform you're developing on. The
-``.github/workflows/python-pckage.yml`` is also helpful if you want to be sure
+Create and activate a virtual environment, then install NAM in editable mode
+with its test dependencies. On Windows, use the activation command above for
+your shell. Install any additional development tooling you need alongside it:
+
+.. code-block:: console
+
+   $ python -m venv .venv
+   $ source .venv/bin/activate
+   $ python -m pip install --upgrade pip
+   $ python -m pip install -e ".[test]"
+   $ python -m pip install flake8 black pre-commit
+
+``.github/workflows/python-package.yml`` is also helpful if you want to be sure
 that you're testing your developments in the same way that contributions will be
 automatically tested (via GitHub Actions).
 
@@ -51,7 +88,7 @@ Trouble using the GPU?
 ^^^^^^^^^^^^^^^^^^^^^^
 
 If you're using a Windows or Linux machine with an NVIDIA GPU and NAM isn't
-using it (Apple machines with Apple Silicon don't use an nVIDIA GPU, but MPS, an 
+using it (Apple machines with Apple Silicon don't use an NVIDIA GPU, but MPS, an 
 accelerator with somewhat similar functionality), the reason is 99.999% probably
 an issue with your PyTorch installation, not NAM. Google (or ChatGPT) should be 
 able to help you fix the issue, but here are a few handy things you can do (in 
@@ -81,7 +118,7 @@ To uninstall PyTorch and reinstall it, you can do:
 
 .. code-block:: console
 
-   $ pip uninstall torch torchvision torchaudio
+   $ python -m pip uninstall torch torchvision torchaudio
 
 and then use the install command above (or check the PyTorch website for the
 most up-to-date instructions). If you notice that this documentation is out of 
