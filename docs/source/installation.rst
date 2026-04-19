@@ -32,12 +32,12 @@ On Windows:
 Step 3: Install PyTorch
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-(Windows / Linux users) If your computer has an nVIDIA GPU, you should install a
-GPU-compatible version of PyTorch first. `The PyTorch website
-<https://pytorch.org/get-started/locally/>`_ will always have the most up-to-date
-instructions for this.
+If your computer has an NVIDIA GPU, install a GPU-compatible version of
+PyTorch using the instructions on the PyTorch website:
 
-If you're not using an NVIDIA GPU, install the default PyTorch package:
+https://pytorch.org/get-started/locally/
+
+If you're not using an NVIDIA GPU, install the default CPU version of PyTorch:
 
 .. code-block:: console
 
@@ -59,16 +59,17 @@ To update an existing installation:
 Local development installation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Create and activate a virtual environment, then install NAM in editable mode.
-Install whatever tooling you need for development alongside it:
+Create and activate a virtual environment, then install NAM in editable mode
+with its test dependencies. Install any additional development tooling you need
+alongside it:
 
 .. code-block:: console
 
    $ python -m venv .venv
    $ source .venv/bin/activate
    $ python -m pip install --upgrade pip
-   $ python -m pip install -e .
-   $ python -m pip install pytest pytest-mock flake8 black pre-commit
+   $ python -m pip install -e ".[test]"
+   $ python -m pip install flake8 black pre-commit
 
 ``.github/workflows/python-package.yml`` is also helpful if you want to be sure
 that you're testing your developments in the same way that contributions will be
