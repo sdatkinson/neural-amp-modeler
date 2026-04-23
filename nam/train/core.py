@@ -46,9 +46,10 @@ from ..models.exportable import Exportable as _Exportable
 from ..models.losses import esr as _ESR
 from ..models.metadata import UserMetadata as _UserMetadata
 from ..util import filter_warnings as _filter_warnings
-from ._version import PROTEUS_VERSION as _PROTEUS_VERSION, Version as _Version
-from .lightning_module import LightningModule as _LightningModule
 from . import metadata as _metadata
+from ._version import PROTEUS_VERSION as _PROTEUS_VERSION
+from ._version import Version as _Version
+from .lightning_module import LightningModule as _LightningModule
 
 # Training using the simplified trainers in NAM is done at 48k.
 STANDARD_SAMPLE_RATE = 48_000.0
@@ -851,23 +852,19 @@ def get_wavenet_config(architecture):
                     "input_size": 1,
                     "condition_size": 1,
                     "channels": 16,
-                    "head_size": 8,
+                    "head": {"out_channels": 8, "kernel_size": 1, "bias": False},
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": False,
                 },
                 {
                     "condition_size": 1,
                     "input_size": 16,
                     "channels": 8,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": True,
                 },
             ],
             "head_scale": 0.02,
@@ -878,23 +875,19 @@ def get_wavenet_config(architecture):
                     "input_size": 1,
                     "condition_size": 1,
                     "channels": 12,
-                    "head_size": 6,
+                    "head": {"out_channels": 6, "kernel_size": 1, "bias": False},
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": False,
                 },
                 {
                     "condition_size": 1,
                     "input_size": 12,
                     "channels": 6,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": True,
                 },
             ],
             "head_scale": 0.02,
@@ -905,23 +898,19 @@ def get_wavenet_config(architecture):
                     "input_size": 1,
                     "condition_size": 1,
                     "channels": 8,
-                    "head_size": 4,
+                    "head": {"out_channels": 4, "kernel_size": 1, "bias": False},
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": False,
                 },
                 {
                     "condition_size": 1,
                     "input_size": 8,
                     "channels": 4,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": True,
                 },
             ],
             "head_scale": 0.02,
@@ -932,23 +921,19 @@ def get_wavenet_config(architecture):
                     "input_size": 1,
                     "condition_size": 1,
                     "channels": 4,
-                    "head_size": 2,
+                    "head": {"out_channels": 2, "kernel_size": 1, "bias": False},
                     "kernel_size": 3,
                     "dilations": [1, 2, 4, 8, 16, 32, 64],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": False,
                 },
                 {
                     "condition_size": 1,
                     "input_size": 4,
                     "channels": 2,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
                     "kernel_size": 3,
                     "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
                     "activation": "Tanh",
-                    "gated": False,
-                    "head_bias": True,
                 },
             ],
             "head_scale": 0.02,
@@ -1553,57 +1538,62 @@ def train(
         fast_dev_run=fast_dev_run,
         **learning_config["trainer"],
     )
-    # Suppress the PossibleUserWarning about num_workers (Issue 345)
-    with _filter_warnings("ignore", category=_PossibleUserWarning):
-        trainer.fit(model, train_dataloader, val_dataloader)
 
-    # Go to best checkpoint
-    best_checkpoint = trainer.checkpoint_callback.best_model_path
-    if best_checkpoint != "":
-        model = _LightningModule.load_from_checkpoint(
-            trainer.checkpoint_callback.best_model_path,
-            **_LightningModule.parse_config(model_config),
-        )
-    model.cpu()
-    model.eval()
-    model.net.sample_rate = sample_rate  # Hack, part 2
+    try:
+        # Suppress the PossibleUserWarning about num_workers (Issue 345)
+        with _filter_warnings("ignore", category=_PossibleUserWarning):
+            trainer.fit(model, train_dataloader, val_dataloader)
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user.")
+    finally:
+        # Always try to export a model, even if training was interrupted
+        # Go to best checkpoint
+        best_checkpoint = trainer.checkpoint_callback.best_model_path
+        if best_checkpoint != "":
+            model = _LightningModule.load_from_checkpoint(
+                trainer.checkpoint_callback.best_model_path,
+                **_LightningModule.parse_config(model_config),
+            )
+        model.cpu()
+        model.eval()
+        model.net.sample_rate = sample_rate  # Hack, part 2
 
-    def window_kwargs(version: _Version):
-        if version.major == 1:
+        def window_kwargs(version: _Version):
+            if version.major == 1:
+                return dict(
+                    window_start=100_000,  # Start of the plotting window, in samples
+                    window_end=101_000,  # End of the plotting window, in samples
+                )
+            elif version.major == 2:
+                # Same validation set even though it's a different spot in the reamp file
+                return dict(
+                    window_start=100_000,  # Start of the plotting window, in samples
+                    window_end=101_000,  # End of the plotting window, in samples
+                )
+            # Fallback:
             return dict(
                 window_start=100_000,  # Start of the plotting window, in samples
                 window_end=101_000,  # End of the plotting window, in samples
             )
-        elif version.major == 2:
-            # Same validation set even though it's a different spot in the reamp file
-            return dict(
-                window_start=100_000,  # Start of the plotting window, in samples
-                window_end=101_000,  # End of the plotting window, in samples
-            )
-        # Fallback:
-        return dict(
-            window_start=100_000,  # Start of the plotting window, in samples
-            window_end=101_000,  # End of the plotting window, in samples
-        )
 
-    validation_esr = _plot(
-        model,
-        val_dataloader.dataset,
-        filepath=train_path + "/" + modelname if save_plot else None,
-        silent=silent,
-        **window_kwargs(input_version),
-    )
-    for dl in (train_dataloader, val_dataloader):
-        assert isinstance(dl.dataset, _AbstractDataset)
-        dl.dataset.teardown()
-    return TrainOutput(
-        model=model,
-        metadata=_metadata.TrainingMetadata(
-            settings=settings_metadata,
-            data=data_metadata,
-            validation_esr=validation_esr,
-        ),
-    )
+        validation_esr = _plot(
+            model,
+            val_dataloader.dataset,
+            filepath=train_path + "/" + modelname if save_plot else None,
+            silent=silent,
+            **window_kwargs(input_version),
+        )
+        for dl in (train_dataloader, val_dataloader):
+            assert isinstance(dl.dataset, _AbstractDataset)
+            dl.dataset.teardown()
+        return TrainOutput(
+            model=model,
+            metadata=_metadata.TrainingMetadata(
+                settings=settings_metadata,
+                data=data_metadata,
+                validation_esr=validation_esr,
+            ),
+        )
 
 
 class DataInputValidation(_BaseModel):

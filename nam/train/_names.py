@@ -2,9 +2,12 @@
 # Created Date: Monday November 6th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-from typing import NamedTuple as _NamedTuple, Optional as _Optional, Set as _Set
+from typing import NamedTuple as _NamedTuple
+from typing import Optional as _Optional
+from typing import Set as _Set
 
-from ._version import PROTEUS_VERSION as _PROTEUS_VERSION, Version
+from ._version import PROTEUS_VERSION as _PROTEUS_VERSION
+from ._version import Version
 
 
 class VersionAndName(_NamedTuple):

@@ -1,5 +1,5 @@
 # This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
 name: Python package
 
@@ -16,13 +16,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Ensures the full history is available
           fetch-tags: true  # Ensures tags are fetched
+      - name: Clone NeuralAmpModelerCore and build loadmodel
+        env:
+          CXX: clang++
+        run: |
+          cd "${{ github.workspace }}/.."
+          git clone --recurse-submodules --branch v0.4.0.rc2 https://github.com/${{ github.repository_owner }}/NeuralAmpModelerCore.git
+          cd NeuralAmpModelerCore/build
+          cmake .. -DCMAKE_BUILD_TYPE=Debug
+          cmake --build . -j4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v3
         with:

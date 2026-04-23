@@ -1,5 +1,5 @@
-import torch
 import scipy.signal
+import torch
 
 
 def apply_reduction(losses, reduction="none"):

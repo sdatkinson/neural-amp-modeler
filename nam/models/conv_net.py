@@ -8,28 +8,23 @@ from enum import Enum as _Enum
 from functools import partial as _partial
 from pathlib import Path as _Path
 from tempfile import TemporaryDirectory as _TemporaryDirectory
-from typing import (
-    Optional as _Optional,
-    Sequence as _Sequence,
-    Tuple as _Tuple,
-    Union as _Union,
-)
+from typing import Optional as _Optional
+from typing import Sequence as _Sequence
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
 import numpy as _np
 import torch as _torch
 import torch.nn as _nn
 import torch.nn.functional as _F
 
-
-from .. import __version__
 from ..data import wav_to_tensor as _wav_to_tensor
+from ._activations import PairingActivation as _PairingActivation
 from ._activations import get_activation as _get_activation
+from ._names import ACTIVATION_NAME as _ACTIVATION_NAME
+from ._names import BATCHNORM_NAME as _BATCHNORM_NAME
+from ._names import CONV_NAME as _CONV_NAME
 from .base import BaseNet as _BaseNet
-from ._names import (
-    ACTIVATION_NAME as _ACTIVATION_NAME,
-    BATCHNORM_NAME as _BATCHNORM_NAME,
-    CONV_NAME as _CONV_NAME,
-)
 
 
 class TrainStrategy(_Enum):
@@ -83,7 +78,10 @@ def _conv_net(
         )
         if batchnorm:
             net.add_module(_BATCHNORM_NAME, _nn.BatchNorm1d(cout))
-        net.add_module(_ACTIVATION_NAME, _get_activation(activation))
+        a = _get_activation(activation)
+        if isinstance(a, _PairingActivation):
+            raise NotImplementedError("Pairing activations not supported for ConvNet")
+        net.add_module(_ACTIVATION_NAME, a)
         return net
 
     def check_and_expand(n, x):

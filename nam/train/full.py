@@ -5,23 +5,22 @@
 import json as _json
 from pathlib import Path as _Path
 from time import time as _time
-from typing import Optional as _Optional, Union as _Union
+from typing import Optional as _Optional
+from typing import Union as _Union
 from warnings import warn as _warn
 
 import matplotlib.pyplot as _plt
 import numpy as _np
 import pytorch_lightning as _pl
+import torch as _torch
 from pytorch_lightning.utilities.warnings import (
     PossibleUserWarning as _PossibleUserWarning,
 )
-import torch as _torch
 from torch.utils.data import DataLoader as _DataLoader
 
-from nam.data import (
-    ConcatDataset as _ConcatDataset,
-    Split as _Split,
-    init_dataset as _init_dataset,
-)
+from nam.data import ConcatDataset as _ConcatDataset
+from nam.data import Split as _Split
+from nam.data import init_dataset as _init_dataset
 from nam.train import lightning_module as _lightning_module
 from nam.util import filter_warnings as _filter_warnings
 
@@ -183,35 +182,41 @@ def main(
         default_root_dir=outdir,
         **learning_config["trainer"],
     )
-    with _filter_warnings("ignore", category=_PossibleUserWarning):
-        trainer.fit(
-            model,
-            train_dataloader,
-            val_dataloader,
-            **learning_config.get("trainer_fit_kwargs", {}),
-        )
-    # Go to best checkpoint
-    best_checkpoint = trainer.checkpoint_callback.best_model_path
-    if best_checkpoint != "":
-        model = _lightning_module.LightningModule.load_from_checkpoint(
-            trainer.checkpoint_callback.best_model_path,
-            **_lightning_module.LightningModule.parse_config(model_config),
-        )
-    model.cpu()
-    model.eval()
-    if make_plots:
-        _plot(
-            model,
-            dataset_validation,
-            savefig=_Path(outdir, "comparison.png"),
-            window_start=100_000,
-            window_end=110_000,
-            show=False,
-        )
-        _plot(model, dataset_validation, show=not no_show)
-    # Export!
-    model.net.export(outdir)
 
-    # Tear down the datasets
-    train_dataloader.dataset.teardown()
-    val_dataloader.dataset.teardown()
+    try:
+        with _filter_warnings("ignore", category=_PossibleUserWarning):
+            trainer.fit(
+                model,
+                train_dataloader,
+                val_dataloader,
+                **learning_config.get("trainer_fit_kwargs", {}),
+            )
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user.")
+    finally:
+        # Always try to export a model, even if training was interrupted
+        # Go to best checkpoint
+        best_checkpoint = trainer.checkpoint_callback.best_model_path
+        if best_checkpoint != "":
+            model = _lightning_module.LightningModule.load_from_checkpoint(
+                trainer.checkpoint_callback.best_model_path,
+                **_lightning_module.LightningModule.parse_config(model_config),
+            )
+        model.cpu()
+        model.eval()
+        if make_plots:
+            _plot(
+                model,
+                dataset_validation,
+                savefig=_Path(outdir, "comparison.png"),
+                window_start=100_000,
+                window_end=110_000,
+                show=False,
+            )
+            _plot(model, dataset_validation, show=not no_show)
+        # Export!
+        model.net.export(outdir)
+
+        # Tear down the datasets
+        train_dataloader.dataset.teardown()
+        val_dataloader.dataset.teardown()

@@ -11,16 +11,16 @@ import numpy as np
 import pytest
 
 from nam.data import (
+    _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
     Dataset,
     np_to_wav,
     wav_to_np,
     wav_to_tensor,
-    _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
 )
-from nam.train import metadata as _metadata
-from nam.train.lightning_module import LightningModule
 from nam.train import core
+from nam.train import metadata as _metadata
 from nam.train._version import Version
+from nam.train.lightning_module import LightningModule
 
 from ...resources import (
     requires_proteus,

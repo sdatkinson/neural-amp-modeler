@@ -7,16 +7,17 @@ Hide the mess in Colab to make things look pretty for users.
 """
 
 from pathlib import Path as _Path
-from typing import Optional as _Optional, Tuple as _Tuple
+from typing import Optional as _Optional
+from typing import Tuple as _Tuple
 
 from ..models.metadata import UserMetadata as _UserMetadata
-from ._names import (
-    INPUT_BASENAMES as _INPUT_BASENAMES,
-    LATEST_VERSION as _LATEST_VERSION,
-    Version as _Version,
-)
-from ._version import PROTEUS_VERSION as _PROTEUS_VERSION, Version as _Version
-from .core import TrainOutput as _TrainOutput, train as _train
+from ._names import INPUT_BASENAMES as _INPUT_BASENAMES
+from ._names import LATEST_VERSION as _LATEST_VERSION
+from ._names import Version as _Version
+from ._version import PROTEUS_VERSION as _PROTEUS_VERSION
+from ._version import Version as _Version
+from .core import TrainOutput as _TrainOutput
+from .core import train as _train
 from .metadata import TRAINING_KEY as _TRAINING_KEY
 
 _BUGGY_INPUT_BASENAMES = {

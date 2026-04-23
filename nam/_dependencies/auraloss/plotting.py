@@ -1,10 +1,9 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal
-import matplotlib.pyplot as plt
 
 
 def compare_filters(iir_b, iir_a, fir_b, fs=1):
-
     # compute response for IIR filter
     w_iir, h_iir = scipy.signal.freqz(iir_b, iir_a, fs=fs, worN=2048)
 

@@ -10,23 +10,20 @@ steps)
 import abc as _abc
 import importlib as _importlib
 import math as _math
-from typing import (
-    Any as _Any,
-    Dict as _Dict,
-    Optional as _Optional,
-    Tuple as _Tuple,
-    Union as _Union,
-)
+from typing import Any as _Any
+from typing import Dict as _Dict
+from typing import Optional as _Optional
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
 import numpy as _np
 import torch as _torch
 import torch.nn as _nn
 
 from .._core import InitializableFromConfig as _InitializableFromConfig
+from .._handshake import HandshakeError as _HandshakeError
 from ..data import wav_to_tensor as _wav_to_tensor
 from .exportable import Exportable as _Exportable
-
-from .._handshake import HandshakeError as _HandshakeError
 
 
 class ModelDatasetHandshakeError(_HandshakeError):
@@ -116,7 +113,9 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
                 "Model wants to put 'sample_rate' into model export dict, but the key "
                 "is already taken!"
             )
-        d[sample_rate_key] = self.sample_rate
+        # Only write sample_rate when set; C++ reader expects a number or missing key (-1.0).
+        if self.sample_rate is not None:
+            d[sample_rate_key] = self.sample_rate
         return d
 
     def _metadata_loudness(self, gain: float = 1.0, db: bool = True) -> float:

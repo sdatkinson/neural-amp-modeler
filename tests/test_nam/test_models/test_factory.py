@@ -2,15 +2,16 @@
 # Created Date: Saturday October 18th 2025
 # Author: Steven Atkinson (steven@atkinson.mn)
 
-import copy as _copy
 import contextlib as _contextlib
+import copy as _copy
+
 import pytest as _pytest
 
+from nam.models import conv_net as _conv_net
 from nam.models import factory as _factory
 from nam.models import linear as _linear
-from nam.models import conv_net as _conv_net
-from nam.models import sequential as _sequential
 from nam.models import recurrent as _recurrent
+from nam.models import sequential as _sequential
 from nam.models import wavenet as _wavenet
 
 
@@ -64,12 +65,14 @@ class TestRegistry:
                             "condition_size": 1,
                             "input_size": 1,
                             "channels": 4,
-                            "head_size": 2,
+                            "head": {
+                                "out_channels": 2,
+                                "kernel_size": 1,
+                                "bias": False,
+                            },
                             "kernel_size": 3,
                             "dilations": [1, 2],
                             "activation": "Tanh",
-                            "gated": False,
-                            "head_bias": False,
                         }
                     ],
                     "head_scale": 0.02,

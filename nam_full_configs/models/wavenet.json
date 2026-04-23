@@ -11,7 +11,7 @@
                     "condition_size": 1,
                     "input_size": 1,
                     "channels": 16,
-                    "head_size": 8,
+                    "head": {"out_channels": 8, "kernel_size": 1, "bias": false},
                     "kernel_size": 3,
                     "dilations": [
                         1,
@@ -25,15 +25,13 @@
                         256,
                         512
                     ],
-                    "activation": "Tanh",
-                    "gated": false,
-                    "head_bias": false
+                    "activation": "Tanh"
                 },
                 {
                     "condition_size": 1,
                     "input_size": 16,
                     "channels": 8,
-                    "head_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": true},
                     "kernel_size": 3,
                     "dilations": [
                         1,
@@ -47,9 +45,7 @@
                         256,
                         512
                     ],
-                    "activation": "Tanh",
-                    "gated": false,
-                    "head_bias": true
+                    "activation": "Tanh"
                 }
             ],
             "head_scale": 0.02

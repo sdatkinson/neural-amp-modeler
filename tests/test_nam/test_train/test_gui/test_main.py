@@ -8,7 +8,6 @@ import pytest
 
 from nam.train import gui
 
-
 # class TestPathButton(object):
 #     def test_system_text_color(self):
 #         """

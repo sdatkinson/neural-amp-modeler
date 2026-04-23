@@ -6,10 +6,10 @@ from typing import Optional as _Optional
 
 import pytest as _pytest
 import torch as _torch
+
 from nam._dependencies.auraloss.freq import (
     MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss,
 )
-
 from nam.train import lightning_module as _lightning_module
 
 from ..test_models.test_base import MockBaseNet as _MockBaseNet
