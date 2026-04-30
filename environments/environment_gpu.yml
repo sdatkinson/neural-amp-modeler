@@ -32,7 +32,7 @@ dependencies:
   - wheel
   - pip:
       - auraloss==0.3.0
-      - pytorch_lightning
+      - pytorch_lightning<=2.6.1  # Issue 656
       - sounddevice
       - transformers>=4  # See requirements.txt
       - wavio >=0.0.5
