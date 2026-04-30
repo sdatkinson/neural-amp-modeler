@@ -16,7 +16,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "pydantic>=2.0.0",
-    "pytorch_lightning",
+    "pytorch_lightning!=2.6.2,!=2.6.3",
     "scipy",  # Required by auraloss
     "sounddevice",
     "tensorboard",
