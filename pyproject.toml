@@ -57,3 +57,6 @@ write_to = "nam/_version.py"
 
 [tool.setuptools]
 packages = ["nam", "nam.train", "nam.train.gui", "nam.train.gui._resources", "nam.models", "nam.models._resources" ]
+
+[tool.pytest.ini_options]
+addopts = "-x"
