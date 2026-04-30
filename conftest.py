@@ -9,6 +9,8 @@ _COMPROMISED_PYTORCH_LIGHTNING_VERSIONS = {"2.6.2", "2.6.3"}
 def pytest_configure(config):
     """
     Block test execution if a known-compromised PyTorch Lightning version is installed.
+
+    See: https://github.com/sdatkinson/neural-amp-modeler/issues/656
     """
     try:
         pl_version = version("pytorch_lightning")
