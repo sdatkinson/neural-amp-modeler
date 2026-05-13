@@ -224,7 +224,11 @@ def test_packed_best_checkpoint_records_distinct_checkpoints(tmp_path):
             "val_loss_packed_1": _torch.tensor(0.25),
         }
 
-        def save_checkpoint(self, path):
+        def __init__(self):
+            self.checkpoint_weight_modes = []
+
+        def save_checkpoint(self, path, weights_only=None):
+            self.checkpoint_weight_modes.append(weights_only)
             path.write_text("checkpoint")
 
     trainer = Trainer()
@@ -236,6 +240,7 @@ def test_packed_best_checkpoint_records_distinct_checkpoints(tmp_path):
         str(tmp_path / "packed_best_submodel_0.ckpt"),
         str(tmp_path / "packed_best_submodel_1.ckpt"),
     ]
+    assert trainer.checkpoint_weight_modes == [False, False]
 
 
 if __name__ == "__main__":

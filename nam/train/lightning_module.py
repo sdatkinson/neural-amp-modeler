@@ -609,7 +609,7 @@ class PackedBestCheckpoint(_pl.Callback):
             if current_best is not None and metric >= current_best:
                 continue
             checkpoint_path = dirpath / f"packed_best_submodel_{i}.ckpt"
-            trainer.save_checkpoint(checkpoint_path)
+            trainer.save_checkpoint(checkpoint_path, weights_only=False)
             self.best[i] = {
                 "submodel_index": i,
                 "submodel_name": name,
