@@ -9,9 +9,10 @@ Used by the GUI and Colab trainers.
 """
 
 import hashlib as _hashlib
+import importlib.resources as _resources
+import json as _json
 import tkinter as _tk
 from copy import deepcopy as _deepcopy
-from enum import Enum as _Enum
 from functools import partial as _partial
 from pathlib import Path as _Path
 from time import time as _time
@@ -46,18 +47,14 @@ from . import metadata as _metadata
 from ._version import PROTEUS_VERSION as _PROTEUS_VERSION
 from ._version import Version as _Version
 from .lightning_module import LightningModule as _LightningModule
+from .lightning_module import PackedBestCheckpoint as _PackedBestCheckpoint
+from .lightning_module import PackedLightningModule as _PackedLightningModule
+from .lightning_module import PackedMaskCallback as _PackedMaskCallback
 
 # Training using the simplified trainers in NAM is done at 48k.
 STANDARD_SAMPLE_RATE = 48_000.0
 # Default number of output samples per datum.
 _NY_DEFAULT = 8192
-
-
-class Architecture(_Enum):
-    STANDARD = "standard"
-    LITE = "lite"
-    FEATHER = "feather"
-    NANO = "nano"
 
 
 class _InputValidationError(ValueError):
@@ -599,35 +596,6 @@ def _analyze_latency(
     return _metadata.Latency(manual=user_latency, calibration=calibration_output)
 
 
-def get_lstm_config(architecture):
-    return {
-        Architecture.STANDARD: {
-            "num_layers": 1,
-            "hidden_size": 24,
-            "train_burn_in": 4096,
-            "train_truncate": 512,
-        },
-        Architecture.LITE: {
-            "num_layers": 2,
-            "hidden_size": 8,
-            "train_burn_in": 4096,
-            "train_truncate": 512,
-        },
-        Architecture.FEATHER: {
-            "num_layers": 1,
-            "hidden_size": 16,
-            "train_burn_in": 4096,
-            "train_truncate": 512,
-        },
-        Architecture.NANO: {
-            "num_layers": 1,
-            "hidden_size": 12,
-            "train_burn_in": 4096,
-            "train_truncate": 512,
-        },
-    }[architecture]
-
-
 def _check_v1(*args, **kwargs) -> _metadata.DataChecks:
     return _metadata.DataChecks(version=1, passed=True)
 
@@ -839,107 +807,6 @@ def _check_data(
     return out
 
 
-def get_wavenet_config(architecture):
-    return {
-        Architecture.STANDARD: {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "channels": 16,
-                    "head": {"out_channels": 8, "kernel_size": 1, "bias": False},
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 16,
-                    "channels": 8,
-                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                },
-            ],
-            "head_scale": 0.02,
-        },
-        Architecture.LITE: {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "channels": 12,
-                    "head": {"out_channels": 6, "kernel_size": 1, "bias": False},
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 12,
-                    "channels": 6,
-                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
-                    "kernel_size": 3,
-                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                },
-            ],
-            "head_scale": 0.02,
-        },
-        Architecture.FEATHER: {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "channels": 8,
-                    "head": {"out_channels": 4, "kernel_size": 1, "bias": False},
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 8,
-                    "channels": 4,
-                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
-                    "kernel_size": 3,
-                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                },
-            ],
-            "head_scale": 0.02,
-        },
-        Architecture.NANO: {
-            "layers_configs": [
-                {
-                    "input_size": 1,
-                    "condition_size": 1,
-                    "channels": 4,
-                    "head": {"out_channels": 2, "kernel_size": 1, "bias": False},
-                    "kernel_size": 3,
-                    "dilations": [1, 2, 4, 8, 16, 32, 64],
-                    "activation": "Tanh",
-                },
-                {
-                    "condition_size": 1,
-                    "input_size": 4,
-                    "channels": 2,
-                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
-                    "kernel_size": 3,
-                    "dilations": [128, 256, 512, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-                    "activation": "Tanh",
-                },
-            ],
-            "head_scale": 0.02,
-        },
-    }[architecture]
-
-
-_CAB_MRSTFT_PRE_EMPH_WEIGHT = 2.0e-4
-_CAB_MRSTFT_PRE_EMPH_COEF = 0.85
-
-
 def _get_data_config(
     input_version: _Version,
     input_path: _Path,
@@ -1008,19 +875,30 @@ def _get_data_config(
     return data_config
 
 
+def _get_packed_model_config() -> dict:
+    resource = _resources.files("nam.train._resources").joinpath(
+        "config_model_packed.json"
+    )
+    with resource.open() as fp:
+        return _deepcopy(_json.load(fp))
+
+
+def _get_lightning_module_cls(model_config: _Dict):
+    return (
+        _PackedLightningModule
+        if model_config["net"]["name"] == "PackedWaveNet"
+        else _LightningModule
+    )
+
+
 def _get_configs(
     input_version: _Version,
     input_path: str,
     output_path: str,
     latency: int,
     epochs: int,
-    model_type: str,
-    architecture: Architecture,
     ny: int,
-    lr: float,
-    lr_decay: float,
     batch_size: int,
-    fit_mrstft: bool,
 ):
     data_config = _get_data_config(
         input_version=input_version,
@@ -1029,40 +907,7 @@ def _get_configs(
         ny=ny,
         latency=latency,
     )
-
-    if model_type == "WaveNet":
-        model_config = {
-            "net": {
-                "name": "WaveNet",
-                # This should do decently. If you really want a nice model, try turning up
-                # "channels" in the first block and "input_size" in the second from 12 to 16.
-                "config": get_wavenet_config(architecture),
-            },
-            "loss": {"val_loss": "esr"},
-            "optimizer": {"lr": lr},
-            "lr_scheduler": {
-                "class": "ExponentialLR",
-                "kwargs": {"gamma": 1.0 - lr_decay},
-            },
-        }
-    else:
-        model_config = {
-            "net": {
-                "name": "LSTM",
-                "config": get_lstm_config(architecture),
-            },
-            "loss": {
-                "val_loss": "mse",
-                "mask_first": 4096,
-                "pre_emph_weight": 1.0,
-                "pre_emph_coef": 0.85,
-            },
-            "optimizer": {"lr": 0.01},
-            "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
-        }
-    if fit_mrstft:
-        model_config["loss"]["pre_emph_mrstft_weight"] = _CAB_MRSTFT_PRE_EMPH_WEIGHT
-        model_config["loss"]["pre_emph_mrstft_coef"] = _CAB_MRSTFT_PRE_EMPH_COEF
+    model_config = _get_packed_model_config()
 
     if _torch.cuda.is_available():
         device_config = {"accelerator": "gpu", "devices": 1}
@@ -1108,6 +953,18 @@ def _esr(pred: _torch.Tensor, target: _torch.Tensor) -> float:
     )
 
 
+def _esr_comment(esr: float) -> str:
+    if esr < 0.01:
+        return "Great!"
+    if esr < 0.035:
+        return "Not bad!"
+    if esr < 0.1:
+        return "...This *might* sound ok!"
+    if esr < 0.3:
+        return "...This probably won't sound great :("
+    return "...Something seems to have gone wrong."
+
+
 def _plot(
     model,
     ds,
@@ -1120,28 +977,61 @@ def _plot(
     :return: The ESR
     """
     print("Plotting a comparison of your model with the target output...")
+    net = getattr(model, "net", model)
+    num_submodels = getattr(net, "num_submodels", 1)
     with _torch.no_grad():
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx:.2f} sec)")
         t0 = _time()
-        output = model(ds.x).flatten().cpu().numpy()
+        output = model(ds.x).cpu().numpy()
         t1 = _time()
         print(f"Took {t1 - t0:.2f} sec ({tx / (t1 - t0):.2f}x)")
 
+    if num_submodels > 1 and output.ndim == 3 and output.shape[0] == 1:
+        output = output[0]
+    if num_submodels > 1 and output.ndim != 2:
+        raise RuntimeError(
+            f"Packed model output should have shape (P, L), got {tuple(output.shape)}"
+        )
+    is_packed = output.ndim == 2 and (num_submodels > 1 or output.shape[0] > 1)
+
+    if is_packed:
+        submodel_names = getattr(net, "submodel_names", ())
+        labels = [
+            submodel_names[i] if i < len(submodel_names) else f"submodel {i}"
+            for i in range(output.shape[0])
+        ]
+        esrs = [_esr(_torch.Tensor(output_i), ds.y) for output_i in output]
+        aggregate_esr = sum(esrs)
+        for label, esr in zip(labels, esrs):
+            print(f"Error-signal ratio ({label}) = {esr:.4g}")
+        print(f"Aggregate error-signal ratio = {aggregate_esr:.4g}")
+        print(_esr_comment(aggregate_esr))
+
+        _plt.figure(figsize=(16, 5))
+        for label, output_i, esr in zip(labels, output, esrs):
+            _plt.plot(
+                output_i[window_start:window_end],
+                label=f"Prediction {label} (ESR={esr:.4g})",
+            )
+        _plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
+        _plt.title(
+            "Aggregate ESR="
+            f"{aggregate_esr:.4g} ("
+            + ", ".join(f"{label}: {esr:.4g}" for label, esr in zip(labels, esrs))
+            + ")"
+        )
+        _plt.legend()
+        if filepath is not None:
+            _plt.savefig(filepath + ".png")
+        if not silent:
+            _plt.show()
+        return aggregate_esr
+
+    output = output.flatten()
     esr = _esr(_torch.Tensor(output), ds.y)
-    # Trying my best to put numbers to it...
-    if esr < 0.01:
-        esr_comment = "Great!"
-    elif esr < 0.035:
-        esr_comment = "Not bad!"
-    elif esr < 0.1:
-        esr_comment = "...This *might* sound ok!"
-    elif esr < 0.3:
-        esr_comment = "...This probably won't sound great :("
-    else:
-        esr_comment = "...Something seems to have gone wrong."
     print(f"Error-signal ratio = {esr:.4g}")
-    print(esr_comment)
+    print(_esr_comment(esr))
 
     _plt.figure(figsize=(16, 5))
     _plt.plot(output[window_start:window_end], label="Prediction")
@@ -1277,6 +1167,7 @@ class _ModelCheckpoint(_pl.callbacks.model_checkpoint.ModelCheckpoint):
 
 def get_callbacks(
     threshold_esr: _Optional[float],
+    packed: bool = False,
     user_metadata: _Optional[_UserMetadata] = None,
     settings_metadata: _Optional[_metadata.Settings] = None,
     data_metadata: _Optional[_metadata.Data] = None,
@@ -1299,6 +1190,8 @@ def get_callbacks(
             data_metadata=data_metadata,
         ),
     ]
+    if packed:
+        callbacks.extend([_PackedBestCheckpoint(), _PackedMaskCallback()])
     if threshold_esr is not None:
         callbacks.append(
             _ValidationStopping(monitor="ESR", stopping_threshold=threshold_esr)
@@ -1358,33 +1251,62 @@ def _get_final_latency(latency_analysis: _metadata.Latency) -> int:
     )
 
 
+def _apply_packed_best_checkpoints(
+    model: _PackedLightningModule,
+    model_config: _Dict,
+    checkpoint_paths: _Sequence[_Optional[str]],
+) -> None:
+    if not checkpoint_paths or not any(checkpoint_paths):
+        return
+    for submodel_index, checkpoint_path in enumerate(checkpoint_paths):
+        if checkpoint_path is None:
+            continue
+        if submodel_index >= model.net.num_submodels:
+            print(
+                "WARNING: Ignoring packed-best checkpoint for unknown submodel "
+                f"{submodel_index}: {checkpoint_path}"
+            )
+            continue
+        try:
+            source = _PackedLightningModule.load_from_checkpoint(
+                checkpoint_path, **_PackedLightningModule.parse_config(model_config)
+            )
+            source.cpu()
+            source.eval()
+            if source.net.sample_rate is None:
+                source.net.sample_rate = model.net.sample_rate
+            model.net.import_submodel(
+                submodel_index, source.net.extract_submodel(submodel_index)
+            )
+        except Exception as e:
+            print(
+                "WARNING: Failed to load packed-best checkpoint for submodel "
+                f"{submodel_index} from {checkpoint_path}: {e}"
+            )
+    model.net.apply_mask()
+
+
 def train(
     input_path: str,
     output_path: str,
     train_path: str,
     epochs=100,
     latency: _Optional[int] = None,
-    model_type: str = "WaveNet",
-    architecture: _Union[Architecture, str] = Architecture.STANDARD,
     batch_size: int = 16,
     ny: int = _NY_DEFAULT,
-    lr=0.004,
-    lr_decay=0.007,
     seed: _Optional[int] = 0,
     save_plot: bool = False,
     silent: bool = False,
     modelname: str = "model",
     ignore_checks: bool = False,
     local: bool = False,
-    fit_mrstft: bool = True,
-    threshold_esr: _Optional[bool] = None,
+    threshold_esr: _Optional[float] = None,
     user_metadata: _Optional[_UserMetadata] = None,
     fast_dev_run: _Union[bool, int] = False,
 ) -> _Optional[TrainOutput]:
     """
     :param input_path: Full path to input file
     :param output_path: Full path to output file
-    :param lr_decay: =1-gamma for Exponential learning rate decay.
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
     :param fast_dev_run: One-step training, used for tests.
     """
@@ -1456,13 +1378,8 @@ def train(
         output_path,
         final_latency,
         epochs,
-        model_type,
-        Architecture(architecture),
         ny,
-        lr,
-        lr_decay,
         batch_size,
-        fit_mrstft,
     )
     assert (
         "fast_dev_run" not in learning_config
@@ -1474,7 +1391,9 @@ def train(
     # * Model is re-instantiated after training anyways.
     # (Hacky) solution: set sample rate in model from dataloader after second
     # instantiation from final checkpoint.
-    model = _LightningModule.init_from_config(model_config)
+    is_packed = model_config["net"]["name"] == "PackedWaveNet"
+    lightning_cls = _get_lightning_module_cls(model_config)
+    model = lightning_cls.init_from_config(model_config)
     train_dataloader, val_dataloader = _get_dataloaders(
         data_config, learning_config, model
     )
@@ -1490,14 +1409,20 @@ def train(
     # Put together the metadata that's needed in checkpoints:
     settings_metadata = _metadata.Settings(ignore_checks=ignore_checks)
     data_metadata = _metadata.Data(latency=latency_analysis, checks=data_check_output)
+    callbacks = get_callbacks(
+        threshold_esr,
+        packed=is_packed,
+        user_metadata=user_metadata,
+        settings_metadata=settings_metadata,
+        data_metadata=data_metadata,
+    )
+    packed_best_callback = next(
+        (c for c in callbacks if isinstance(c, _PackedBestCheckpoint)),
+        None,
+    )
 
     trainer = _pl.Trainer(
-        callbacks=get_callbacks(
-            threshold_esr,
-            user_metadata=user_metadata,
-            settings_metadata=settings_metadata,
-            data_metadata=data_metadata,
-        ),
+        callbacks=callbacks,
         default_root_dir=train_path,
         fast_dev_run=fast_dev_run,
         **learning_config["trainer"],
@@ -1514,13 +1439,17 @@ def train(
         # Go to best checkpoint
         best_checkpoint = trainer.checkpoint_callback.best_model_path
         if best_checkpoint != "":
-            model = _LightningModule.load_from_checkpoint(
+            model = lightning_cls.load_from_checkpoint(
                 trainer.checkpoint_callback.best_model_path,
-                **_LightningModule.parse_config(model_config),
+                **lightning_cls.parse_config(model_config),
             )
         model.cpu()
         model.eval()
         model.net.sample_rate = sample_rate  # Hack, part 2
+        if is_packed and packed_best_callback is not None:
+            _apply_packed_best_checkpoints(
+                model, model_config, packed_best_callback.checkpoint_paths
+            )
 
         def window_kwargs(version: _Version):
             if version.major == 1:
@@ -1721,9 +1650,9 @@ def validate_data(
         ny=num_output_samples_per_datum,
         latency=final_latency,
     )
-    # HACK this should depend on the model that's going to be used, but I think it will
-    # be unlikely to make a difference. Still, would be nice to fix.
-    data_config["common"]["nx"] = 4096
+    model_config = _get_packed_model_config()
+    model = _get_lightning_module_cls(model_config).init_from_config(model_config)
+    data_config["common"]["nx"] = model.net.receptive_field
 
     pytorch_data_split_validation_dict: _Dict[str, _PyTorchDataSplitValidation] = {}
     for split in _Split:

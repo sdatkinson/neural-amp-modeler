@@ -91,23 +91,14 @@ def _get_valid_export_directory():
 def run(
     epochs: int = 100,
     delay: _Optional[int] = None,
-    model_type: str = "WaveNet",
-    architecture: str = "standard",
-    lr: float = 0.004,
-    lr_decay: float = 0.007,
     seed: _Optional[int] = 0,
     user_metadata: _Optional[_UserMetadata] = None,
     ignore_checks: bool = False,
-    fit_mrstft: bool = True,
 ):
     """
     :param epochs: How many epochs we'll train for.
     :param delay: How far the output lags the input due to round-trip latency during
         reamping, in samples.
-    :param model_type: The type of model to train.
-    :param architecture: The architecture hyperparameters to use
-    :param lr: The initial learning rate
-    :param lr_decay: The amount by which the learning rate decays each epoch
     :param seed: RNG seed for reproducibility.
     :param user_metadata: User-specified metadata to include in the .nam file.
     :param ignore_checks: Ignores the data quality checks and YOLOs it
@@ -121,14 +112,9 @@ def run(
         train_path=_TRAIN_PATH,
         epochs=epochs,
         latency=delay,
-        model_type=model_type,
-        architecture=architecture,
-        lr=lr,
-        lr_decay=lr_decay,
         seed=seed,
         local=False,
         ignore_checks=ignore_checks,
-        fit_mrstft=fit_mrstft,
     )
     model = train_output.model
     training_metadata = train_output.metadata

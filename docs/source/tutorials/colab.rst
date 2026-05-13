@@ -69,14 +69,13 @@ button and everything will finish in about 10 minutes.
 
 .. image:: media/colab/1-click-train.png
 
-However, there are a lot of options below that you can use to tweak the training
-that are worth getting familiar with.
+The Colab trainer uses NAM's fixed packed WaveNet configuration. There are a
+few options below that you can use to control the run.
 
 Here are the options explained:
 
 **Training Parameters**
 * ``epochs``: Number of training epochs. NAM uses validation-set checkpointing and automatically restores the best checkpoint from the entire run after training completes.
-* ``architecture``: Selects the network size/complexity (listed in order of decreasing CPU usage and accuracy). Defaults to the standard architecture.
 * ``latency_samples``: How far the output lags the input due to round-trip latency during reamping, in samples. If not ``"auto"``, it must be an integer value for the measured latency.
 * ``ignore_checks``: Skips data-quality checks.
 

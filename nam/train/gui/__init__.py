@@ -70,11 +70,9 @@ except ImportError:
 if _HAVE_ACCELERATOR:
     _DEFAULT_NUM_EPOCHS = 100
     _DEFAULT_BATCH_SIZE = 16
-    _DEFAULT_LR_DECAY = 0.007
 else:
     _DEFAULT_NUM_EPOCHS = 20
     _DEFAULT_BATCH_SIZE = 1
-    _DEFAULT_LR_DECAY = 0.05
 _BUTTON_WIDTH = 20
 _BUTTON_HEIGHT = 2
 _TEXT_WIDTH = 70
@@ -128,7 +126,6 @@ def _get_latest_version_from_github() -> _Optional[_Version]:
 @_dataclass
 class AdvancedOptions(object):
     """
-    :param architecture: Which architecture to use.
     :param num_epochs: How many epochs to train for.
     :param latency: Latency between the input and output audio, in samples.
         None means we don't know and it has to be calibrated.
@@ -137,7 +134,6 @@ class AdvancedOptions(object):
         stop.
     """
 
-    architecture: _core.Architecture
     num_epochs: int
     latency: _Optional[int]
     ignore_checks: bool
@@ -538,13 +534,11 @@ class GUI(object):
         self._frame_advanced_options.pack(side=_tk.BOTTOM, anchor="e")
 
         # Advanced options for training
-        default_architecture = _core.Architecture.STANDARD
         self.advanced_options = AdvancedOptions(
-            default_architecture,
-            _DEFAULT_NUM_EPOCHS,
-            _DEFAULT_DELAY,
-            _DEFAULT_IGNORE_CHECKS,
-            _DEFAULT_THRESHOLD_ESR,
+            num_epochs=_DEFAULT_NUM_EPOCHS,
+            latency=_DEFAULT_DELAY,
+            ignore_checks=_DEFAULT_IGNORE_CHECKS,
+            threshold_esr=_DEFAULT_THRESHOLD_ESR,
         )
         # Window to edit them:
 
@@ -577,23 +571,9 @@ class GUI(object):
         Get any additional kwargs to provide to `core.train`
         """
         return {
-            "lr": 0.004,
-            "lr_decay": _DEFAULT_LR_DECAY,
             "batch_size": _DEFAULT_BATCH_SIZE,
             "seed": 0,
         }
-
-    def get_mrstft_fit(self) -> bool:
-        """
-        Use a pre-emphasized multi-resolution shot-time Fourier transform loss during
-        training.
-
-        This improves agreement in the high frequencies, usually with a minimal loss in
-        ESR.
-        """
-        # Leave this as a public method to anticipate an extension to make it
-        # changeable.
-        return True
 
     def _check_button_states(self):
         """
@@ -730,7 +710,6 @@ class GUI(object):
 
         # Advanced options:
         num_epochs = self.advanced_options.num_epochs
-        architecture = self.advanced_options.architecture
         user_latency = self.advanced_options.latency
         file_list = self._widgets[_GUIWidgets.OUTPUT_PATH].val
         threshold_esr = self.advanced_options.threshold_esr
@@ -749,13 +728,11 @@ class GUI(object):
                 self._widgets[_GUIWidgets.TRAINING_DESTINATION].val,
                 epochs=num_epochs,
                 latency=user_latency,
-                architecture=architecture,
                 silent=self._checkboxes[_CheckboxKeys.SILENT_TRAINING].variable.get(),
                 save_plot=self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.get(),
                 modelname=basename,
                 ignore_checks=ignore_checks,
                 local=True,
-                fit_mrstft=self.get_mrstft_fit(),
                 threshold_esr=threshold_esr,
                 user_metadata=user_metadata,
                 **self.core_train_kwargs(),
@@ -1111,7 +1088,7 @@ class LabeledText(_SettingWidget):
 
 class AdvancedOptionsGUI(object):
     """
-    A window to hold advanced options (Architecture and number of epochs)
+    A window to hold advanced options.
     """
 
     def __init__(self, resume_main, parent: GUI):
@@ -1146,23 +1123,12 @@ class AdvancedOptionsGUI(object):
             except ValueError:
                 pass
 
-        # TODO could clean up more / see `.pack_options()`
-        for name in ("architecture", "num_epochs", "latency", "threshold_esr"):
+        for name in ("num_epochs", "latency", "threshold_esr"):
             safe_apply(name)
 
     def pack(self):
         # TODO things that are `_SettingWidget`s are named carefully, need to make this
         # easier to work with.
-
-        # Architecture: radio buttons
-        self._frame_architecture = _tk.Frame(self._root)
-        self._frame_architecture.pack()
-        self._architecture = LabeledOptionMenu(
-            self._frame_architecture,
-            "Architecture",
-            _core.Architecture,
-            default=self._parent.advanced_options.architecture,
-        )
 
         # Number of epochs: text box
         self._frame_epochs = _tk.Frame(self._root)

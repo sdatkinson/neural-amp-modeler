@@ -6,6 +6,10 @@ masked WaveNet. Each submodel makes its own prediction for the same target
 audio, and training computes the loss for each prediction against that target
 before summing the losses.
 
+The simplified GUI and Colab trainers use a fixed packed WaveNet configuration
+automatically. This page covers configuring packed training directly with the
+full trainer.
+
 Packed training is a slimmable NAM training method, but it is different from
 the channel-slicing slimmable WaveNet method. Packed training keeps the
 submodels independent during training by using block-diagonal masked weights.

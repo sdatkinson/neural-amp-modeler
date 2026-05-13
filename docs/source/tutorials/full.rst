@@ -51,10 +51,12 @@ and editing it to point to your audio files like this:
     how much latency there is, it's usually a good idea to add a few samples 
     just so that the model doesn't need to "predict the future"!
 
-Next, copy to e.g. ``model.json`` a file for whicever model architecture you want to
-use (e.g. 
-`nam_full_configs/models/wavenet.json <https://github.com/sdatkinson/neural-amp-modeler/blob/main/nam_full_configs/models/wavenet.json>`_ 
-for the standard WaveNet from the simplified trainers), and copy to e.g. 
+Next, copy to e.g. ``model.json`` a file for whichever model architecture you want to
+use (e.g.
+`nam_full_configs/models/wavenet.json <https://github.com/sdatkinson/neural-amp-modeler/blob/main/nam_full_configs/models/wavenet.json>`_
+for a standalone WaveNet, or
+`nam_full_configs/models/wavenet_packed.json <https://github.com/sdatkinson/neural-amp-modeler/blob/main/nam_full_configs/models/wavenet_packed.json>`_
+for an example packed WaveNet), and copy to e.g.
 ``learning.json`` the contents of 
 `nam_full_configs/learning/demo.json <https://github.com/sdatkinson/neural-amp-modeler/blob/main/nam_full_configs/learning/demo.json>`_
 (for a quick demo run) or

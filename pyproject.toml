@@ -56,7 +56,22 @@ local_scheme = "no-local-version"
 write_to = "nam/_version.py"
 
 [tool.setuptools]
-packages = ["nam", "nam.train", "nam.train.gui", "nam.train.gui._resources", "nam.models", "nam.models._resources" ]
+include-package-data = true
+packages = [
+    "nam",
+    "nam._dependencies",
+    "nam._dependencies.auraloss",
+    "nam.train",
+    "nam.train._resources",
+    "nam.train.gui",
+    "nam.train.gui._resources",
+    "nam.models",
+    "nam.models._resources",
+    "nam.models.wavenet",
+]
+
+[tool.setuptools.package-data]
+"nam.train._resources" = ["*.json"]
 
 [tool.pytest.ini_options]
 addopts = "-x"

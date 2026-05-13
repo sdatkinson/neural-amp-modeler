@@ -21,8 +21,6 @@ from nam.models.wavenet._slimmable_conv import (
     SlimmableConv1dBase as _SlimmableConv1dBase,
 )
 from nam.models.wavenet._slimmable_conv import class_set as _slimmable_class_set
-from nam.train.core import Architecture as _Architecture
-from nam.train.core import get_wavenet_config as _get_wavenet_config
 
 from .base import Base as _Base
 
@@ -36,6 +34,23 @@ _FILM_SLOTS = (
     "layer1x1_post_film",
     "head1x1_post_film",
 )
+
+
+def _tiny_wavenet_config(channels: int = 2):
+    return {
+        "layers_configs": [
+            {
+                "input_size": 1,
+                "condition_size": 1,
+                "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
+                "channels": channels,
+                "kernel_size": 2,
+                "dilations": [1, 2],
+                "activation": "Tanh",
+            }
+        ],
+        "head_scale": 1.0,
+    }
 
 
 class TestWaveNet(_Base):
@@ -71,7 +86,7 @@ class TestWaveNet(_Base):
         return C.init_from_config(config)
 
     def test_import_weights(self):
-        config = _get_wavenet_config(_Architecture.FEATHER)
+        config = _tiny_wavenet_config()
         model_1 = _WaveNet.init_from_config(config)
         model_2 = _WaveNet.init_from_config(config)
 

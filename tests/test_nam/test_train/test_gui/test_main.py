@@ -2,6 +2,7 @@
 # Created Date: Friday May 24th 2024
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import inspect
 import tkinter as tk
 
 import pytest
@@ -24,6 +25,11 @@ def test_get_current_version():
     See #516
     """
     v = gui._get_current_version()
+
+
+def test_gui_does_not_depend_on_core_architecture():
+    source = inspect.getsource(gui)
+    assert "_core.Architecture" not in source
 
 
 if __name__ == "__main__":

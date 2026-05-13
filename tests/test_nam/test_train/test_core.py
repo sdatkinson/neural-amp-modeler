@@ -2,13 +2,18 @@
 # Created Date: Thursday May 18th 2023
 # Author: Steven Atkinson (steven@atkinson.mn)
 
+import inspect
+import json
 import sys
+from copy import deepcopy
+from importlib import resources
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
 import pytest
+import torch
 
 from nam.data import (
     _DEFAULT_REQUIRE_INPUT_PRE_SILENCE,
@@ -20,7 +25,7 @@ from nam.data import (
 from nam.train import core
 from nam.train import metadata as _metadata
 from nam.train._version import Version
-from nam.train.lightning_module import LightningModule
+from nam.train.lightning_module import PackedLightningModule
 
 from ...resources import (
     requires_proteus,
@@ -32,6 +37,61 @@ from ...resources import (
 )
 
 __all__ = []
+
+
+_REMOVED_SIMPLIFIED_TRAINER_KWARGS = {
+    "model_type",
+    "architecture",
+    "lr",
+    "lr_decay",
+    "fit_mrstft",
+}
+
+
+def _load_packaged_packed_model_config():
+    resource = resources.files("nam.train._resources").joinpath(
+        "config_model_packed.json"
+    )
+    with resource.open("r") as fp:
+        return json.load(fp)
+
+
+def _core_removed_kwargs_present():
+    functions = (core.train, core._get_configs)
+    return {
+        name
+        for function in functions
+        for name in inspect.signature(function).parameters
+        if name in _REMOVED_SIMPLIFIED_TRAINER_KWARGS
+    }
+
+
+def _call_get_configs_for_current_core():
+    values = {
+        "input_version": Version(3, 0, 0),
+        "input_path": "input.wav",
+        "output_path": "output.wav",
+        "latency": 0,
+        "epochs": 5,
+        "ny": 16,
+        "batch_size": 2,
+    }
+    signature = inspect.signature(core._get_configs)
+    kwargs = {
+        name: deepcopy(values[name])
+        for name in signature.parameters
+        if name in values
+    }
+    missing = [
+        name
+        for name, parameter in signature.parameters.items()
+        if parameter.default is inspect.Parameter.empty
+        and parameter.kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        and name not in kwargs
+    ]
+    assert not missing, f"Unhandled _get_configs parameters: {missing}"
+    return core._get_configs(**kwargs)
 
 
 def _resource_path(version: Version) -> Path:
@@ -277,6 +337,80 @@ def test_v3_check_doesnt_make_figure_if_silent(mocker):
         core._check_v3(input_path, output_path, silent=True)
 
 
+def test_simplified_trainer_removed_knobs_are_absent_from_core_api():
+    present = _core_removed_kwargs_present()
+    assert not present
+
+
+def test_get_configs_uses_packaged_packed_model_config():
+    _, model_config, _ = _call_get_configs_for_current_core()
+    expected_model_config = _load_packaged_packed_model_config()
+
+    assert model_config["net"]["name"] == "PackedWaveNet"
+    assert model_config["net"] == expected_model_config["net"]
+    assert model_config["loss"] == expected_model_config["loss"]
+    assert model_config["optimizer"] == expected_model_config["optimizer"]
+    assert model_config["lr_scheduler"] == expected_model_config["lr_scheduler"]
+
+
+def test_plot_reports_and_plots_each_packed_prediction(mocker, capsys):
+    target = torch.tensor([1.0, -1.0, 2.0, -2.0])
+    predictions = torch.stack([target, 0.5 * target])
+    plot_calls = []
+
+    class FakeDataset:
+        x = torch.zeros_like(target)
+        y = target
+
+    class FakeModel:
+        class net:
+            num_submodels = 2
+            submodel_names = ("small", "large")
+
+        def __call__(self, x):
+            assert torch.equal(x, FakeDataset.x)
+            return predictions
+
+    def capture_plot(*args, **kwargs):
+        plot_calls.append((args, kwargs))
+
+    times = iter((0.0, 0.5))
+    mocker.patch.object(core, "_time", lambda: next(times))
+    mocker.patch("matplotlib.pyplot.figure")
+    mocker.patch("matplotlib.pyplot.plot", capture_plot)
+    mocker.patch("matplotlib.pyplot.title")
+    mocker.patch("matplotlib.pyplot.legend")
+    mocker.patch("matplotlib.pyplot.savefig")
+    mocker.patch("matplotlib.pyplot.show")
+
+    core._plot(FakeModel(), FakeDataset, silent=True)
+
+    stdout = capsys.readouterr().out
+    assert stdout.count("Error-signal ratio") == 2
+
+    def as_numpy(value):
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().numpy()
+        return np.asarray(value)
+
+    prediction_plots = [
+        as_numpy(args[0])
+        for args, kwargs in plot_calls
+        if "Prediction" in kwargs.get("label", "")
+    ]
+    target_plots = [
+        as_numpy(args[0])
+        for args, kwargs in plot_calls
+        if kwargs.get("label") == "Target"
+    ]
+    assert len(prediction_plots) == 2
+    assert len(target_plots) == 1
+    np.testing.assert_allclose(prediction_plots[0], predictions[0].numpy())
+    np.testing.assert_allclose(prediction_plots[1], predictions[1].numpy())
+    for plotted_target in target_plots:
+        np.testing.assert_allclose(plotted_target, target.numpy())
+
+
 @requires_v3_0_0
 def test_end_to_end():
     """
@@ -295,7 +429,7 @@ def test_end_to_end():
             fast_dev_run=True,
         )
         # Assertions...
-        assert isinstance(train_output.model, LightningModule)
+        assert isinstance(train_output.model, PackedLightningModule)
 
 
 def test_get_callbacks():
