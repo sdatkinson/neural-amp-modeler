@@ -32,5 +32,19 @@ def test_gui_does_not_depend_on_core_architecture():
     assert "_core.Architecture" not in source
 
 
+def test_advanced_options_exposes_output_target_rms_dbfs():
+    """AdvancedOptions carries the normalization knob with the shared default."""
+    from nam.train import _normalize as _norm
+
+    opts = gui.AdvancedOptions(
+        num_epochs=1,
+        latency=None,
+        ignore_checks=False,
+        threshold_esr=None,
+        output_target_rms_dbfs=_norm.DEFAULT_TARGET_RMS_DBFS,
+    )
+    assert opts.output_target_rms_dbfs == _norm.DEFAULT_TARGET_RMS_DBFS
+
+
 if __name__ == "__main__":
     pytest.main()

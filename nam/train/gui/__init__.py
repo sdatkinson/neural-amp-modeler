@@ -53,6 +53,7 @@ try:  # 3rd-party and 1st-party imports
     from nam.models.metadata import UserMetadata as _UserMetadata
 
     # Ok private access here--this is technically allowed access
+    from nam.train import _normalize as _normalize_mod
     from nam.train import core as _core
     from nam.train import metadata as _metadata
     from nam.train._names import INPUT_BASENAMES as _INPUT_BASENAMES
@@ -80,6 +81,9 @@ _TEXT_WIDTH = 70
 _DEFAULT_DELAY = None
 _DEFAULT_IGNORE_CHECKS = False
 _DEFAULT_THRESHOLD_ESR = None
+_DEFAULT_OUTPUT_TARGET_RMS_DBFS = (
+    _normalize_mod.DEFAULT_TARGET_RMS_DBFS if _install_is_valid else -18.0
+)
 
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
@@ -132,12 +136,16 @@ class AdvancedOptions(object):
     :param ignore_checks: Keep going even if a check says that something is wrong.
     :param threshold_esr: Stop training if the ESR gets better than this. If None, don't
         stop.
+    :param output_target_rms_dbfs: RMS target (dBFS) the training output is
+        scaled to before training; the exported model's ``head_scale`` is
+        compensated so inference levels are unchanged. ``None`` disables.
     """
 
     num_epochs: int
     latency: _Optional[int]
     ignore_checks: bool
     threshold_esr: _Optional[float]
+    output_target_rms_dbfs: _Optional[float]
 
 
 class _PathType(_Enum):
@@ -539,6 +547,7 @@ class GUI(object):
             latency=_DEFAULT_DELAY,
             ignore_checks=_DEFAULT_IGNORE_CHECKS,
             threshold_esr=_DEFAULT_THRESHOLD_ESR,
+            output_target_rms_dbfs=_DEFAULT_OUTPUT_TARGET_RMS_DBFS,
         )
         # Window to edit them:
 
@@ -713,6 +722,7 @@ class GUI(object):
         user_latency = self.advanced_options.latency
         file_list = self._widgets[_GUIWidgets.OUTPUT_PATH].val
         threshold_esr = self.advanced_options.threshold_esr
+        output_target_rms_dbfs = self.advanced_options.output_target_rms_dbfs
 
         # Run it
         for file in file_list:
@@ -735,6 +745,7 @@ class GUI(object):
                 local=True,
                 threshold_esr=threshold_esr,
                 user_metadata=user_metadata,
+                output_target_rms_dbfs=output_target_rms_dbfs,
                 **self.core_train_kwargs(),
             )
 
@@ -1123,7 +1134,12 @@ class AdvancedOptionsGUI(object):
             except ValueError:
                 pass
 
-        for name in ("num_epochs", "latency", "threshold_esr"):
+        for name in (
+            "num_epochs",
+            "latency",
+            "threshold_esr",
+            "output_target_rms_dbfs",
+        ):
             safe_apply(name)
 
     def pack(self):
@@ -1160,6 +1176,29 @@ class AdvancedOptionsGUI(object):
             "Threshold ESR",
             default=_float_or_null.inverse(self._parent.advanced_options.threshold_esr),
             type=_float_or_null.forward,
+        )
+
+        # Output target RMS (dBFS) -- normalizes the training target so the
+        # loss sees a fixed loudness; head_scale is compensated after training
+        # so inference levels are unchanged. Blank disables normalization.
+        self._frame_output_target_rms_dbfs = _tk.Frame(self._root)
+        self._frame_output_target_rms_dbfs.pack()
+        self._output_target_rms_dbfs = LabeledText(
+            self._frame_output_target_rms_dbfs,
+            "Output target RMS (dBFS)",
+            default=_float_or_null.inverse(
+                self._parent.advanced_options.output_target_rms_dbfs
+            ),
+            type=_float_or_null.forward,
+        )
+        self._output_target_rms_dbfs.label_tooltip = _Hovertip(
+            anchor_widget=self._output_target_rms_dbfs.label,
+            text=(
+                "Target RMS (dBFS) the training output is scaled to before\n"
+                "training. The exported model's head_scale is divided by the\n"
+                "same gain so inference levels are unchanged.\n"
+                "Leave blank to disable normalization."
+            ),
         )
 
 

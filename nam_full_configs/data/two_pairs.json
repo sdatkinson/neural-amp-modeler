@@ -15,5 +15,6 @@
     },
     "common": {
         "delay": 0
-    }
+    },
+    "target_rms_dbfs": -18.0
 }

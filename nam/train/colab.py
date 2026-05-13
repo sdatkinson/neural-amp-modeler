@@ -11,6 +11,7 @@ from typing import Optional as _Optional
 from typing import Tuple as _Tuple
 
 from ..models.metadata import UserMetadata as _UserMetadata
+from . import _normalize as _normalize_mod
 from ._names import INPUT_BASENAMES as _INPUT_BASENAMES
 from ._names import LATEST_VERSION as _LATEST_VERSION
 from ._names import Version as _Version
@@ -94,6 +95,9 @@ def run(
     seed: _Optional[int] = 0,
     user_metadata: _Optional[_UserMetadata] = None,
     ignore_checks: bool = False,
+    output_target_rms_dbfs: _Optional[
+        float
+    ] = _normalize_mod.DEFAULT_TARGET_RMS_DBFS,
 ):
     """
     :param epochs: How many epochs we'll train for.
@@ -102,6 +106,10 @@ def run(
     :param seed: RNG seed for reproducibility.
     :param user_metadata: User-specified metadata to include in the .nam file.
     :param ignore_checks: Ignores the data quality checks and YOLOs it
+    :param output_target_rms_dbfs: RMS target (dBFS) the training output is
+        scaled to before training; the exported model's ``head_scale`` is
+        compensated so inference levels are unchanged. Pass ``None`` to
+        disable.
     """
 
     input_basename = _check_for_files()
@@ -115,6 +123,7 @@ def run(
         seed=seed,
         local=False,
         ignore_checks=ignore_checks,
+        output_target_rms_dbfs=output_target_rms_dbfs,
     )
     model = train_output.model
     training_metadata = train_output.metadata

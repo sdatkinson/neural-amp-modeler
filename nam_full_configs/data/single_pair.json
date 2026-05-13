@@ -17,5 +17,6 @@
         "x_path": "C:\\path\\to\\source.wav",
         "y_path": "C:\\path\\to\\target.wav",
         "delay": 0
-    }
+    },
+    "target_rms_dbfs": -18.0
 }

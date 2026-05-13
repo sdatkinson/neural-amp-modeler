@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader as _DataLoader
 from nam.data import ConcatDataset as _ConcatDataset
 from nam.data import Split as _Split
 from nam.data import init_dataset as _init_dataset
+from nam.train import _normalize as _normalize_mod
 from nam.train import lightning_module as _lightning_module
 from nam.util import filter_warnings as _filter_warnings
 
@@ -205,6 +206,18 @@ def main(
         else _lightning_module.LightningModule
     )
     model = lightning_cls.init_from_config(model_config)
+
+    # Output-target normalization: scale y to a fixed RMS before training and
+    # remember the gain so we can compensate `head_scale` after training.
+    normalization = _normalize_mod.prepare(data_config, model_config)
+    data_config = normalization.data_config
+    if normalization.applied:
+        print(
+            f"Normalizing training target to {normalization.target_rms_dbfs:.1f} "
+            f"dBFS RMS (gain={normalization.gain:.6g}); head_scale will be "
+            f"compensated after training."
+        )
+
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
@@ -266,6 +279,8 @@ def main(
         model.cpu()
         model.eval()
         if make_plots:
+            # Plot against the (scaled) validation y while the model is still
+            # in the training-time scale domain.
             _plot(
                 model,
                 dataset_validation,
@@ -275,6 +290,9 @@ def main(
                 show=False,
             )
             _plot(model, dataset_validation, show=not no_show)
+        # Undo the training-time target normalization on the exported model so
+        # inference matches the original capture level.
+        _normalize_mod.compensate_head_scale(model.net, normalization.gain)
         # Export!
         if is_packed:
             checkpoint_paths = (

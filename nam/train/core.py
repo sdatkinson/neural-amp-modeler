@@ -43,6 +43,7 @@ from ..models.exportable import Exportable as _Exportable
 from ..models.losses import esr as _ESR
 from ..models.metadata import UserMetadata as _UserMetadata
 from ..util import filter_warnings as _filter_warnings
+from . import _normalize as _normalize_mod
 from . import metadata as _metadata
 from ._version import PROTEUS_VERSION as _PROTEUS_VERSION
 from ._version import Version as _Version
@@ -1303,12 +1304,17 @@ def train(
     threshold_esr: _Optional[float] = None,
     user_metadata: _Optional[_UserMetadata] = None,
     fast_dev_run: _Union[bool, int] = False,
+    output_target_rms_dbfs: _Optional[float] = _normalize_mod.DEFAULT_TARGET_RMS_DBFS,
 ) -> _Optional[TrainOutput]:
     """
     :param input_path: Full path to input file
     :param output_path: Full path to output file
     :param threshold_esr: Stop training if ESR is better than this. Ignore if `None`.
     :param fast_dev_run: One-step training, used for tests.
+    :param output_target_rms_dbfs: RMS target (dBFS) for the training output
+        signal. The training target is scaled to this RMS (with peak-safety
+        clamp) and the exported model's ``head_scale`` is divided by the same
+        gain so that inference levels are unchanged. Pass ``None`` to disable.
     """
 
     if seed is not None:
@@ -1384,6 +1390,20 @@ def train(
     assert (
         "fast_dev_run" not in learning_config
     ), "fast_dev_run is set as a kwarg to train()"
+
+    # Output-target RMS normalization: scale the training target so it sits at
+    # a fixed RMS, then later divide the model's head_scale by the same gain
+    # so inference levels match the original capture.
+    normalization = _normalize_mod.prepare(
+        data_config, model_config, target_rms_dbfs=output_target_rms_dbfs
+    )
+    data_config = normalization.data_config
+    if normalization.applied:
+        print(
+            f"Normalizing training target to {normalization.target_rms_dbfs:.1f} "
+            f"dBFS RMS (gain={normalization.gain:.6g}); head_scale will be "
+            f"compensated after training."
+        )
 
     print("Starting training. It's time to kick ass and chew bubblegum!")
     # Issue:
@@ -1476,6 +1496,10 @@ def train(
             silent=silent,
             **window_kwargs(input_version),
         )
+        # Undo training-time target normalization on the exported model so that
+        # inference levels match the original capture. Done after plotting
+        # because the plot's reference y is in the scaled domain.
+        _normalize_mod.compensate_head_scale(model.net, normalization.gain)
         for dl in (train_dataloader, val_dataloader):
             assert isinstance(dl.dataset, _AbstractDataset)
             dl.dataset.teardown()
