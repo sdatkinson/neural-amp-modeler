@@ -939,6 +939,19 @@ def _get_dataloaders(
     data_config["common"]["nx"] = model.net.receptive_field
     dataset_train = _init_dataset(data_config, _Split.TRAIN)
     dataset_validation = _init_dataset(data_config, _Split.VALIDATION)
+    if dataset_train.sample_rate != dataset_validation.sample_rate:
+        raise RuntimeError(
+            "Train and validation data loaders have different data set sample rates: "
+            f"{dataset_train.sample_rate}, {dataset_validation.sample_rate}"
+        )
+    model.net.sample_rate = dataset_train.sample_rate
+
+    # Perform handshakes:
+    dataset_train.handshake(model.net)
+    dataset_validation.handshake(model.net)
+    model.net.handshake(dataset_train)
+    model.net.handshake(dataset_validation)
+
     train_dataloader = _DataLoader(dataset_train, **learning_config["train_dataloader"])
     val_dataloader = _DataLoader(
         dataset_validation, **learning_config["val_dataloader"]

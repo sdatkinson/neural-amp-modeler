@@ -432,6 +432,66 @@ def test_end_to_end():
         assert isinstance(train_output.model, PackedLightningModule)
 
 
+def test_get_dataloaders_performs_model_data_handshake(monkeypatch):
+    calls = []
+    datasets_by_split = {}
+
+    class RecordingDataset:
+        sample_rate = 48_000
+
+        def __init__(self, split):
+            self.split = split
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, idx):
+            return torch.zeros(1), torch.zeros(1)
+
+        def handshake(self, model):
+            calls.append(("dataset", self.split, model))
+
+    class RecordingNet:
+        receptive_field = 3
+
+        def __init__(self):
+            self.sample_rate = None
+
+        def handshake(self, dataset):
+            calls.append(("model", dataset.split, dataset))
+
+    class RecordingModel:
+        def __init__(self):
+            self.net = RecordingNet()
+
+    def init_dataset(config, split):
+        assert config["common"]["nx"] == 3
+        dataset = RecordingDataset(split)
+        datasets_by_split[split] = dataset
+        return dataset
+
+    monkeypatch.setattr(core, "_init_dataset", init_dataset)
+    model = RecordingModel()
+
+    core._get_dataloaders(
+        {"common": {}},
+        {"train_dataloader": {}, "val_dataloader": {}},
+        model,
+    )
+
+    assert model.net.sample_rate == 48_000
+    assert calls == [
+        ("dataset", core._Split.TRAIN, model.net),
+        ("dataset", core._Split.VALIDATION, model.net),
+        ("model", core._Split.TRAIN, datasets_by_split[core._Split.TRAIN]),
+        (
+            "model",
+            core._Split.VALIDATION,
+            datasets_by_split[core._Split.VALIDATION],
+        ),
+    ]
+
+
 def test_get_callbacks():
     """
     Sanity check for get_callbacks with a custom extension callback and threshold_esr
