@@ -11,11 +11,14 @@ For the base *PyTorch* model containing the actual architecture, see `..models.b
 """
 
 import logging as _logging
+import json as _json
 from dataclasses import dataclass as _dataclass
 from enum import Enum as _Enum
+from pathlib import Path as _Path
 from typing import Any as _Any
 from typing import Callable as _Callable
 from typing import Dict as _Dict
+from typing import List as _List
 from typing import NamedTuple as _NamedTuple
 from typing import Optional as _Optional
 from typing import Tuple as _Tuple
@@ -38,6 +41,7 @@ from ..models.losses import mse as _mse
 from ..models.losses import mse_fft as _mse_fft
 from ..models.losses import multi_resolution_stft_loss as _multi_resolution_stft_loss
 from ..models.recurrent import LSTM as _LSTM
+from ..models.wavenet import PackedWaveNet as _PackedWaveNet
 from ..models.wavenet import WaveNet as _WaveNet
 from ..util import init as _init
 
@@ -474,4 +478,154 @@ class LightningModule(_pl.LightningModule, _InitializableFromConfig):
             self._mrstft_device = backup_device
             return _multi_resolution_stft_loss(
                 preds, targets, self._mrstft, device=self._mrstft_device
+            )
+
+
+class PackedLightningModule(LightningModule):
+    """
+    Lightning module for packed WaveNet training.
+    """
+
+    @property
+    def net(self) -> _PackedWaveNet:
+        return self._net
+
+    def training_step(self, batch, batch_idx):
+        _, _, loss_dicts = self._shared_step(batch)
+        loss = 0.0
+        for loss_dict in loss_dicts:
+            for v in loss_dict.values():
+                if v.weight is not None and v.weight > 0.0:
+                    loss = loss + v.weight * v.value
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        preds, targets, loss_dicts = self._shared_step(batch)
+        logs = {}
+        val_losses = []
+
+        for i, loss_dict in enumerate(loss_dicts):
+            if "MSE" not in loss_dict:
+                loss_dict["MSE"] = _LossItem(
+                    None, self._mse_loss(preds[:, i, :], targets)
+                )
+            loss_dict["ESR"] = _LossItem(None, self._esr_loss(preds[:, i, :], targets))
+            val_loss = self._get_val_loss_from_loss_dict(loss_dict)
+            val_losses.append(val_loss)
+            logs[f"val_loss_packed_{i}"] = val_loss
+            logs[f"ESR_packed_{i}"] = loss_dict["ESR"].value
+            if "MSE" in loss_dict:
+                logs[f"MSE_packed_{i}"] = loss_dict["MSE"].value
+
+        loss_keys = sorted({key for loss_dict in loss_dicts for key in loss_dict})
+        for key in loss_keys:
+            values = [
+                loss_dict[key].value for loss_dict in loss_dicts if key in loss_dict
+            ]
+            if values:
+                logs[key] = sum(values)
+        logs["ESR"] = sum(loss_dict["ESR"].value for loss_dict in loss_dicts)
+        logs["val_loss"] = sum(val_losses)
+        self.log_dict(logs)
+        return logs["val_loss"]
+
+    def optimizer_step(self, *args, **kwargs):
+        out = super().optimizer_step(*args, **kwargs)
+        self.net.apply_mask()
+        return out
+
+    def _shared_step(
+        self, batch
+    ) -> _Tuple[_torch.Tensor, _torch.Tensor, _List[_Dict[str, _LossItem]]]:
+        args, targets = batch[:-1], batch[-1]
+        preds = self(*args, pad_start=False)
+        if preds.ndim != 3:
+            raise RuntimeError(
+                f"PackedWaveNet must return (B, P, L), got shape {tuple(preds.shape)}"
+            )
+        return (
+            preds,
+            targets,
+            [
+                self._get_loss_dict(preds[:, i, :], targets)
+                for i in range(preds.shape[1])
+            ],
+        )
+
+    def _get_val_loss_from_loss_dict(
+        self, loss_dict: _Dict[str, _LossItem]
+    ) -> _torch.Tensor:
+        val_loss_type = self._loss_config.val_loss
+        key = (
+            val_loss_type
+            if isinstance(val_loss_type, str)
+            else val_loss_type.value.upper()
+        )
+        if key not in loss_dict:
+            raise RuntimeError(f"Undefined validation loss routine for {val_loss_type}")
+        return loss_dict[key].value
+
+
+class PackedMaskCallback(_pl.Callback):
+    """Keep packed off-block weights exactly zero after optimizer updates."""
+
+    def on_before_zero_grad(self, trainer, pl_module, optimizer) -> None:
+        if isinstance(getattr(pl_module, "net", None), _PackedWaveNet):
+            pl_module.net.apply_mask()
+
+
+class PackedBestCheckpoint(_pl.Callback):
+    """
+    Track one best full Lightning checkpoint for each packed submodel.
+    """
+
+    def __init__(self, dirpath: _Optional[_Path] = None):
+        super().__init__()
+        self.dirpath = None if dirpath is None else _Path(dirpath)
+        self.best: _Dict[int, _Dict[str, _Any]] = {}
+
+    @property
+    def checkpoint_paths(self) -> _List[_Optional[str]]:
+        if not self.best:
+            return []
+        n = max(self.best) + 1
+        return [self.best.get(i, {}).get("checkpoint_path") for i in range(n)]
+
+    def on_validation_end(self, trainer, pl_module) -> None:
+        if not isinstance(getattr(pl_module, "net", None), _PackedWaveNet):
+            return
+        if getattr(trainer, "sanity_checking", False):
+            return
+        pl_module.net.apply_mask()
+        dirpath = self.dirpath or _Path(trainer.default_root_dir)
+        dirpath.mkdir(parents=True, exist_ok=True)
+        for i, name in enumerate(pl_module.net.submodel_names):
+            key = f"val_loss_packed_{i}"
+            if key not in trainer.callback_metrics:
+                continue
+            metric_tensor = trainer.callback_metrics[key]
+            metric = float(metric_tensor.detach().cpu())
+            current_best = self.best.get(i, {}).get("best_metric")
+            if current_best is not None and metric >= current_best:
+                continue
+            checkpoint_path = dirpath / f"packed_best_submodel_{i}.ckpt"
+            trainer.save_checkpoint(checkpoint_path)
+            self.best[i] = {
+                "submodel_index": i,
+                "submodel_name": name,
+                "best_metric": metric,
+                "epoch": int(trainer.current_epoch),
+                "step": int(trainer.global_step),
+                "checkpoint_path": str(checkpoint_path),
+            }
+        self._write_metadata(dirpath)
+
+    def _write_metadata(self, dirpath: _Path) -> None:
+        if not self.best:
+            return
+        with open(dirpath / "packed_best.json", "w") as fp:
+            _json.dump(
+                {"submodels": [self.best[i] for i in sorted(self.best)]},
+                fp,
+                indent=4,
             )

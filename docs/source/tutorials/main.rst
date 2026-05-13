@@ -7,4 +7,5 @@ Tutorials
    colab
    gui
    full
+   packed-training
    calibration

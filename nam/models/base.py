@@ -208,6 +208,10 @@ class BaseNet(_Base):
         super().__init__(*args, **kwargs)
         self._mps_65536_fallback = False
 
+    @property
+    def _mps_fallback_cat_dim(self) -> int:
+        return 1
+
     def forward(self, x: _torch.Tensor, pad_start: _Optional[bool] = None, **kwargs):
         pad_start = self.pad_start_default if pad_start is None else pad_start
         scalar = x.ndim == 1
@@ -279,7 +283,7 @@ class BaseNet(_Base):
                 # Bit hacky, but correct.
                 if j == x.shape[1]:
                     break
-            return _torch.cat(out_list, dim=1)
+            return _torch.cat(out_list, dim=self._mps_fallback_cat_dim)
 
     @_abc.abstractmethod
     def _forward(self, x: _torch.Tensor, **kwargs) -> _torch.Tensor:

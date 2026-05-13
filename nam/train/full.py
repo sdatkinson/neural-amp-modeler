@@ -68,7 +68,7 @@ def _plot(
         tx = len(ds.x) / 48_000
         print(f"Run (t={tx:.2f})")
         t0 = _time()
-        output = model(ds.x).flatten().cpu().numpy()
+        output = model(ds.x).cpu().numpy()
         t1 = _time()
         try:
             rt = f"{tx / (t1 - t0):.2f}"
@@ -76,12 +76,52 @@ def _plot(
             rt = "???"
         print(f"Took {t1 - t0:.2f} ({rt}x)")
 
+    if output.ndim == 2:
+        for i in range(output.shape[0]):
+            packed_savefig = None
+            if savefig is not None:
+                savefig = _Path(savefig)
+                packed_savefig = savefig.with_name(
+                    f"{savefig.stem}_packed_{i}{savefig.suffix}"
+                )
+            _plot_arrays(
+                output[i],
+                ds.y,
+                savefig=packed_savefig,
+                show=show and i == output.shape[0] - 1,
+                window_start=window_start,
+                window_end=window_end,
+                title_prefix=f"Packed {i}: ",
+            )
+        return
+
+    output = output.flatten()
+    _plot_arrays(
+        output,
+        ds.y,
+        savefig=savefig,
+        show=show,
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+
+def _plot_arrays(
+    output,
+    target,
+    savefig=None,
+    show=True,
+    window_start: _Optional[int] = None,
+    window_end: _Optional[int] = None,
+    title_prefix: str = "",
+):
+
     _plt.figure(figsize=(16, 5))
     _plt.plot(output[window_start:window_end], label="Prediction")
-    _plt.plot(ds.y[window_start:window_end], linestyle="--", label="Target")
-    nrmse = _rms(_torch.Tensor(output) - ds.y) / _rms(ds.y)
+    _plt.plot(target[window_start:window_end], linestyle="--", label="Target")
+    nrmse = _rms(_torch.Tensor(output) - target) / _rms(target)
     esr = nrmse**2
-    _plt.title(f"ESR={esr:.3f}")
+    _plt.title(f"{title_prefix}ESR={esr:.3f}")
     _plt.legend()
     if savefig is not None:
         _plt.savefig(savefig)
@@ -89,7 +129,7 @@ def _plot(
         _plt.show()
 
 
-def _create_callbacks(learning_config):
+def _create_callbacks(learning_config, packed: bool = False):
     """
     Checkpointing, essentially
     """
@@ -119,14 +159,24 @@ def _create_callbacks(learning_config):
     checkpoint_epoch = _pl.callbacks.model_checkpoint.ModelCheckpoint(
         filename="checkpoint_epoch_{epoch:04d}", every_n_epochs=1
     )
+    callbacks = [checkpoint_best]
+    if packed:
+        callbacks.extend(
+            [
+                _lightning_module.PackedBestCheckpoint(),
+                _lightning_module.PackedMaskCallback(),
+            ]
+        )
     if not validate_inside_epoch:
-        return [checkpoint_best, checkpoint_epoch]
+        callbacks.append(checkpoint_epoch)
+        return callbacks
     else:
         # The last validation pass, whether at the end of an epoch or not
         checkpoint_last = _pl.callbacks.model_checkpoint.ModelCheckpoint(
             filename="checkpoint_last_{epoch:04d}_{step}", **kwargs
         )
-        return [checkpoint_best, checkpoint_last, checkpoint_epoch]
+        callbacks.extend([checkpoint_last, checkpoint_epoch])
+        return callbacks
 
 
 def main(
@@ -148,7 +198,13 @@ def main(
         with open(_Path(outdir, f"config_{basename}.json"), "w") as fp:
             _json.dump(config, fp, indent=4)
 
-    model = _lightning_module.LightningModule.init_from_config(model_config)
+    is_packed = model_config["net"]["name"] == "PackedWaveNet"
+    lightning_cls = (
+        _lightning_module.PackedLightningModule
+        if is_packed
+        else _lightning_module.LightningModule
+    )
+    model = lightning_cls.init_from_config(model_config)
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
@@ -177,8 +233,13 @@ def main(
         dataset_validation, **learning_config["val_dataloader"]
     )
 
+    callbacks = _create_callbacks(learning_config, packed=is_packed)
+    packed_best_callback = next(
+        (c for c in callbacks if isinstance(c, _lightning_module.PackedBestCheckpoint)),
+        None,
+    )
     trainer = _pl.Trainer(
-        callbacks=_create_callbacks(learning_config),
+        callbacks=callbacks,
         default_root_dir=outdir,
         **learning_config["trainer"],
     )
@@ -198,9 +259,9 @@ def main(
         # Go to best checkpoint
         best_checkpoint = trainer.checkpoint_callback.best_model_path
         if best_checkpoint != "":
-            model = _lightning_module.LightningModule.load_from_checkpoint(
+            model = lightning_cls.load_from_checkpoint(
                 trainer.checkpoint_callback.best_model_path,
-                **_lightning_module.LightningModule.parse_config(model_config),
+                **lightning_cls.parse_config(model_config),
             )
         model.cpu()
         model.eval()
@@ -215,7 +276,19 @@ def main(
             )
             _plot(model, dataset_validation, show=not no_show)
         # Export!
-        model.net.export(outdir)
+        if is_packed:
+            checkpoint_paths = (
+                None
+                if packed_best_callback is None
+                or not packed_best_callback.checkpoint_paths
+                else packed_best_callback.checkpoint_paths
+            )
+            model.net.export_container(
+                outdir,
+                checkpoint_paths_by_submodel=checkpoint_paths,
+            )
+        else:
+            model.net.export(outdir)
 
         # Tear down the datasets
         train_dataloader.dataset.teardown()

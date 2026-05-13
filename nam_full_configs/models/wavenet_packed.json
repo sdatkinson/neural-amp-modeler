@@ -1,0 +1,60 @@
+{
+    "_notes": [
+        "Packed WaveNet: trains multiple compatible WaveNet channel widths in one masked model."
+    ],
+    "net": {
+        "name": "PackedWaveNet",
+        "config": {
+            "submodels": [
+                {
+                    "name": "small",
+                    "config": {
+                        "layers_configs": [
+                            {
+                                "condition_size": 1,
+                                "input_size": 1,
+                                "channels": 3,
+                                "head": {"out_channels": 1, "kernel_size": 1, "bias": true},
+                                "kernel_size": 6,
+                                "dilations": [1, 5, 29, 97, 227],
+                                "activation": "LeakyReLU"
+                            }
+                        ],
+                        "head": null,
+                        "head_scale": 0.01
+                    }
+                },
+                {
+                    "name": "large",
+                    "config": {
+                        "layers_configs": [
+                            {
+                                "condition_size": 1,
+                                "input_size": 1,
+                                "channels": 8,
+                                "head": {"out_channels": 1, "kernel_size": 1, "bias": true},
+                                "kernel_size": 6,
+                                "dilations": [1, 5, 29, 97, 227],
+                                "activation": "LeakyReLU"
+                            }
+                        ],
+                        "head": null,
+                        "head_scale": 0.01
+                    }
+                }
+            ],
+            "export": {
+                "container_max_values": "uniform"
+            }
+        }
+    },
+    "optimizer": {
+        "lr": 0.004
+    },
+    "lr_scheduler": {
+        "class": "ExponentialLR",
+        "kwargs": {
+            "gamma": 0.993
+        }
+    }
+}

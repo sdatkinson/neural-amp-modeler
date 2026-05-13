@@ -10,6 +10,7 @@ import torch as _torch
 from nam._dependencies.auraloss.freq import (
     MultiResolutionSTFTLoss as _MultiResolutionSTFTLoss,
 )
+from nam.models.wavenet import PackedWaveNet as _PackedWaveNet
 from nam.train import lightning_module as _lightning_module
 
 from ..test_models.test_base import MockBaseNet as _MockBaseNet
@@ -140,6 +141,101 @@ def test_custom_losses_init():
     assert loss.ndim == 0
     # Anc coincidentally for this test:
     assert loss.item() == _torch.nn.MSELoss()(preds, targets)
+
+
+def _packed_wavenet():
+    def cfg(channels):
+        return {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "channels": channels,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head": None,
+            "head_scale": 1.0,
+        }
+
+    return _PackedWaveNet.init_from_config(
+        {
+            "submodels": [
+                {"name": "small", "config": cfg(2)},
+                {"name": "large", "config": cfg(4)},
+            ]
+        }
+    )
+
+
+def test_packed_lightning_training_step_sums_submodel_losses():
+    net = _packed_wavenet()
+    module = _lightning_module.PackedLightningModule(
+        net,
+        loss_config=_lightning_module.LossConfig(mse_weight=1.0),
+    )
+    x = _torch.randn(3, net.receptive_field + 8)
+    targets = _torch.randn(3, x.shape[-1] - net.receptive_field + 1)
+    loss = module.training_step((x, targets), 0)
+    preds = module.net(x, pad_start=False)
+    expected = sum(
+        module._get_loss_dict(preds[:, i, :], targets)["MSE"].value
+        for i in range(preds.shape[1])
+    )
+    assert _torch.allclose(loss, expected)
+
+
+def test_packed_lightning_validation_logs_per_submodel_and_aggregate():
+    net = _packed_wavenet()
+    module = _lightning_module.PackedLightningModule(
+        net,
+        loss_config=_lightning_module.LossConfig(
+            val_loss=_lightning_module.ValidationLoss.MSE
+        ),
+    )
+    captured = {}
+    module.log_dict = lambda logs: captured.update(logs)
+    x = _torch.randn(3, net.receptive_field + 8)
+    targets = _torch.randn(3, x.shape[-1] - net.receptive_field + 1)
+    val_loss = module.validation_step((x, targets), 0)
+    assert "val_loss" in captured
+    assert "val_loss_packed_0" in captured
+    assert "val_loss_packed_1" in captured
+    assert "ESR_packed_0" in captured
+    assert "MSE_packed_1" in captured
+    assert _torch.allclose(
+        val_loss, captured["val_loss_packed_0"] + captured["val_loss_packed_1"]
+    )
+
+
+def test_packed_best_checkpoint_records_distinct_checkpoints(tmp_path):
+    module = _lightning_module.PackedLightningModule(_packed_wavenet())
+    callback = _lightning_module.PackedBestCheckpoint(dirpath=tmp_path)
+
+    class Trainer:
+        default_root_dir = tmp_path
+        current_epoch = 3
+        global_step = 17
+        callback_metrics = {
+            "val_loss_packed_0": _torch.tensor(0.5),
+            "val_loss_packed_1": _torch.tensor(0.25),
+        }
+
+        def save_checkpoint(self, path):
+            path.write_text("checkpoint")
+
+    trainer = Trainer()
+    callback.on_validation_end(trainer, module)
+    assert (tmp_path / "packed_best_submodel_0.ckpt").exists()
+    assert (tmp_path / "packed_best_submodel_1.ckpt").exists()
+    assert (tmp_path / "packed_best.json").exists()
+    assert callback.checkpoint_paths == [
+        str(tmp_path / "packed_best_submodel_0.ckpt"),
+        str(tmp_path / "packed_best_submodel_1.ckpt"),
+    ]
 
 
 if __name__ == "__main__":

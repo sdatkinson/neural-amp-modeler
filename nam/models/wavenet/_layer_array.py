@@ -20,6 +20,13 @@ from . import _conv
 from ._conv import InputMixer as _InputMixer
 from ._conv import class_set as _basic_class_set
 from ._film import FiLM as _FiLM
+from ._packed_conv import PackedHead1x1 as _PackedHead1x1
+from ._packed_conv import PackedHeadRechannel as _PackedHeadRechannel
+from ._packed_conv import PackedInputMixer as _PackedInputMixer
+from ._packed_conv import PackedLayer1x1 as _PackedLayer1x1
+from ._packed_conv import PackedLayerConv as _PackedLayerConv
+from ._packed_conv import PackedRechannelIn as _PackedRechannelIn
+from ._packed_conv import segments_from_sizes as _segments_from_sizes
 from ._slimmable import SLIMMABLE_METHOD as _SLIMMABLE_METHOD
 from ._slimmable import Slimmable as _Slimmable
 from ._slimmable_conv import SlimmableConv1dBase as _SlimmableConv1dBase
@@ -109,6 +116,7 @@ def _get_conv_class_set(slimmable_config: _Optional[dict]) -> _conv.ClassSet:
 def _get_conv_factory_set(
     slimmable_config: _Optional[dict],
     *,
+    packing_config: _Optional[dict] = None,
     is_first: bool,
     is_last: bool,
     input_size: int,
@@ -123,6 +131,16 @@ def _get_conv_factory_set(
     When allowed_channels is in slimmable kwargs, returns factories that inject
     allowed_in_channels/allowed_out_channels. Otherwise returns the class set.
     """
+    if slimmable_config is not None and packing_config is not None:
+        raise ValueError("slimmable and packing configs are mutually exclusive")
+    if packing_config is not None:
+        return _get_packed_conv_factory_set(
+            packing_config,
+            is_first=is_first,
+            input_size=input_size,
+            condition_size=condition_size,
+        )
+
     conv_class_set = _get_conv_class_set(slimmable_config)
     allowed = (
         slimmable_config.get("kwargs", {}).get("allowed_channels")
@@ -251,6 +269,128 @@ def _get_conv_factory_set(
             is_last=is_last,
             boosting=boosting,
             init_strategy=init_strategy,
+            **kwargs,
+        )
+
+    return _ConvFactorySet(
+        RechannelIn=rechannel_in_factory,
+        LayerConv=layer_conv_factory,
+        InputMixer=input_mixer_factory,
+        Layer1x1=layer1x1_factory,
+        Head1x1=head1x1_factory,
+        HeadRechannel=head_rechannel_factory,
+    )
+
+
+def _get_packed_conv_factory_set(
+    packing_config: dict,
+    *,
+    is_first: bool,
+    input_size: int,
+    condition_size: int,
+) -> _ConvFactorySet:
+    channels = tuple(packing_config["channels"])
+    input_channels = tuple(packing_config["input_channels"])
+    bottleneck = tuple(packing_config["bottleneck"])
+    head1x1_out_channels = tuple(packing_config["head1x1_out_channels"])
+    head_rechannel_in_channels = tuple(packing_config["head_rechannel_in_channels"])
+    head_out_channels = tuple(packing_config["head_out_channels"])
+
+    residual_segments = _segments_from_sizes(channels)
+    bottleneck_segments = _segments_from_sizes(bottleneck)
+    input_segments = (
+        ((0, input_size),) if is_first else _segments_from_sizes(input_channels)
+    )
+    condition_segments = ((0, condition_size),)
+    head1x1_segments = _segments_from_sizes([c for c in head1x1_out_channels if c > 0])
+    head_rechannel_input_segments = _segments_from_sizes(head_rechannel_in_channels)
+    head_output_segments = _segments_from_sizes(head_out_channels)
+
+    def rechannel_in_factory(
+        in_ch: int, out_ch: int, *args: _Any, **kwargs: _Any
+    ) -> _Any:
+        return _PackedRechannelIn(
+            in_ch,
+            out_ch,
+            *args,
+            input_segments=input_segments,
+            output_segments=residual_segments,
+            shared_input=is_first,
+            **kwargs,
+        )
+
+    def layer_conv_factory(
+        in_ch: int,
+        out_ch: int,
+        *args: _Any,
+        output_paired: bool = False,
+        **kwargs: _Any,
+    ) -> _Any:
+        # Packed config validation excludes paired activations for now, so the
+        # dilated-conv output maps directly onto the per-submodel bottleneck blocks.
+        if output_paired:
+            raise NotImplementedError(
+                "PackedWaveNet does not yet support paired/gated activations"
+            )
+        return _PackedLayerConv(
+            in_ch,
+            out_ch,
+            *args,
+            input_segments=residual_segments,
+            output_segments=bottleneck_segments,
+            **kwargs,
+        )
+
+    def input_mixer_factory(
+        in_ch: int,
+        out_ch: int,
+        *args: _Any,
+        output_paired: bool = False,
+        **kwargs: _Any,
+    ) -> _Any:
+        if output_paired:
+            raise NotImplementedError(
+                "PackedWaveNet does not yet support paired/gated activations"
+            )
+        return _PackedInputMixer(
+            in_ch,
+            out_ch,
+            *args,
+            input_segments=condition_segments,
+            output_segments=bottleneck_segments,
+            shared_input=True,
+            **kwargs,
+        )
+
+    def layer1x1_factory(in_ch: int, out_ch: int, *args: _Any, **kwargs: _Any) -> _Any:
+        return _PackedLayer1x1(
+            in_ch,
+            out_ch,
+            *args,
+            input_segments=bottleneck_segments,
+            output_segments=residual_segments,
+            **kwargs,
+        )
+
+    def head1x1_factory(in_ch: int, out_ch: int, *args: _Any, **kwargs: _Any) -> _Any:
+        return _PackedHead1x1(
+            in_ch,
+            out_ch,
+            *args,
+            input_segments=bottleneck_segments,
+            output_segments=head1x1_segments,
+            **kwargs,
+        )
+
+    def head_rechannel_factory(
+        in_ch: int, out_ch: int, *args: _Any, **kwargs: _Any
+    ) -> _Any:
+        return _PackedHeadRechannel(
+            in_ch,
+            out_ch,
+            *args,
+            input_segments=head_rechannel_input_segments,
+            output_segments=head_output_segments,
             **kwargs,
         )
 
@@ -720,17 +860,21 @@ class LayerArray(_nn.Module, _InitializableFromConfig):
         groups_input = config.pop("groups_input", 1)
         groups_input_mixin = config.pop("groups_input_mixin", 1)
         slimmable_config = config.pop("slimmable", None)
+        packing_config = config.pop("packing", None)
 
         if slimmable_config is not None and head_cfg.kernel_size != 1:
             raise NotImplementedError(
                 "Slimmable training with head rechannel kernel_size != 1 is not supported"
             )
+        if slimmable_config is not None and packing_config is not None:
+            raise ValueError("slimmable and packing configs are mutually exclusive")
 
         head_rechannel_in_channels = (
             head1x1_config.out_channels if head1x1_config.active else bottleneck
         )
         conv_factory_set = _get_conv_factory_set(
             slimmable_config,
+            packing_config=packing_config,
             is_first=is_first,
             is_last=is_last,
             input_size=input_size,
