@@ -168,6 +168,79 @@ class TestExportable(object):
                 assert training_key in model_dict_metadata
                 assert_metadata(model_dict_metadata, other_metadata)
 
+    def test_export_model_dict_post_hooks(self):
+        """
+        Post hooks can return a modified model dict before it's written.
+        """
+        model = self._get_model()
+
+        calls = []
+
+        def rename_model(model_dict: dict) -> dict:
+            calls.append("rename_model")
+            assert model_dict["metadata"]["name"] == "Before hook"
+            return {
+                **model_dict,
+                "metadata": {
+                    **model_dict["metadata"],
+                    "name": "Renamed",
+                },
+                "hook_order": calls.copy(),
+            }
+
+        def replace_model_dict(model_dict: dict) -> dict:
+            calls.append("replace_model_dict")
+            assert model_dict["metadata"]["name"] == "Renamed"
+            return {
+                **model_dict,
+                "metadata": {
+                    **model_dict["metadata"],
+                    "name": "Replaced",
+                },
+                "hook_order": calls.copy(),
+                "config": {"hooked": True},
+            }
+
+        model.export_model_dict_post_hooks.append(rename_model)
+        model.export_model_dict_post_hooks.append(replace_model_dict)
+
+        with TemporaryDirectory() as tmpdir:
+            model.export(
+                tmpdir,
+                user_metadata=metadata.UserMetadata(name="Before hook"),
+            )
+            model_path = Path(tmpdir, "model.nam")
+            with open(model_path, "r") as fp:
+                model_dict = json.load(fp)
+
+        assert calls == ["rename_model", "replace_model_dict"]
+        assert model_dict["metadata"]["name"] == "Replaced"
+        assert model_dict["hook_order"] == calls
+        assert model_dict["config"] == {"hooked": True}
+
+    def test_export_model_dict_post_hooks_can_be_assigned(self):
+        """
+        Assigning a hook sequence replaces the hooks run at export time.
+        """
+        model = self._get_model()
+
+        def first_hook(model_dict: dict) -> dict:
+            return {**model_dict, "hooked": "first"}
+
+        def second_hook(model_dict: dict) -> dict:
+            return {**model_dict, "hooked": "second"}
+
+        model.export_model_dict_post_hooks = [first_hook]
+        model.export_model_dict_post_hooks = [second_hook]
+
+        with TemporaryDirectory() as tmpdir:
+            model.export(tmpdir)
+            model_path = Path(tmpdir, "model.nam")
+            with open(model_path, "r") as fp:
+                model_dict = json.load(fp)
+
+        assert model_dict["hooked"] == "second"
+
     @pytest.mark.parametrize("include_snapshot", (True, False))
     def test_include_snapshot(self, include_snapshot):
         """

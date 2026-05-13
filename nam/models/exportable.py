@@ -9,7 +9,9 @@ from datetime import datetime as _datetime
 from enum import Enum as _Enum
 from pathlib import Path as _Path
 from typing import Any as _Any
+from typing import Callable as _Callable
 from typing import Dict as _Dict
+from typing import List as _List
 from typing import Optional as _Optional
 from typing import Sequence as _Sequence
 from typing import Tuple as _Tuple
@@ -41,6 +43,8 @@ def _cast_enums(d: _Dict[_Any, _Any]) -> _Dict[_Any, _Any]:
 _JsonDumpable = (
     dict[str, "_JsonDumpable"] | list["_JsonDumpable"] | str | int | float | bool | None
 )
+_ExportModelDict = _Dict[str, _JsonDumpable]
+_ExportModelDictPostHook = _Callable[[_ExportModelDict], _ExportModelDict]
 
 
 class Exportable(_abc.ABC):
@@ -49,6 +53,27 @@ class Exportable(_abc.ABC):
     """
 
     FILE_EXTENSION = ".nam"
+
+    def __init__(self):
+        self.export_model_dict_post_hooks = []
+
+    @property
+    def export_model_dict_post_hooks(self) -> _List[_ExportModelDictPostHook]:
+        """
+        Hooks run after the model export dictionary has been assembled.
+
+        Hooks return the model dictionary that should be passed to the next hook
+        and written to disk.
+        """
+        if "_export_model_dict_post_hooks" not in self.__dict__:
+            self._export_model_dict_post_hooks = []
+        return self._export_model_dict_post_hooks
+
+    @export_model_dict_post_hooks.setter
+    def export_model_dict_post_hooks(
+        self, hooks: _Sequence[_ExportModelDictPostHook]
+    ) -> None:
+        self._export_model_dict_post_hooks = list(hooks)
 
     def export(
         self,
@@ -86,6 +111,7 @@ class Exportable(_abc.ABC):
                     + "\n ".join(overwritten_keys)
                 )
             model_dict["metadata"].update(_cast_enums(other_metadata))
+        model_dict = self._apply_export_model_dict_post_hooks(model_dict=model_dict)
 
         training = self.training
         self.eval()
@@ -148,10 +174,17 @@ class Exportable(_abc.ABC):
         """
         pass
 
+    def _apply_export_model_dict_post_hooks(
+        self, model_dict: _ExportModelDict
+    ) -> _ExportModelDict:
+        for hook in self.export_model_dict_post_hooks:
+            model_dict = hook(model_dict)
+        return model_dict
+
     def _get_export_architecture(self) -> str:
         return self.__class__.__name__
 
-    def _get_export_dict(self) -> _Dict[str, _JsonDumpable]:
+    def _get_export_dict(self) -> _ExportModelDict:
         return {
             "version": _MODEL_VERSION,
             "metadata": self._get_non_user_metadata(),
