@@ -315,6 +315,90 @@ class TestDataset(object):
         return x_out, y_out
 
 
+class TestScaleOutputHookLoudnessCompensation:
+    """
+    `_ScaleOutputHook` undoes a dataset y_scale on export by scaling
+    `head_scale` (and the duplicated `weights[-1]`). `metadata.loudness`
+    must move along with it so it describes the compensated model that the
+    plugin actually loads — not the pre-compensation snapshot taken inside
+    `_get_export_dict()`.
+
+    Output of WaveNet (no top-level head) and SlimmableContainer is linear
+    in `head_scale`, so the dB adjustment is exact:
+
+        loudness_new = loudness_old + 20 * log10(scale)
+    """
+
+    @staticmethod
+    def _hook(scale: float) -> data.Dataset._ScaleOutputHook:
+        return data.Dataset._ScaleOutputHook(scale=scale)
+
+    def test_wavenet_loudness_shifts_in_db_by_scale(self):
+        scale = 2.0
+        model_dict = {
+            "architecture": "WaveNet",
+            "config": {"head_scale": 0.01},
+            "metadata": {"loudness": -20.0, "gain": 0.5},
+            "weights": [0.01],
+        }
+        self._hook(scale).apply(model_dict)
+        assert model_dict["metadata"]["loudness"] == pytest.approx(
+            -20.0 + 20.0 * math.log10(scale)
+        )
+        # gain is invariant under uniform output scaling
+        assert model_dict["metadata"]["gain"] == 0.5
+
+    def test_slimmable_container_shifts_container_and_submodels(self):
+        scale = 0.5
+        container = {
+            "architecture": "SlimmableContainer",
+            "metadata": {"loudness": -18.0, "gain": 0.4},
+            "config": {
+                "submodels": [
+                    {
+                        "max_value": 0.5,
+                        "model": {
+                            "architecture": "WaveNet",
+                            "config": {"head_scale": 0.01},
+                            "metadata": {"loudness": -19.0, "gain": 0.3},
+                            "weights": [0.01],
+                        },
+                    },
+                    {
+                        "max_value": 1.0,
+                        "model": {
+                            "architecture": "WaveNet",
+                            "config": {"head_scale": 0.01},
+                            "metadata": {"loudness": -17.0, "gain": 0.5},
+                            "weights": [0.01],
+                        },
+                    },
+                ]
+            },
+        }
+        self._hook(scale).apply(container)
+        offset = 20.0 * math.log10(scale)
+        assert container["metadata"]["loudness"] == pytest.approx(-18.0 + offset)
+        assert container["config"]["submodels"][0]["model"]["metadata"][
+            "loudness"
+        ] == pytest.approx(-19.0 + offset)
+        assert container["config"]["submodels"][1]["model"]["metadata"][
+            "loudness"
+        ] == pytest.approx(-17.0 + offset)
+        assert container["metadata"]["gain"] == 0.4
+
+    def test_no_op_when_loudness_metadata_absent(self):
+        """Hook is robust when called on a dict without loudness metadata."""
+        model_dict = {
+            "architecture": "WaveNet",
+            "config": {"head_scale": 0.01},
+            "weights": [0.01],
+        }
+        self._hook(2.0).apply(model_dict)
+        assert "metadata" not in model_dict
+        assert model_dict["config"]["head_scale"] == pytest.approx(0.02)
+
+
 class TestWav(object):
     tolerance = 1e-6
 

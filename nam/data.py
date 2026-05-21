@@ -8,6 +8,7 @@ Functions and classes for working with audio data with NAM
 
 import abc as _abc
 import logging as _logging
+import math as _math
 import wave as _wave
 from collections import namedtuple as _namedtuple
 from copy import deepcopy as _deepcopy
@@ -361,10 +362,30 @@ class Dataset(AbstractDataset, _InitializableFromConfig):
         def _apply_wavenet(self, model_dict: dict):
             model_dict["config"]["head_scale"] *= self._scale
             model_dict["weights"][-1] *= self._scale
+            self._adjust_metadata_loudness(model_dict)
 
         def _apply_slimmable_container(self, model_dict: dict):
             for submodel_config in model_dict["config"]["submodels"]:
                 self.apply(submodel_config["model"])
+            self._adjust_metadata_loudness(model_dict)
+
+        def _adjust_metadata_loudness(self, model_dict: dict) -> None:
+            """
+            Shift `metadata.loudness` to describe the compensated model that
+            this hook just wrote into `config.head_scale`.
+
+            WaveNet (no top-level head) and SlimmableContainer outputs are
+            linear in `head_scale`, so the dB adjustment is exact:
+
+                loudness_new = loudness_old + 20 * log10(self._scale)
+
+            `metadata.gain` is a normalized compression heuristic that is
+            invariant under uniform output scaling, so it is not adjusted.
+            """
+            metadata = model_dict.get("metadata")
+            if not isinstance(metadata, dict) or "loudness" not in metadata:
+                return
+            metadata["loudness"] += 20.0 * _math.log10(self._scale)
 
     def __init__(
         self,

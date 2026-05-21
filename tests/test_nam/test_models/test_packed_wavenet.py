@@ -218,6 +218,45 @@ def test_packed_export_writes_slimmable_container(tmp_path):
     _assert_container_contains_two_wavenets(container)
 
 
+def test_packed_export_refreshes_loudness_after_head_scale_compensation(tmp_path):
+    """
+    When an export hook scales `head_scale` (e.g. the dataset normalization
+    handshake), the exported `metadata.loudness` must describe the *compensated*
+    model that will be loaded at inference, not the pre-compensation snapshot.
+
+    Output of WaveNet (no top-level head) and SlimmableContainer is linear in
+    `head_scale`, so loudness moves by `20 * log10(scale)` exactly.
+    """
+    import math as _math
+
+    model = _PackedWaveNet.init_from_config({**_packed_config(), "sample_rate": 48_000})
+    pre_container = model.export_container(tmp_path)
+    pre_container_loudness = pre_container["metadata"]["loudness"]
+    pre_submodel_loudnesses = [
+        entry["model"]["metadata"]["loudness"]
+        for entry in pre_container["config"]["submodels"]
+    ]
+
+    scale = 2.0
+    model.export_model_dict_post_hooks.append(_data.Dataset._ScaleOutputHook(scale=scale))
+    post_container = model.export_container(tmp_path)
+
+    offset_db = 20.0 * _math.log10(scale)
+    assert post_container["metadata"]["loudness"] == _pytest.approx(
+        pre_container_loudness + offset_db, abs=1e-3
+    )
+    for entry, pre_loudness in zip(
+        post_container["config"]["submodels"], pre_submodel_loudnesses
+    ):
+        assert entry["model"]["metadata"]["loudness"] == _pytest.approx(
+            pre_loudness + offset_db, abs=1e-3
+        )
+        # head_scale was actually compensated on disk
+        assert entry["model"]["config"]["head_scale"] == _pytest.approx(
+            0.25 * scale
+        )
+
+
 def test_packed_export_applies_model_dict_post_hooks(tmp_path):
     model = _PackedWaveNet.init_from_config({**_packed_config(), "sample_rate": 48_000})
     model.export_model_dict_post_hooks.append(_data.Dataset._ScaleOutputHook(scale=2.0))
