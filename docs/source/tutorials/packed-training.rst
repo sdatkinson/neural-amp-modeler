@@ -151,8 +151,9 @@ During training, the packed model returns predictions shaped like
 ``(batch, submodel, time)``. The trainer computes the configured training loss
 for each submodel prediction against the same target audio and sums the losses.
 
-Validation logs aggregate metrics such as ``val_loss`` and ``ESR`` as well as
-per-submodel metrics such as ``val_loss_packed_0`` and ``ESR_packed_0``. When
+Validation logs aggregate metrics such as ``val_loss``, ``ESR``, and ``MRSTFT``
+as well as per-submodel metrics such as ``val_loss_packed_0``, ``ESR_packed_0``,
+and ``MRSTFT_packed_0``. When
 validation is available, the trainer may also save per-submodel best
 checkpoints named ``packed_best_submodel_<i>.ckpt``.
 

@@ -211,6 +211,27 @@ def test_packed_lightning_validation_logs_per_submodel_and_aggregate():
     )
 
 
+def test_packed_lightning_validation_logs_mrstft_per_submodel(mocker):
+    net = _packed_wavenet()
+    module = _lightning_module.PackedLightningModule(
+        net,
+        loss_config=_lightning_module.LossConfig(mrstft_weight=0.0002),
+    )
+    mocker.patch.object(
+        module,
+        "_mrstft_loss",
+        side_effect=[_torch.tensor(0.3), _torch.tensor(0.7)],
+    )
+    captured = {}
+    module.log_dict = lambda logs: captured.update(logs)
+    x = _torch.randn(3, net.receptive_field + 8)
+    targets = _torch.randn(3, x.shape[-1] - net.receptive_field + 1)
+    module.validation_step((x, targets), 0)
+    assert captured["MRSTFT_packed_0"] == 0.3
+    assert captured["MRSTFT_packed_1"] == 0.7
+    assert captured["MRSTFT"] == 1.0
+
+
 def test_packed_best_checkpoint_records_distinct_checkpoints(tmp_path):
     module = _lightning_module.PackedLightningModule(_packed_wavenet())
     callback = _lightning_module.PackedBestCheckpoint(dirpath=tmp_path)

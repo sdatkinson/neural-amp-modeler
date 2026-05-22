@@ -513,9 +513,8 @@ class PackedLightningModule(LightningModule):
             val_loss = self._get_val_loss_from_loss_dict(loss_dict)
             val_losses.append(val_loss)
             logs[f"val_loss_packed_{i}"] = val_loss
-            logs[f"ESR_packed_{i}"] = loss_dict["ESR"].value
-            if "MSE" in loss_dict:
-                logs[f"MSE_packed_{i}"] = loss_dict["MSE"].value
+            for key, item in loss_dict.items():
+                logs[f"{key}_packed_{i}"] = item.value
 
         loss_keys = sorted({key for loss_dict in loss_dicts for key in loss_dict})
         for key in loss_keys:
