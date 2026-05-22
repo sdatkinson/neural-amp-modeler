@@ -160,6 +160,7 @@ class PackedWaveNet(_BaseNet, _ImportsWeights):
             },
             "weights": [],
         }
+        self._sync_container_metadata_to_highest_quality_submodel(container)
         if self.sample_rate is not None:
             container["sample_rate"] = self.sample_rate
         if user_metadata is not None:
@@ -218,6 +219,19 @@ class PackedWaveNet(_BaseNet, _ImportsWeights):
         if values != sorted(values):
             raise ValueError("container_max_values must be sorted")
         return values
+
+    @staticmethod
+    def _sync_container_metadata_to_highest_quality_submodel(container: _Dict) -> None:
+        submodels = container["config"]["submodels"]
+        if len(submodels) == 0:
+            return
+        highest_quality = max(submodels, key=lambda submodel: submodel["max_value"])
+        highest_quality_metadata = highest_quality["model"].get("metadata")
+        if not isinstance(highest_quality_metadata, dict):
+            return
+        for key in ("loudness", "gain"):
+            if key in highest_quality_metadata:
+                container["metadata"][key] = highest_quality_metadata[key]
 
     def _normalize_checkpoint_paths(self, paths):
         if paths is None:

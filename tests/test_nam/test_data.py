@@ -352,7 +352,7 @@ class TestScaleOutputHookLoudnessCompensation:
         scale = 0.5
         container = {
             "architecture": "SlimmableContainer",
-            "metadata": {"loudness": -18.0, "gain": 0.4},
+            "metadata": {"loudness": -17.0, "gain": 0.5},
             "config": {
                 "submodels": [
                     {
@@ -378,14 +378,19 @@ class TestScaleOutputHookLoudnessCompensation:
         }
         self._hook(scale).apply(container)
         offset = 20.0 * math.log10(scale)
-        assert container["metadata"]["loudness"] == pytest.approx(-18.0 + offset)
         assert container["config"]["submodels"][0]["model"]["metadata"][
             "loudness"
         ] == pytest.approx(-19.0 + offset)
         assert container["config"]["submodels"][1]["model"]["metadata"][
             "loudness"
         ] == pytest.approx(-17.0 + offset)
-        assert container["metadata"]["gain"] == 0.4
+        assert container["metadata"]["loudness"] == pytest.approx(
+            container["config"]["submodels"][1]["model"]["metadata"]["loudness"]
+        )
+        assert (
+            container["metadata"]["gain"]
+            == container["config"]["submodels"][1]["model"]["metadata"]["gain"]
+        )
 
     def test_no_op_when_loudness_metadata_absent(self):
         """Hook is robust when called on a dict without loudness metadata."""

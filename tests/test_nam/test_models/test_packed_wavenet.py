@@ -8,6 +8,8 @@ from nam.models.wavenet import PackedWaveNet as _PackedWaveNet
 from nam.models.wavenet import WaveNet as _WaveNet
 from nam.models.wavenet._packed_conv import PackedConv1dBase as _PackedConv1dBase
 
+_DEFAULT_HEAD_SCALE = 0.25
+
 
 def _wavenet_config(channels: int, *, dilations=None, activation="Tanh"):
     return {
@@ -23,7 +25,7 @@ def _wavenet_config(channels: int, *, dilations=None, activation="Tanh"):
             }
         ],
         "head": None,
-        "head_scale": 0.25,
+        "head_scale": _DEFAULT_HEAD_SCALE,
     }
 
 
@@ -64,7 +66,7 @@ def _two_array_wavenet_config(channels_0: int, channels_1: int):
             },
         ],
         "head": None,
-        "head_scale": 0.25,
+        "head_scale": _DEFAULT_HEAD_SCALE,
     }
 
 
@@ -216,6 +218,11 @@ def test_packed_export_writes_slimmable_container(tmp_path):
         from_disk = _json.load(fp)
     assert from_disk == container
     _assert_container_contains_two_wavenets(container)
+    highest_quality = max(
+        container["config"]["submodels"], key=lambda entry: entry["max_value"]
+    )["model"]
+    assert container["metadata"]["loudness"] == highest_quality["metadata"]["loudness"]
+    assert container["metadata"]["gain"] == highest_quality["metadata"]["gain"]
 
 
 def test_packed_export_refreshes_loudness_after_head_scale_compensation(tmp_path):
@@ -231,11 +238,14 @@ def test_packed_export_refreshes_loudness_after_head_scale_compensation(tmp_path
 
     model = _PackedWaveNet.init_from_config({**_packed_config(), "sample_rate": 48_000})
     pre_container = model.export_container(tmp_path)
-    pre_container_loudness = pre_container["metadata"]["loudness"]
     pre_submodel_loudnesses = [
         entry["model"]["metadata"]["loudness"]
         for entry in pre_container["config"]["submodels"]
     ]
+    pre_highest_quality_loudness = max(
+        pre_container["config"]["submodels"],
+        key=lambda entry: entry["max_value"],
+    )["model"]["metadata"]["loudness"]
 
     scale = 2.0
     model.export_model_dict_post_hooks.append(_data.Dataset._ScaleOutputHook(scale=scale))
@@ -243,7 +253,7 @@ def test_packed_export_refreshes_loudness_after_head_scale_compensation(tmp_path
 
     offset_db = 20.0 * _math.log10(scale)
     assert post_container["metadata"]["loudness"] == _pytest.approx(
-        pre_container_loudness + offset_db, abs=1e-3
+        pre_highest_quality_loudness + offset_db, abs=1e-3
     )
     for entry, pre_loudness in zip(
         post_container["config"]["submodels"], pre_submodel_loudnesses
@@ -253,7 +263,7 @@ def test_packed_export_refreshes_loudness_after_head_scale_compensation(tmp_path
         )
         # head_scale was actually compensated on disk
         assert entry["model"]["config"]["head_scale"] == _pytest.approx(
-            0.25 * scale
+            _DEFAULT_HEAD_SCALE * scale
         )
 
 
