@@ -262,13 +262,23 @@ def main(
         print("\nTraining interrupted by user.")
     finally:
         # Always try to export a model, even if training was interrupted
-        # Go to best checkpoint
+        # Go to best checkpoint. Fall back to the in-memory model if loading
+        # fails, e.g. when SIGINT lands while a checkpoint is being written:
+        # Lightning sets `best_model_path` before the file is finished, so the
+        # path can reference a missing or partial file (see issue #645).
         best_checkpoint = trainer.checkpoint_callback.best_model_path
         if best_checkpoint != "":
-            model = lightning_cls.load_from_checkpoint(
-                trainer.checkpoint_callback.best_model_path,
-                **lightning_cls.parse_config(model_config),
-            )
+            try:
+                model = lightning_cls.load_from_checkpoint(
+                    best_checkpoint,
+                    **lightning_cls.parse_config(model_config),
+                )
+            except Exception as e:
+                _warn(
+                    f"Failed to load best checkpoint {best_checkpoint!r} "
+                    f"({type(e).__name__}: {e}); exporting the in-memory model "
+                    f"instead."
+                )
         model.cpu()
         model.eval()
         model.net.sample_rate = dataset_train.sample_rate

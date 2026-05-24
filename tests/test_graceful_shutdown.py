@@ -502,6 +502,66 @@ class TestGracefulShutdown:
             )
 
 
+class TestExportFallbackOnBadCheckpoint:
+    """
+    Regression for issue #645.
+
+    Lightning's ``ModelCheckpoint`` updates ``best_model_path`` BEFORE the
+    underlying file write completes. If SIGINT lands between those steps,
+    ``best_model_path`` references a missing or partial file. The finally
+    block in ``nam.train.full.main`` must still produce a ``.nam`` by
+    falling back to the in-memory model.
+
+    The integration test above (``TestGracefulShutdown``) racily reproduces
+    this when the runner is slow enough that the first checkpoint save is
+    in flight when SIGINT arrives; this test exercises the same fallback
+    path deterministically by corrupting every checkpoint write.
+    """
+
+    def test_main_exports_nam_when_best_checkpoint_unloadable(
+        self, monkeypatch, tmp_path
+    ):
+        from lightning_fabric.plugins.io import torch_io
+
+        from nam.train.full import main as nam_full_main
+
+        x_path, y_path = create_test_data(tmp_path)
+        data_config_path, model_config_path, learning_config_path = create_configs(
+            tmp_path, x_path, y_path, num_epochs=1
+        )
+        with open(data_config_path) as fp:
+            data_config = json.load(fp)
+        with open(model_config_path) as fp:
+            model_config = json.load(fp)
+        with open(learning_config_path) as fp:
+            learning_config = json.load(fp)
+
+        # Simulate SIGINT-mid-save: Lightning's `best_model_path` ends up
+        # set, but the file on disk is unreadable as a checkpoint.
+        def corrupt_save(checkpoint, filepath):
+            with open(filepath, "wb") as f:
+                f.write(b"corrupt")
+
+        monkeypatch.setattr(torch_io, "_atomic_save", corrupt_save)
+
+        outdir = tmp_path / "outputs"
+        outdir.mkdir()
+        nam_full_main(
+            data_config,
+            model_config,
+            learning_config,
+            outdir,
+            no_show=True,
+            make_plots=False,
+        )
+
+        nam_files = list(outdir.rglob("*.nam"))
+        assert nam_files, (
+            f"Expected a .nam exported via in-memory fallback when the best "
+            f"checkpoint can't be loaded, but found none in {outdir}."
+        )
+
+
 def main():
     """Run the graceful shutdown test."""
     import argparse
