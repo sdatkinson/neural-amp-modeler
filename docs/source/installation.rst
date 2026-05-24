@@ -45,12 +45,6 @@ PyTorch using the instructions on the PyTorch website:
 
 https://pytorch.org/get-started/locally/
 
-If you're not using an NVIDIA GPU, install the default CPU version of PyTorch:
-
-.. code-block:: console
-
-   $ python -m pip install torch
-
 Step 4: Install NAM
 ^^^^^^^^^^^^^^^^^^^
 
@@ -76,8 +70,7 @@ your shell. Install any additional development tooling you need alongside it:
    $ python -m venv .venv
    $ source .venv/bin/activate
    $ python -m pip install --upgrade pip
-   $ python -m pip install -e ".[test]"
-   $ python -m pip install flake8 black pre-commit
+   $ python -m pip install -e ".[dev,test]"
 
 ``.github/workflows/python-package.yml`` is also helpful if you want to be sure
 that you're testing your developments in the same way that contributions will be
