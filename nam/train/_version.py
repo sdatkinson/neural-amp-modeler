@@ -19,16 +19,14 @@ class Version:
 
     @classmethod
     def from_string(cls, s: str):
-        parts = s.split(".")
+        # Strip PEP 440 pre/dev/post suffixes (e.g. "0.1.dev344" -> "0.1")
+        s_clean = re.sub(r"(\.dev|\.post|a|b|rc)\d+.*$", "", s)
+        parts = s_clean.split(".")
+        parts += ["0"] * max(0, 3 - len(parts))
         try:
-            major, minor, patch = [
-                int(re.match(r"\d+", x).group()) if re.match(r"\d+", x) else 0
-                for x in parts[:3]
-            ]
+            major, minor, patch = [int(x) for x in parts[:3]]
         except ValueError as e:
-            raise ValueError(
-                f"Failed to parse version from string '{s}':\n{e}"
-            )
+            raise ValueError(f"Failed to parse version from string '{s}':\n{e}")
         return cls(major=major, minor=minor, patch=patch)
 
     def __eq__(self, other) -> bool:
