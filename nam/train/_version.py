@@ -6,6 +6,8 @@
 Version utility
 """
 
+import re
+
 from .._version import __version__ as _package_version
 
 
@@ -19,9 +21,14 @@ class Version:
     def from_string(cls, s: str):
         parts = s.split(".")
         try:
-            major, minor, patch = [int(x) for x in parts[:3]]
+            major, minor, patch = [
+                int(re.match(r"\d+", x).group()) if re.match(r"\d+", x) else 0
+                for x in parts[:3]
+            ]
         except ValueError as e:
-            raise ValueError(f"Failed to parse version from string '{s}':\n{e}")
+            raise ValueError(
+                f"Failed to parse version from string '{s}':\n{e}"
+            )
         return cls(major=major, minor=minor, patch=patch)
 
     def __eq__(self, other) -> bool:
