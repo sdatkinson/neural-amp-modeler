@@ -3,6 +3,7 @@
 # Author: Enrico Schifano (eraz1997@live.it)
 
 import json as _json
+import pickle as _pickle
 from pathlib import Path as _Path
 from time import time as _time
 from typing import Optional as _Optional
@@ -273,7 +274,17 @@ def main(
                     best_checkpoint,
                     **lightning_cls.parse_config(model_config),
                 )
-            except Exception as e:
+            # A SIGINT during the checkpoint write leaves the file missing or
+            # partially-written, so torch.load can fail a few ways: missing
+            # file (FileNotFoundError), truncated zip archive (RuntimeError
+            # from torch's PyTorchStreamReader), empty file (EOFError), or
+            # garbage pickle data (pickle.UnpicklingError).
+            except (
+                FileNotFoundError,
+                RuntimeError,
+                EOFError,
+                _pickle.UnpicklingError,
+            ) as e:
                 _warn(
                     f"Failed to load best checkpoint {best_checkpoint!r} "
                     f"({type(e).__name__}: {e}); exporting the in-memory model "
