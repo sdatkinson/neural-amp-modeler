@@ -22,19 +22,23 @@ from ._active_learning_params import make_capture_y_path
 from ._active_learning_params import quantize_to_capture_grid
 from ._active_learning_params import split_param_indices
 from ._active_learning_params import switch_combinations
+from ._base import ParametricNet
 from ._concat_lstm import ConcatLSTM
+from ._concat_wavenet import ConcatWaveNet
 from ._hypernet import Hypernetwork
 from ._hyperwavenet import HyperWaveNet
 from ._spec import ParamSpec
 
 _register_dataset_initializer("parametric", _init_dataset)
 _factory.register("ConcatLSTM", ConcatLSTM.init_from_config)
+_factory.register("ConcatWaveNet", ConcatWaveNet.init_from_config)
 _factory.register("HyperWaveNet", HyperWaveNet.init_from_config)
 
 __all__ = [
     "abbreviate_param_names",
     "assemble_raw_params",
     "ConcatLSTM",
+    "ConcatWaveNet",
     "decode_named_params",
     "format_param_value",
     "Hypernetwork",
@@ -42,6 +46,7 @@ __all__ = [
     "make_capture_y_path",
     "ParamSpec",
     "ParametricDataset",
+    "ParametricNet",
     "bake",
     "bake_to_files",
     "data_config_from_model",

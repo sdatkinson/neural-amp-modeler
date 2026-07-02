@@ -21,6 +21,7 @@ from nam.data import get_joint_dataset_hooks as _get_joint_dataset_hooks
 from nam.data import init_dataset as _init_dataset
 from nam.models.parametric import HyperWaveNet as _HyperWaveNet
 from nam.models.parametric import ParametricDataset as _ParametricDataset
+from nam.models.parametric import ParametricNet as _ParametricNet
 from nam.models.parametric import bake as _bake
 from nam.models.parametric import data_config_from_model as _data_config_from_model
 from nam.models.parametric import export_parametric as _export_parametric
@@ -154,12 +155,12 @@ def _make_parametric_dataloader(dataset, loader_config: dict) -> _DataLoader:
     return _DataLoader(dataset, batch_sampler=batch_sampler, **loader_config)
 
 
-def _get_hyperwavenet_net(model: _LightningModule) -> _HyperWaveNet:
+def _get_parametric_net(model: _LightningModule) -> _ParametricNet:
     net = model.net
-    if not isinstance(net, _HyperWaveNet):
+    if not isinstance(net, _ParametricNet):
         raise TypeError(
             "Parametric training expects model_config['net']['name'] to initialize "
-            f"a HyperWaveNet, got {type(net).__name__}"
+            f"a ParametricNet, got {type(net).__name__}"
         )
     return net
 
@@ -380,7 +381,7 @@ def main(
 
     data_config = _data_config_from_model(data_config, model_config)
     model = _ParametricLightningModule.init_from_config(model_config)
-    net = _get_hyperwavenet_net(model)
+    net = _get_parametric_net(model)
 
     data_config["common"] = data_config.get("common", {})
     if "nx" in data_config["common"]:
@@ -441,7 +442,7 @@ def main(
                 best_checkpoint,
                 **_ParametricLightningModule.parse_config(model_config),
             )
-        net = _get_hyperwavenet_net(model)
+        net = _get_parametric_net(model)
         model.cpu()
         model.eval()
         net.sample_rate = getattr(dataset_train, "sample_rate", None)
@@ -458,11 +459,14 @@ def main(
             _plot_parametric(model, dataset_validation, show=not no_show)
 
         output_scale = _output_scale_from_datasets((dataset_train, dataset_validation))
-        _bake(
-            net,
-            net.nominal_params,
-            output_scale=output_scale,
-        ).export(outdir)
+        # Baking a fixed-setting stock WaveNet snapshot is a HyperWaveNet-only feature;
+        # other parametric nets (e.g. ConcatWaveNet) only get the parametric export.
+        if isinstance(net, _HyperWaveNet):
+            _bake(
+                net,
+                net.nominal_params,
+                output_scale=output_scale,
+            ).export(outdir)
         _export_parametric(
             net,
             outdir,

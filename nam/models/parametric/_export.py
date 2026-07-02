@@ -20,6 +20,8 @@ import torch as _torch
 from ...data import ConcatDataset as _ConcatDataset
 from ...data import Dataset as _Dataset
 from ..wavenet import WaveNet as _WaveNet
+from ._base import ParametricNet as _ParametricNet
+from ._concat_wavenet import ConcatWaveNet as _ConcatWaveNet
 from ._dataset import ParametricDataset as _ParametricDataset
 from ._dataset import resolve_named_params as _resolve_named_params
 from ._hyperwavenet import HyperWaveNet as _HyperWaveNet
@@ -42,6 +44,17 @@ class _HyperWaveNetScaleOutputHook(_Dataset._ScaleOutputHook):
             return super().apply(model_dict)
         model_dict["config"]["head_scale"] *= self.scale
         model_dict["weights"][self._base_weight_count - 1] *= self.scale
+        self._adjust_metadata_loudness(model_dict)
+        return model_dict
+
+
+class _ConcatWaveNetScaleOutputHook(_Dataset._ScaleOutputHook):
+    def apply(self, model_dict: dict):
+        if model_dict["architecture"] != "ConcatWaveNet":
+            return super().apply(model_dict)
+        # Same layout as stock WaveNet: head_scale in config, mirrored as the final weight.
+        model_dict["config"]["head_scale"] *= self.scale
+        model_dict["weights"][-1] *= self.scale
         self._adjust_metadata_loudness(model_dict)
         return model_dict
 
@@ -193,8 +206,23 @@ def bake_to_files(
     return paths
 
 
+def _make_parametric_scale_hook(
+    model: _ParametricNet, scale: float
+) -> _Dataset._ScaleOutputHook:
+    if isinstance(model, _HyperWaveNet):
+        return _HyperWaveNetScaleOutputHook(
+            scale=scale,
+            base_weight_count=len(model._template.export_weights()),
+        )
+    if isinstance(model, _ConcatWaveNet):
+        return _ConcatWaveNetScaleOutputHook(scale=scale)
+    raise NotImplementedError(
+        f"Output-scale compensation is not implemented for {type(model).__name__}"
+    )
+
+
 def export_parametric(
-    model: _HyperWaveNet,
+    model: _ParametricNet,
     outdir: _Path,
     *,
     output_scale: _Optional[float] = None,
@@ -204,7 +232,7 @@ def export_parametric(
     other_metadata=None,
 ) -> None:
     """
-    Export the parametric `.nam` for a future HyperWaveNet-aware runtime.
+    Export the parametric `.nam` for a future parametric-aware runtime.
 
     ``output_scale`` follows the same contract as :func:`bake`: the caller supplies the
     shared dataset ``_y_scale`` when training normalized the targets, and export writes the
@@ -214,11 +242,11 @@ def export_parametric(
 
     output_scale = _normalize_output_scale(output_scale)
 
-    # A HyperWaveNet must never export through a stock `_ScaleOutputHook`: its `apply`
-    # dispatches on architecture and raises on "HyperWaveNet". Strip any (there shouldn't be
-    # one) in BOTH branches, then install the architecture-aware hook only when compensation
-    # is requested. Doing this unconditionally keeps the no-scale path from detonating on a
-    # stray stock hook the way the scaled path is already guarded against.
+    # A parametric model must never export through a stock `_ScaleOutputHook`: its `apply`
+    # dispatches on architecture and raises on parametric names. Strip any (there shouldn't
+    # be one) in BOTH branches, then install the architecture-aware hook only when
+    # compensation is requested. Doing this unconditionally keeps the no-scale path from
+    # detonating on a stray stock hook the way the scaled path is already guarded against.
     original_hooks = list(model.export_model_dict_post_hooks)
     temporary_hooks = [
         hook
@@ -227,10 +255,7 @@ def export_parametric(
     ]
     if output_scale is not None:
         temporary_hooks.append(
-            _HyperWaveNetScaleOutputHook(
-                scale=1.0 / output_scale,
-                base_weight_count=len(model._template.export_weights()),
-            )
+            _make_parametric_scale_hook(model, scale=1.0 / output_scale)
         )
     model.export_model_dict_post_hooks = temporary_hooks
     try:
