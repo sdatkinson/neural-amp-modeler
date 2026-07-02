@@ -38,9 +38,11 @@ from nam.data import apply_joint_dataset_hooks as _apply_joint_dataset_hooks
 from nam.data import get_joint_dataset_hooks as _get_joint_dataset_hooks
 from nam.data import init_dataset as _init_dataset
 from nam.data import wav_to_tensor as _wav_to_tensor
+from nam.models.parametric import abbreviate_param_names as _abbreviate_param_names
 from nam.models.parametric import assemble_raw_params as _assemble_raw_params
 from nam.models.parametric import data_config_from_model as _data_config_from_model
 from nam.models.parametric import decode_named_params as _decode_named_params
+from nam.models.parametric import make_capture_y_path as _make_capture_y_path
 from nam.models.parametric import quantize_to_capture_grid as _quantize_to_capture_grid
 from nam.models.parametric import split_param_indices as _split_param_indices
 from nam.models.parametric import switch_combinations as _switch_combinations
@@ -357,20 +359,19 @@ def _quantized_dedupe_key(raw_params: _torch.Tensor) -> tuple[float, ...]:
 
 def _make_round_y_path(
     round_idx: int,
-    index: int,
-    total_count: int,
+    params: dict[str, _Any],
+    abbreviations: dict[str, str],
     *,
     y_path_prefix: str,
 ) -> str:
+    # Encode the decoded settings into the stem (matching make_starter_settings), keeping
+    # the round index in the prefix for provenance: e.g. ``r2_g4.5_bOn.wav``. Selected
+    # candidates are quantized to the capture grid and deduped, so the stems are unique
+    # within a round; the round prefix disambiguates identical settings across rounds.
     _validate_round_idx(round_idx)
-    if total_count <= 0:
-        raise ValueError(f"total_count must be positive; got {total_count}")
-    if index < 0 or index >= total_count:
-        raise ValueError(
-            f"index must be within [0, {total_count - 1}]; got {index}"
-        )
-    width = max(2, len(str(max(total_count - 1, 0))))
-    return f"{y_path_prefix}{round_idx}_{index:0{width}d}.wav"
+    return _make_capture_y_path(
+        f"{y_path_prefix}{round_idx}_", params, abbreviations
+    )
 
 
 def _selected_capture_records(
@@ -384,22 +385,23 @@ def _selected_capture_records(
     # space): emit_proposals writes an empty list and append_to_data_config copies the
     # config through unchanged, rather than crashing the round.
     _, switch_idx, _ = _split_param_indices(specs)
-    total_count = len(selected)
+    abbreviations = _abbreviate_param_names([spec.name for spec in specs])
     records = []
-    for index, candidate in enumerate(selected):
+    for candidate in selected:
         raw_params = _validate_candidate_raw_params(
             candidate,
             specs=specs,
             switch_idx=switch_idx,
         )
+        params = _decode_named_params(raw_params, specs)
         records.append(
             {
-                "params": _decode_named_params(raw_params, specs),
+                "params": params,
                 "score": float(candidate.score),
                 "y_path": _make_round_y_path(
                     round_idx,
-                    index,
-                    total_count,
+                    params,
+                    abbreviations,
                     y_path_prefix=y_path_prefix,
                 ),
             }
@@ -1270,7 +1272,7 @@ def emit_proposals(
     *,
     round_idx: int,
     output_dir: _Path,
-    y_path_prefix: str = "round_",
+    y_path_prefix: str = "r",
 ) -> tuple[_Path, list[dict[str, _Any]]]:
     """
     Write the selected settings for one active-learning round as a human-facing proposal
@@ -1418,7 +1420,7 @@ def run_round(
     cluster_threshold: float = _DEFAULT_CLUSTER_THRESHOLD,
     seed: int = 0,
     checkpoint_paths: _Sequence[str | _Path] | None = None,
-    y_path_prefix: str = "round_",
+    y_path_prefix: str = "r",
     plot: bool = True,
     max_workers: int | None = None,
 ) -> RoundResult:

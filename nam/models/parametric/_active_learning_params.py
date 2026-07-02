@@ -169,6 +169,57 @@ def assemble_raw_params(
     return _torch.cat(columns, dim=-1)
 
 
+def abbreviate_param_names(names: _Sequence[str]) -> dict[str, str]:
+    """
+    Map each param name to the shortest leading slice that is unique among ``names``.
+
+    Comparison is case-insensitive (so ``Treble``/``Tone`` need two letters and
+    ``boost``/``Bottom`` need three), but the returned abbreviation preserves the
+    original capitalization. A name that is a case-insensitive prefix of another falls
+    back to its full spelling.
+
+    Shared by the LHS starter script and the active-learning proposal driver so both
+    encode capture settings into filenames the same way.
+    """
+    names = list(names)
+    abbreviations: dict[str, str] = {}
+    for index, name in enumerate(names):
+        others = [other for i, other in enumerate(names) if i != index]
+        length = 1
+        while length < len(name) and any(
+            other.lower().startswith(name[:length].lower()) for other in others
+        ):
+            length += 1
+        abbreviations[name] = name[:length]
+    return abbreviations
+
+
+def format_param_value(value: float | str) -> str:
+    # Continuous params decode to floats (e.g. 4.5 -> "4.5", 1.0 -> "1"); switch params
+    # decode to their enum-name string.
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def make_capture_y_path(
+    prefix: str,
+    params: dict[str, float | str],
+    abbreviations: dict[str, str],
+) -> str:
+    """
+    Build a capture filename whose stem encodes the decoded param settings, e.g.
+    ``{prefix}G4.5_TOn.wav``. ``abbreviations`` maps each param name to its unique-prefix
+    short form (see :func:`abbreviate_param_names`). Shared by the LHS starter script and
+    the active-learning proposal driver so both name captures the same way.
+    """
+    parts = [
+        f"{abbreviations[name]}{format_param_value(value)}"
+        for name, value in params.items()
+    ]
+    return f"{prefix}{'_'.join(parts)}.wav"
+
+
 def quantize_to_capture_grid(
     raw: _torch.Tensor | _Sequence[float],
     specs: _Sequence[_ParamSpec],

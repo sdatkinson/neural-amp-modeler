@@ -644,19 +644,19 @@ def test_emit_proposals_writes_json_with_decoded_named_params(tmp_path, capsys):
         {
             "params": {"gain": 4.5, "boost": "On"},
             "score": 1.25,
-            "y_path": "round_3_00.wav",
+            "y_path": "r3_g4.5_bOn.wav",
         },
         {
             "params": {"gain": 0.0, "boost": "Off"},
             "score": 0.5,
-            "y_path": "round_3_01.wav",
+            "y_path": "r3_g0_bOff.wav",
         },
     ]
     assert payload == expected
     assert proposals == expected
     captured = capsys.readouterr()
     assert "Capture checklist:" in captured.out
-    assert "1. round_3_00.wav -> gain=4.5, boost=On" in captured.out
+    assert "1. r3_g4.5_bOn.wav -> gain=4.5, boost=On" in captured.out
 
 
 def test_append_to_data_config_preserves_splits_and_does_not_mutate_input(
@@ -673,8 +673,8 @@ def test_append_to_data_config_preserves_splits_and_does_not_mutate_input(
         ("input.wav", 1.0),
         ("seed.wav", 0.8),
         ("held_out.wav", 0.6),
-        ("round_4_00.wav", 0.7),
-        ("round_4_01.wav", 0.9),
+        ("r4_g4.5_bOn.wav", 0.7),
+        ("r4_g8_bOff.wav", 0.9),
     ):
         _np_to_wav(x * scale, tmp_path / filename, rate=48_000)
     prev_data_config = {
@@ -735,14 +735,14 @@ def test_append_to_data_config_preserves_splits_and_does_not_mutate_input(
     assert new_data_config["train"][0] == original["train"]
     assert new_data_config["train"][1:] == [
         {
-            "y_path": "round_4_00.wav",
+            "y_path": "r4_g4.5_bOn.wav",
             "params": {"gain": 4.5, "boost": "On"},
             "start_seconds": 0.0,
             "stop_seconds": None,
             "ny": 16,
         },
         {
-            "y_path": "round_4_01.wav",
+            "y_path": "r4_g8_bOff.wav",
             "params": {"gain": 8.0, "boost": "Off"},
             "start_seconds": 0.0,
             "stop_seconds": None,

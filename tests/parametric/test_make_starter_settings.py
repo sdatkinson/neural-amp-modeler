@@ -5,6 +5,7 @@ import pytest as _pytest
 
 from nam.models.parametric import ParamSpec as _ParamSpec
 from nam.models.parametric import decode_named_params as _decode_named_params
+from nam.models.parametric import format_param_value as _format_param_value
 
 
 def _load_script_module():
@@ -122,8 +123,8 @@ def test_build_starter_data_full_grid_covers_every_switch_state():
     # y_path now encodes the decoded params (unique-prefix abbreviation + value), so
     # paired Off/On rows share the same Gain/Tone stem and differ only in the Boost token.
     for entry in data_config["train"]:
-        gain = module._format_param_value(entry["params"]["Gain"])
-        tone = module._format_param_value(entry["params"]["Tone"])
+        gain = _format_param_value(entry["params"]["Gain"])
+        tone = _format_param_value(entry["params"]["Tone"])
         boost = entry["params"]["Boost"]
         assert entry["y_path"] == f"starter_G{gain}_T{tone}_B{boost}.wav"
 
