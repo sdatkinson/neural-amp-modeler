@@ -9,7 +9,7 @@ import zipfile
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterator
 from typing import Sequence
 
 from tensorboard.backend.event_processing import event_accumulator
@@ -21,6 +21,16 @@ from tensorboard.backend.event_processing import event_accumulator
 _TRAIN_BUCKET = "ESR/seen_audio_seen_params"
 _VALIDATION_BUCKET = "ESR/unseen_audio_unseen_params"
 _PARAMETRIC_BUCKETS = (_TRAIN_BUCKET, _VALIDATION_BUCKET)
+_DEFAULT_TOP_SPIKES = 3
+_DEFAULT_SPIKE_RATIO_THRESHOLD = 10.0
+_DEFAULT_HELD_OUT_REGRESSION_THRESHOLD = 1.5
+
+
+@dataclass(frozen=True)
+class ScalarPoint:
+    epoch_index: int
+    step: int
+    value: float
 
 
 @dataclass(frozen=True)
@@ -31,8 +41,12 @@ class ScalarSummary:
     best_index: int
     best_step: int
     best_value: float
+    worst_index: int
+    worst_step: int
+    worst_value: float
     final_step: int
     final_value: float
+    worst_points: tuple[ScalarPoint, ...]
 
     @property
     def all_nonfinite(self) -> bool:
@@ -43,6 +57,12 @@ class ScalarSummary:
         if self.best_value == 0.0:
             return math.inf
         return self.final_value / self.best_value
+
+    @property
+    def worst_to_best_ratio(self) -> float:
+        if self.best_value == 0.0:
+            return math.inf
+        return self.worst_value / self.best_value
 
 
 @dataclass(frozen=True)
@@ -71,10 +91,37 @@ def _parse_args() -> argparse.Namespace:
         default=[],
         help="Optional label for each path. Repeat once per input path.",
     )
+    parser.add_argument(
+        "--top-spikes",
+        type=int,
+        default=_DEFAULT_TOP_SPIKES,
+        help=(
+            "Number of worst finite epochs to show for metrics whose worst/best "
+            f"ratio exceeds --spike-ratio-threshold. Default: {_DEFAULT_TOP_SPIKES}."
+        ),
+    )
+    parser.add_argument(
+        "--spike-ratio-threshold",
+        type=float,
+        default=_DEFAULT_SPIKE_RATIO_THRESHOLD,
+        help=(
+            "Print spike details for a metric when worst/best is at least this "
+            f"large. Default: {_DEFAULT_SPIKE_RATIO_THRESHOLD:g}."
+        ),
+    )
+    parser.add_argument(
+        "--held-out-regression-threshold",
+        type=float,
+        default=_DEFAULT_HELD_OUT_REGRESSION_THRESHOLD,
+        help=(
+            "Warn when held-out final/best ESR is at least this large. "
+            f"Default: {_DEFAULT_HELD_OUT_REGRESSION_THRESHOLD:g}."
+        ),
+    )
     return parser.parse_args()
 
 
-def _iter_event_files(path: Path) -> Iterable[Path]:
+def _iter_event_files(path: Path) -> Iterator[Path]:
     if path.is_file() and path.name.startswith("events.out.tfevents."):
         yield path
         return
@@ -99,7 +146,11 @@ def _iter_event_files(path: Path) -> Iterable[Path]:
 
 
 def _load_event_accumulator(path: Path) -> event_accumulator.EventAccumulator:
-    manager = tempfile.TemporaryDirectory() if path.is_file() and path.suffix == ".zip" else nullcontext()
+    manager = (
+        tempfile.TemporaryDirectory()
+        if path.is_file() and path.suffix == ".zip"
+        else nullcontext()
+    )
     with manager as tmpdir:
         if tmpdir is None:
             event_path = next(_iter_event_files(path), None)
@@ -122,7 +173,7 @@ def _load_event_accumulator(path: Path) -> event_accumulator.EventAccumulator:
 
 
 def _summarize_tag(
-    accumulator: event_accumulator.EventAccumulator, tag: str
+    accumulator: event_accumulator.EventAccumulator, tag: str, top_spikes: int
 ) -> ScalarSummary:
     values = accumulator.Scalars(tag)
     finite_indices = [i for i in range(len(values)) if math.isfinite(values[i].value)]
@@ -133,7 +184,25 @@ def _summarize_tag(
         if finite_indices
         else 0
     )
+    worst_index = (
+        max(finite_indices, key=lambda i: values[i].value)
+        if finite_indices
+        else 0
+    )
+    worst_points = tuple(
+        ScalarPoint(
+            epoch_index=i,
+            step=values[i].step,
+            value=values[i].value,
+        )
+        for i in sorted(
+            finite_indices,
+            key=lambda j: values[j].value,
+            reverse=True,
+        )[:top_spikes]
+    )
     best = values[best_index]
+    worst = values[worst_index]
     final = values[-1]
     return ScalarSummary(
         tag=tag,
@@ -142,8 +211,12 @@ def _summarize_tag(
         best_index=best_index,
         best_step=best.step,
         best_value=best.value,
+        worst_index=worst_index,
+        worst_step=worst.step,
+        worst_value=worst.value,
         final_step=final.step,
         final_value=final.value,
+        worst_points=worst_points,
     )
 
 
@@ -170,11 +243,15 @@ def _preferred_tags(scalar_tags: Sequence[str]) -> list[str]:
     return [tag for tag in preferred if tag in scalar_tag_set]
 
 
-def _summarize_run(path: Path, label: str | None = None) -> RunSummary:
+def _summarize_run(
+    path: Path, label: str | None = None, top_spikes: int = _DEFAULT_TOP_SPIKES
+) -> RunSummary:
     accumulator = _load_event_accumulator(path)
     scalar_tags = tuple(accumulator.Tags()["scalars"])
     tags = _preferred_tags(scalar_tags)
-    summaries = tuple(_summarize_tag(accumulator, tag) for tag in tags)
+    summaries = tuple(
+        _summarize_tag(accumulator, tag, top_spikes=top_spikes) for tag in tags
+    )
     return RunSummary(
         label=label or path.stem,
         source=path,
@@ -198,7 +275,28 @@ def _corr(xs: Sequence[float], ys: Sequence[float]) -> float:
     return numerator / math.sqrt(x_denom * y_denom)
 
 
-def _print_run_summary(run: RunSummary, path: Path) -> None:
+def _format_number(value: float) -> str:
+    if math.isnan(value):
+        return "nan"
+    if math.isinf(value):
+        return "inf" if value > 0.0 else "-inf"
+    return f"{value:.8g}"
+
+
+def _format_ratio(value: float) -> str:
+    if math.isnan(value):
+        return "nan"
+    if math.isinf(value):
+        return "inf" if value > 0.0 else "-inf"
+    return f"{value:.2f}"
+
+
+def _print_run_summary(
+    run: RunSummary,
+    path: Path,
+    spike_ratio_threshold: float,
+    held_out_regression_threshold: float,
+) -> None:
     print(f"# {run.label}")
     print(f"source: {path}")
     print(f"scalar_tags: {len(run.scalar_tags)}")
@@ -216,10 +314,42 @@ def _print_run_summary(run: RunSummary, path: Path) -> None:
         )
         print(
             f"{summary.tag}: best epoch_idx={summary.best_index} "
-            f"step={summary.best_step} value={summary.best_value:.8g} "
-            f"final={summary.final_value:.8g} "
-            f"final/best={summary.min_to_final_ratio:.2f}{nonfinite_note}"
+            f"step={summary.best_step} value={_format_number(summary.best_value)} "
+            f"worst epoch_idx={summary.worst_index} step={summary.worst_step} "
+            f"value={_format_number(summary.worst_value)} "
+            f"worst/best={_format_ratio(summary.worst_to_best_ratio)} "
+            f"final={_format_number(summary.final_value)} "
+            f"final/best={_format_ratio(summary.min_to_final_ratio)}"
+            f"{nonfinite_note}"
         )
+    spike_summaries = [
+        summary
+        for summary in run.scalar_summaries
+        if not summary.all_nonfinite
+        and summary.worst_to_best_ratio >= spike_ratio_threshold
+    ]
+    if spike_summaries:
+        print("spikes:")
+        for summary in sorted(
+            spike_summaries,
+            key=lambda item: item.worst_to_best_ratio,
+            reverse=True,
+        ):
+            print(
+                f"  {summary.tag}: worst/best="
+                f"{_format_ratio(summary.worst_to_best_ratio)}"
+            )
+            for point in summary.worst_points:
+                ratio = (
+                    math.inf
+                    if summary.best_value == 0.0
+                    else point.value / summary.best_value
+                )
+                print(
+                    f"    epoch_idx={point.epoch_index} step={point.step} "
+                    f"value={_format_number(point.value)} "
+                    f"ratio_to_best={_format_ratio(ratio)}"
+                )
     scalar_lookup = {summary.tag: summary for summary in run.scalar_summaries}
     if all(tag in scalar_lookup for tag in _PARAMETRIC_BUCKETS):
         validation = scalar_lookup[_VALIDATION_BUCKET]
@@ -233,6 +363,18 @@ def _print_run_summary(run: RunSummary, path: Path) -> None:
             print(
                 "  WARNING: training-bucket ESR is non-finite every epoch -- a "
                 "(near-)silent batch is dividing the per-batch ESR by ~zero."
+            )
+        elif train.worst_to_best_ratio >= spike_ratio_threshold:
+            print(
+                "  WARNING: training-bucket ESR spiked to "
+                f"{_format_number(train.worst_value)} at epoch_idx="
+                f"{train.worst_index}; worst/best="
+                f"{_format_ratio(train.worst_to_best_ratio)}."
+            )
+        if validation.min_to_final_ratio >= held_out_regression_threshold:
+            print(
+                "  WARNING: held-out ESR worsened after the best epoch; "
+                f"final/best={_format_ratio(validation.min_to_final_ratio)}."
             )
 
 
@@ -271,7 +413,11 @@ def main() -> int:
 
     labels = list(args.label) or [None] * len(args.paths)
     runs = [
-        _summarize_run(Path(path).expanduser(), label=label)
+        _summarize_run(
+            Path(path).expanduser(),
+            label=label,
+            top_spikes=max(args.top_spikes, 0),
+        )
         for path, label in zip(args.paths, labels)
     ]
 
@@ -279,7 +425,12 @@ def main() -> int:
         if index:
             print()
         resolved = Path(path).expanduser()
-        _print_run_summary(run, resolved)
+        _print_run_summary(
+            run,
+            resolved,
+            spike_ratio_threshold=args.spike_ratio_threshold,
+            held_out_regression_threshold=args.held_out_regression_threshold,
+        )
         _print_parametric_relationships(resolved)
 
     if len(runs) >= 2:
@@ -298,7 +449,11 @@ def main() -> int:
                 continue
             print(
                 f"{run.label}: best={best_esr.best_value:.8g} "
-                f"epoch_idx={best_esr.best_index} final={best_esr.final_value:.8g}"
+                f"epoch_idx={best_esr.best_index} "
+                f"worst={best_esr.worst_value:.8g} "
+                f"worst_epoch_idx={best_esr.worst_index} "
+                f"worst/best={_format_ratio(best_esr.worst_to_best_ratio)} "
+                f"final={best_esr.final_value:.8g}"
             )
     return 0
 
