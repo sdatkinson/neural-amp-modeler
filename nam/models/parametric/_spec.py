@@ -50,6 +50,9 @@ class ParamSpec:
     default: float
     type: str = _CONTINUOUS
     enum_names: _Optional[tuple[str, ...]] = None
+    # Capture-grid step (realizability metadata only; it does not affect normalization
+    # or training). ``None`` defers to the consumer's default step.
+    step: _Optional[float] = None
 
     def __post_init__(self):
         if not self.name:
@@ -75,11 +78,25 @@ class ParamSpec:
                 raise ValueError(
                     f"Continuous ParamSpec {self.name!r} cannot define enum_names"
                 )
+            if self.step is not None:
+                if not _is_finite(self.step) or float(self.step) <= 0.0:
+                    raise ValueError(
+                        f"ParamSpec {self.name!r} step must be a positive finite number; "
+                        f"got {self.step}"
+                    )
+                if float(self.step) > float(self.max) - float(self.min):
+                    raise ValueError(
+                        f"ParamSpec {self.name!r} step must not exceed the range width; "
+                        f"got {self.step} > {float(self.max) - float(self.min)}"
+                    )
+                object.__setattr__(self, "step", float(self.step))
             object.__setattr__(self, "min", float(self.min))
             object.__setattr__(self, "max", float(self.max))
             object.__setattr__(self, "default", float(self.default))
             return
 
+        if self.step is not None:
+            raise ValueError(f"Switch ParamSpec {self.name!r} cannot define step")
         if self.enum_names is None:
             raise ValueError(f"Switch ParamSpec {self.name!r} requires enum_names")
         enum_names = _coerce_enum_names(self.name, self.enum_names)
@@ -150,6 +167,7 @@ class ParamSpec:
             "default": self.default,
             "type": self.type,
             "enum_names": None if self.enum_names is None else list(self.enum_names),
+            "step": self.step,
         }
 
     @classmethod
@@ -175,5 +193,6 @@ class ParamSpec:
             default=config["default"],
             type=config.get("type", _CONTINUOUS),
             enum_names=enum_names,
+            step=config.get("step"),
         )
         return spec

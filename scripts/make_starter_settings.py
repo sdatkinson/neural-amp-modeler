@@ -16,12 +16,13 @@ from typing import Any
 
 import numpy as np
 
+from nam.capture.planner import VALIDATION_SEED_OFFSET
+from nam.capture.planner import sample_raw_settings
 from nam.models.parametric import ParamSpec
 from nam.models.parametric import abbreviate_param_names
 from nam.models.parametric import decode_named_params
 from nam.models.parametric import make_capture_y_path
 from nam.models.parametric import quantize_to_capture_grid
-from nam.models.parametric import switch_combinations
 
 
 _DEFAULT_OUTPUT = Path("starter_data.json")
@@ -47,9 +48,7 @@ _DEFAULT_VALIDATION_Y_PATH_PREFIX = "starter_val_"
 _DEFAULT_VALIDATION_START_SECONDS = -9.0
 _DEFAULT_VALIDATION_STOP_SECONDS: float | None = None
 _DEFAULT_VALIDATION_NY: int | None = _DEFAULT_NY
-# Large, fixed offset so the validation draws are a different LHS stream than the train
-# draws (held-out settings), while staying reproducible from the same ``seed``.
-_VALIDATION_SEED_OFFSET = 2**31 - 1
+_VALIDATION_SEED_OFFSET = VALIDATION_SEED_OFFSET
 
 
 def _load_param_specs(model_config_path: Path) -> tuple[ParamSpec, ...]:
@@ -71,129 +70,6 @@ def _load_loss_mask_first(model_config_path: Path) -> int:
     with model_config_path.open() as fp:
         model_config = json.load(fp)
     return int(model_config.get("loss", {}).get("mask_first", 0))
-
-
-def _latin_hypercube_unit(
-    n: int,
-    dim: int,
-    *,
-    seed: int,
-) -> np.ndarray:
-    if n <= 0:
-        raise ValueError(f"n must be positive; got {n}")
-    if dim < 0:
-        raise ValueError(f"dim must be non-negative; got {dim}")
-    if dim == 0:
-        return np.zeros((n, 0), dtype=np.float64)
-
-    try:
-        from scipy.stats import qmc
-
-        sampler = qmc.LatinHypercube(d=dim, rng=np.random.default_rng(seed))
-        return np.asarray(sampler.random(n=n), dtype=np.float64)
-    except (ImportError, TypeError):
-        # ImportError: scipy absent. TypeError: scipy < 1.15 predates the ``rng=`` kwarg
-        # (it used ``seed=``); rather than special-case the version, fall back to the
-        # stratified-numpy sampler, which needs no scipy at all.
-        rng = np.random.default_rng(seed)
-        samples = np.empty((n, dim), dtype=np.float64)
-        for i in range(dim):
-            samples[:, i] = (rng.permutation(n) + rng.random(n)) / n
-        return samples
-
-
-def _scale_continuous_samples(
-    unit_samples: np.ndarray,
-    continuous_specs: Sequence[ParamSpec],
-) -> np.ndarray:
-    if unit_samples.shape[1] != len(continuous_specs):
-        raise ValueError(
-            f"Expected {len(continuous_specs)} continuous columns; got {unit_samples.shape[1]}"
-        )
-    if len(continuous_specs) == 0:
-        return unit_samples
-
-    mins = np.asarray([spec.min for spec in continuous_specs], dtype=np.float64)
-    widths = np.asarray(
-        [spec.max - spec.min for spec in continuous_specs], dtype=np.float64
-    )
-    return mins + unit_samples * widths
-
-
-def _stratified_switch_assignments(
-    specs: Sequence[ParamSpec],
-    n: int,
-    *,
-    seed: int,
-) -> np.ndarray:
-    combos = switch_combinations(specs)
-    if len(combos) == 1 and len(combos[0]) == 0:
-        return np.zeros((n, 0), dtype=np.int64)
-
-    rng = np.random.default_rng(seed)
-    combo_array = np.asarray(combos, dtype=np.int64)
-    num_combos = combo_array.shape[0]
-    assignments = np.empty((n, combo_array.shape[1]), dtype=np.int64)
-    # Deal out shuffled full cycles of every switch combination. Balance is exact only
-    # when ``n`` is a multiple of ``num_combos``; otherwise the final partial cycle skews
-    # the counts by up to one per combination.
-    for start in range(0, n, num_combos):
-        stop = min(start + num_combos, n)
-        cycle = combo_array[rng.permutation(num_combos)]
-        assignments[start:stop] = cycle[: stop - start]
-    return assignments
-
-
-def _assemble_raw_settings(
-    continuous_samples: np.ndarray,
-    switch_assignments: np.ndarray,
-    specs: Sequence[ParamSpec],
-) -> list[np.ndarray]:
-    if continuous_samples.shape[0] != switch_assignments.shape[0]:
-        raise ValueError("Continuous and switch samples must have the same row count")
-
-    raw_settings: list[np.ndarray] = []
-    for row_index in range(continuous_samples.shape[0]):
-        raw = np.empty(len(specs), dtype=np.float64)
-        continuous_col = 0
-        switch_col = 0
-        for spec_index, spec in enumerate(specs):
-            if spec.type == "switch":
-                raw[spec_index] = float(switch_assignments[row_index, switch_col])
-                switch_col += 1
-            else:
-                raw[spec_index] = float(continuous_samples[row_index, continuous_col])
-                continuous_col += 1
-        raw_settings.append(raw)
-    return raw_settings
-
-
-def sample_raw_settings(
-    specs: Sequence[ParamSpec],
-    n: int,
-    *,
-    seed: int = 0,
-    full_grid: bool = False,
-) -> list[np.ndarray]:
-    specs = tuple(specs)
-    continuous_specs = tuple(spec for spec in specs if spec.type == "continuous")
-    rng = np.random.default_rng(seed)
-    continuous_seed = int(rng.integers(0, 2**32))
-    switch_seed = int(rng.integers(0, 2**32))
-    continuous_samples = _scale_continuous_samples(
-        _latin_hypercube_unit(n, len(continuous_specs), seed=continuous_seed),
-        continuous_specs,
-    )
-
-    if not full_grid:
-        switch_assignments = _stratified_switch_assignments(specs, n, seed=switch_seed)
-        return _assemble_raw_settings(continuous_samples, switch_assignments, specs)
-
-    combos = switch_combinations(specs)
-    tiled_continuous = np.repeat(continuous_samples, len(combos), axis=0)
-    repeated_switches = np.asarray(combos, dtype=np.int64)
-    switch_assignments = np.tile(repeated_switches, (n, 1))
-    return _assemble_raw_settings(tiled_continuous, switch_assignments, specs)
 
 
 def _decode_capture_params(
