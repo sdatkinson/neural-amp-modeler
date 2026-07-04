@@ -42,11 +42,17 @@ test = [
     "requests",
 ]
 
+# The guided parametric capture desktop app (nam-capture)
+capture-app = [
+    "PySide6",
+]
+
 [project.urls]
 homepage = "https://github.com/sdatkinson/"
 
 [project.scripts]
 nam = "nam.cli:nam_gui"
+nam-capture = "nam.capture.gui.main:main"
 nam-full = "nam.cli:nam_full"
 nam-full-parametric = "nam.cli:nam_full_parametric"
 nam-hello-world = "nam.cli:nam_hello_world"
