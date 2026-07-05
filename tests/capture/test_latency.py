@@ -44,6 +44,21 @@ def test_measure_delay_recovers_known_shift():
         assert result.delay == true_delay - result.safety_factor
 
 
+def test_measure_delay_recovers_large_fixed_latency():
+    # A loopback through a buffered virtual device (e.g. an audio-bridge) adds a fixed
+    # round-trip latency past NAM's 208 ms scan window; the coarse pre-alignment must
+    # still recover it. 12_288 samples = 256 ms at 48 kHz, the value seen in the field.
+    preamble = _BlipPreamble(_RATE)
+    tail = _np.zeros(_RATE // 2, dtype=_np.float32)
+    playback = _np.concatenate([preamble.render(), tail])
+    true_delay = 12_288
+    recording = _simulate_chain(playback, delay=true_delay)
+    result = _measure_delay(recording, preamble)
+    assert result.detected
+    assert not result.disagreement_too_high
+    assert result.delay == true_delay - result.safety_factor
+
+
 def test_measure_delay_reports_not_detected_on_silence():
     preamble = _BlipPreamble(_RATE)
     recording = 1e-6 * _np.random.default_rng(0).standard_normal(

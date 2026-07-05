@@ -32,6 +32,15 @@ _BLIP_TIMES_SECONDS = (0.5, 1.5)
 _GAP_SECONDS = 0.25
 DEFAULT_BLIP_AMPLITUDE = 0.9
 
+# The wrapped NAM calibrator (``nam.train.core``) only scans from ``_LOOKAHEAD`` samples
+# before to ``_LOOKBACK`` samples after each expected blip. Virtual/buffered routes
+# (e.g. a loopback through an audio-bridge device) can add a fixed round-trip latency
+# larger than ``_LOOKBACK`` — well within a healthy capture, but past what the fine
+# calibrator can see — so we coarse-align first. These must match the constants inside
+# ``_calibrate_latency_v_all``.
+_CALIBRATOR_LOOKAHEAD = 1_000
+_CALIBRATOR_LOOKBACK = 10_000
+
 
 @_dataclass(frozen=True)
 class BlipPreamble:
@@ -105,6 +114,39 @@ class LatencyResult:
         return self.detected and not self.disagreement_too_high
 
 
+def _coarse_bulk_delay(recording: _np.ndarray, preamble: BlipPreamble) -> int:
+    """
+    Estimate a large fixed round-trip latency so the fine calibrator can still find the
+    blips. Returns ``0`` unless there is a confident bulk delay past the calibrator's
+    reach — for normal low-latency routes the calibrator handles it and this stays out
+    of the way.
+
+    The search is restricted to the silent blip section (never the input-audio region,
+    which is just as loud as the blips) and only as far as leaves blip 2 inside the
+    calibrator's window, so it locks onto the blips rather than program material.
+    """
+    locs = preamble.blip_locations
+    max_shift = min(
+        preamble.blip_section_samples - locs[-1],
+        len(recording) - locs[-1],
+    )
+    if max_shift <= _CALIBRATOR_LOOKBACK:
+        return 0
+    score = _np.zeros(max_shift, dtype=_np.float64)
+    for loc in locs:
+        score += _np.abs(recording[loc : loc + max_shift])
+    d = int(_np.argmax(score))
+    if d <= _CALIBRATOR_LOOKBACK - _CALIBRATOR_LOOKAHEAD:
+        return 0  # already within the fine calibrator's window; don't interfere
+    peak = float(score[d])
+    baseline = float(_np.median(score))
+    # Require the winning shift to clearly stand out; otherwise it's noise and we let
+    # the calibrator report "not detected" as before.
+    if peak < 0.02 * len(locs) or peak < 5.0 * (baseline + 1e-9):
+        return 0
+    return d
+
+
 def measure_delay(recording: _np.ndarray, preamble: BlipPreamble) -> LatencyResult:
     """
     Measure round-trip delay from a recording that is time-aligned with the playback
@@ -117,22 +159,31 @@ def measure_delay(recording: _np.ndarray, preamble: BlipPreamble) -> LatencyResu
         raise ValueError(
             f"Expected a single-channel recording; got shape {recording.shape}"
         )
-    minimum = preamble.blip_locations[-1] + 10_000
+    minimum = preamble.blip_locations[-1] + _CALIBRATOR_LOOKBACK
     if len(recording) < minimum:
         raise ValueError(
             f"Recording too short to scan for blips: {len(recording)} < {minimum} samples"
         )
 
+    # Coarse-align away any bulk latency past the fine calibrator's window, then let it
+    # measure the residual on the shifted copy and add the bulk offset back in.
+    coarse = _coarse_bulk_delay(recording, preamble)
+    if coarse > 0:
+        scan = _np.zeros_like(recording)
+        scan[: len(recording) - coarse] = recording[coarse:]
+    else:
+        scan = recording
+
     calibration = _core._calibrate_latency_v_all(
         preamble._data_info(),
-        recording,
+        scan,
         manual_available=True,
         show_plots=False,
         _override_suppress_plots=True,
     )
     recommended = calibration.recommended
     return LatencyResult(
-        delay=None if recommended is None else int(recommended),
+        delay=None if recommended is None else int(recommended) + coarse,
         detected=not calibration.warnings.not_detected,
         disagreement_too_high=calibration.warnings.disagreement_too_high,
         safety_factor=int(calibration.safety_factor),
