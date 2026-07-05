@@ -92,7 +92,7 @@ def build_model_config(project: CaptureProject) -> dict[str, _Any]:
     return {
         "net": {"name": "ConcatWaveNet", "config": config},
         "loss": {"val_loss": "esr", "mrstft_weight": 0.0005},
-        "optimizer": {"lr": 0.002, "weight_decay": 3.17e-07},
+        "optimizer": {"lr": 0.004, "weight_decay": 3.17e-07},
         "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.994}},
     }
 
