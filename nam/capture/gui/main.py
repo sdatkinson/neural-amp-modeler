@@ -19,8 +19,11 @@ from typing import Sequence as _Sequence
 
 from PySide6.QtWidgets import QApplication as _QApplication
 from PySide6.QtWidgets import QComboBox as _QComboBox
+from PySide6.QtWidgets import QDialog as _QDialog
+from PySide6.QtWidgets import QDialogButtonBox as _QDialogButtonBox
 from PySide6.QtWidgets import QFileDialog as _QFileDialog
 from PySide6.QtWidgets import QFormLayout as _QFormLayout
+from PySide6.QtWidgets import QLineEdit as _QLineEdit
 from PySide6.QtWidgets import QHBoxLayout as _QHBoxLayout
 from PySide6.QtWidgets import QLabel as _QLabel
 from PySide6.QtWidgets import QMainWindow as _QMainWindow
@@ -44,6 +47,7 @@ from ..project import CaptureEntryModel as _CaptureEntryModel
 from ..project import CaptureProject as _CaptureProject
 from ..project import load_project as _load_project
 from ..project import new_project as _new_project
+from ..project import PROJECT_FILENAME as _PROJECT_FILENAME
 from ..project import reconcile_with_disk as _reconcile_with_disk
 from ..project import save_project as _save_project
 from ..project import QAModel as _QAModel
@@ -121,6 +125,70 @@ def devices_for_direction(
     raise ValueError(f"direction must be 'output' or 'input'; got {direction!r}")
 
 
+class InputWavDialog(_QDialog):
+    """
+    Collect the training and validation input WAVs with both fields labelled and
+    visible at once. The native file picker does not show which file it is asking
+    for, so each row has its own labelled "Browse..." button; leaving a field
+    blank skips that input (it can be added later).
+    """
+
+    def __init__(self, parent: _Optional[_QWidget], project_dir: _Path) -> None:
+        super().__init__(parent)
+        self._project_dir = project_dir
+        self.setWindowTitle("Input WAV files")
+
+        layout = _QVBoxLayout(self)
+        layout.addWidget(
+            _QLabel(
+                "Choose the input (DI / reamp) WAV files that get played through "
+                "your rig during capture. Leave a field blank to add it later; "
+                "files outside this folder are copied in."
+            )
+        )
+
+        form = _QFormLayout()
+        self.train_edit = _QLineEdit()
+        self.train_edit.setPlaceholderText("(none -- add later)")
+        self.validation_edit = _QLineEdit()
+        self.validation_edit.setPlaceholderText("(none -- add later)")
+        form.addRow("Training input:", self._browse_row(self.train_edit, "training"))
+        form.addRow(
+            "Validation input:", self._browse_row(self.validation_edit, "validation")
+        )
+        layout.addLayout(form)
+
+        buttons = _QDialogButtonBox(
+            _QDialogButtonBox.StandardButton.Ok
+            | _QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _browse_row(self, edit: _QLineEdit, which: str) -> _QWidget:
+        container = _QWidget()
+        row = _QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(edit)
+        browse = _QPushButton("Browse...")
+        browse.clicked.connect(lambda: self._browse(edit, which))
+        row.addWidget(browse)
+        return container
+
+    def _browse(self, edit: _QLineEdit, which: str) -> None:
+        start = edit.text().strip() or str(self._project_dir)
+        path, _filter = _QFileDialog.getOpenFileName(
+            self, f"Select the {which} input WAV", start, "WAV files (*.wav)"
+        )
+        if path:
+            edit.setText(path)
+
+    def selected_paths(self) -> tuple[str, str]:
+        """Return the chosen (training, validation) paths; either may be empty."""
+        return self.train_edit.text().strip(), self.validation_edit.text().strip()
+
+
 class MainWindow(_QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -129,6 +197,11 @@ class MainWindow(_QMainWindow):
         self.project: _Optional[_CaptureProject] = None
         self.project_dir: _Optional[_Path] = None
         self.session: _Optional[_CaptureSession] = None
+        # Project-relative filenames of the input WAVs, carried into the plan when
+        # it is generated. Files copied in from outside use the canonical names;
+        # files already inside the project folder keep their own name.
+        self._train_input_name: str = "input_train.wav"
+        self._validation_input_name: str = "input_validation.wav"
         self._devices: list[_DeviceInfo] = []
         self._worker: _Optional[_SessionWorker] = None
         self._cancel_token: _Optional[_CancelToken] = None
@@ -313,33 +386,84 @@ class MainWindow(_QMainWindow):
         if not directory:
             return
         project_dir = _Path(directory)
-        train_path, _filter = _QFileDialog.getOpenFileName(
-            self, "Choose training input WAV", "", "WAV files (*.wav)"
-        )
-        if not train_path:
-            return
-        validation_path, _filter = _QFileDialog.getOpenFileName(
-            self, "Choose validation input WAV", "", "WAV files (*.wav)"
-        )
-        if not validation_path:
-            return
-        try:
-            self._copy_input(_Path(train_path), project_dir / "input_train.wav")
-            self._copy_input(
-                _Path(validation_path), project_dir / "input_validation.wav"
+
+        # Don't silently clobber an existing project in this folder.
+        if (project_dir / _PROJECT_FILENAME).exists():
+            confirm = _QMessageBox.question(
+                self,
+                "Project already exists",
+                f"A project ({_PROJECT_FILENAME}) already exists in this folder. "
+                "Creating a new project overwrites its plan and knob settings "
+                "when you generate a plan (captured WAV files are left in place).\n\n"
+                'To keep your existing work, choose No and use "Open Project..." '
+                "instead.\n\nCreate a new project here anyway?",
+                _QMessageBox.StandardButton.Yes | _QMessageBox.StandardButton.No,
+                _QMessageBox.StandardButton.No,
             )
-        except OSError as exc:
-            _QMessageBox.critical(self, "Copy failed", str(exc))
-            return
+            if confirm != _QMessageBox.StandardButton.Yes:
+                return
+
+        # The input WAVs (DI/reamp files played during capture) are optional at
+        # creation time -- you only need them once you start capturing. Cancelling
+        # this dialog must NOT abort project creation.
+        train_name = "input_train.wav"
+        validation_name = "input_validation.wav"
+        recorded: list[str] = []
+        dialog = InputWavDialog(self, project_dir)
+        if dialog.exec() == _QDialog.DialogCode.Accepted:
+            train_selected, validation_selected = dialog.selected_paths()
+            try:
+                if train_selected:
+                    train_name = self._resolve_input(
+                        _Path(train_selected), project_dir, "input_train.wav"
+                    )
+                    recorded.append(train_name)
+                if validation_selected:
+                    validation_name = self._resolve_input(
+                        _Path(validation_selected),
+                        project_dir,
+                        "input_validation.wav",
+                    )
+                    recorded.append(validation_name)
+            except OSError as exc:
+                _QMessageBox.critical(self, "Copy failed", str(exc))
+                return
 
         self.project = None
         self.project_dir = project_dir
         self.session = None
+        self._train_input_name = train_name
+        self._validation_input_name = validation_name
         self.project_label.setText(
             f"Project folder: {project_dir} (no plan yet -- use the Knobs tab)"
         )
         self.project_log.appendPlainText(f"New project folder: {project_dir}")
+        if recorded:
+            self.project_log.appendPlainText(
+                f"Using input WAVs: {', '.join(recorded)}"
+            )
+        else:
+            self.project_log.appendPlainText(
+                "No input WAVs set yet -- add them to the project folder before "
+                "capturing."
+            )
         self._refresh_all()
+
+    def _resolve_input(
+        self, source: _Path, project_dir: _Path, canonical_name: str
+    ) -> str:
+        """
+        Return the project-relative filename to record for an input WAV.
+
+        A file already inside the project folder keeps its own name and is left in
+        place; a file from outside is copied in under ``canonical_name``.
+        """
+        project_resolved = project_dir.resolve()
+        source_resolved = source.resolve()
+        if source_resolved.is_relative_to(project_resolved):
+            return source_resolved.relative_to(project_resolved).as_posix()
+        self._copy_input(source, project_dir / canonical_name)
+        return canonical_name
 
     @staticmethod
     def _copy_input(source: _Path, destination: _Path) -> None:
@@ -364,6 +488,10 @@ class MainWindow(_QMainWindow):
         self.project = project
         self.project_dir = project_dir
         self.session = _CaptureSession(self.project, self.project_dir)
+        # Preserve the project's input filenames so regenerating the plan keeps
+        # them rather than reverting to the canonical defaults.
+        self._train_input_name = project.train_input
+        self._validation_input_name = project.validation_input
         self.project_label.setText(
             f"Project: {project.name or project_dir.name} ({project_dir})"
         )
@@ -443,6 +571,8 @@ class MainWindow(_QMainWindow):
                 n_validation=self.n_validation_spin.value(),
                 seed=self.seed_spin.value(),
                 name=self.project_dir.name,
+                train_input=self._train_input_name,
+                validation_input=self._validation_input_name,
             )
         except ValueError as exc:
             _QMessageBox.critical(self, "Invalid plan", str(exc))
