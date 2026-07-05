@@ -36,8 +36,9 @@ LEARNING_CONFIG_FILENAME = "learning.json"
 
 _PROJECT_VERSION = 1
 # Keep every window below one ConcatLSTM processing block (65535 samples) and above the
-# active-learning loss mask_first (8192); see scripts/make_starter_settings.py.
-_DEFAULT_NY = 32768
+# active-learning loss mask_first (8192) if using for active learning; else, use
+# 8192 for ConcatWavenet or HyperWavenet trainng. see scripts/make_starter_settings.py.
+_DEFAULT_NY = 8192
 
 
 def atomic_write_json(path: _Path, payload: _Any) -> None:
