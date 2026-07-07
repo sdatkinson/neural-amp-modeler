@@ -177,3 +177,10 @@ def test_capture_project_helper_methods():
 
     assert project.window_for_split("train") == project.train_window
     assert project.window_for_split("validation") == project.validation_window
+
+
+def test_default_windows_only_set_ny_for_train():
+    project = _project()
+
+    assert project.train_window.ny == 8192
+    assert project.validation_window.ny is None

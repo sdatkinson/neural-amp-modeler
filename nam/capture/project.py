@@ -139,7 +139,9 @@ class CaptureProject(_BaseModel):
     validation_input: str = "input_validation.wav"
     sample_rate: _Optional[int] = None
     train_window: WindowModel = _Field(default_factory=WindowModel)
-    validation_window: WindowModel = _Field(default_factory=WindowModel)
+    validation_window: WindowModel = _Field(
+        default_factory=lambda: WindowModel(ny=None)
+    )
     audio: AudioSettingsModel = _Field(default_factory=AudioSettingsModel)
     entries: list[CaptureEntryModel] = _Field(default_factory=list)
 
