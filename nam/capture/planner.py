@@ -14,10 +14,13 @@ capture grid, with filenames that encode the settings.
 
 from __future__ import annotations
 
+import itertools as _itertools
+import math as _math
 from collections.abc import Sequence as _Sequence
 from dataclasses import dataclass as _dataclass
 from typing import Any as _Any
 from typing import Literal as _Literal
+from typing import Optional as _Optional
 
 import numpy as _np
 
@@ -37,6 +40,199 @@ from .params import validate_knobs as _validate_knobs
 VALIDATION_SEED_OFFSET = 2**31 - 1
 
 CAPTURES_DIRNAME = "captures"
+
+# Quantizing Latin-Hypercube draws to the realizable knob grid collapses many distinct
+# continuous samples onto the same grid point, so raw draws produce duplicate settings
+# (and validation draws that coincide with train ones). Every planned capture must be a
+# distinct setting, so the split planner deduplicates on the quantized settings. When the
+# grid is coarse enough that oversampling keeps colliding, it falls back to enumerating
+# the grid directly. These bound that work.
+_OVERSAMPLE_BATCHES = 12
+# Above this many distinct grid points, never materialize the full grid: a grid this large
+# is far finer than any realistic capture count, so oversampling fills without collisions
+# and the enumeration fallback is unreachable in practice.
+_ENUMERATION_CAP = 5_000_000
+
+
+def _capture_grid_values(spec: _ParamSpec, default_step: float) -> list[float]:
+    """
+    The distinct continuous values reachable on ``spec``'s capture grid, i.e. every value
+    :func:`quantize_to_capture_grid` can emit for it. Quantization snaps to the nearest
+    multiple of ``step`` (measured from zero, matching the shared helper) and clamps into
+    ``[min, max]``, so the reachable set is those in-range multiples plus the clamped
+    endpoints.
+    """
+    step = spec.step if spec.step is not None else default_step
+    lo = _math.floor(spec.min / step)
+    hi = _math.ceil(spec.max / step)
+    values = set()
+    # ``round(v / step)`` for ``v`` in ``[min, max]`` lands in ``[lo, hi]``; the +/-1 pad
+    # covers rounding at the endpoints. Out-of-range multiples clamp onto min/max.
+    for k in range(lo - 1, hi + 2):
+        clamped = min(max(k * step, spec.min), spec.max)
+        values.add(round(clamped, 6))
+    return sorted(values)
+
+
+def _grid_capacity(specs: _Sequence[_ParamSpec], default_step: float) -> int:
+    """Total number of distinct on-grid settings (switch combinations x continuous grid)."""
+    capacity = 1
+    for spec in specs:
+        if spec.type == "switch":
+            capacity *= spec.num_inputs
+        else:
+            capacity *= len(_capture_grid_values(spec, default_step))
+    return capacity
+
+
+def _enumerate_grid_params(
+    specs: _Sequence[_ParamSpec],
+    default_step: float,
+    *,
+    seed: int,
+):
+    """
+    Yield every distinct on-grid setting as a decoded params dict, in a deterministic
+    shuffled order. Only used as the coarse-grid fallback, guarded by ``_ENUMERATION_CAP``.
+    """
+    value_axes: list[list[float]] = []
+    for spec in specs:
+        if spec.type == "switch":
+            value_axes.append([float(i) for i in range(spec.num_inputs)])
+        else:
+            value_axes.append(_capture_grid_values(spec, default_step))
+    combos = list(_itertools.product(*value_axes))
+    _np.random.default_rng(seed).shuffle(combos)
+    for combo in combos:
+        yield _decode_named_params(_np.asarray(combo, dtype=_np.float64), specs)
+
+
+def _settings_key(
+    params: dict[str, _Any], specs: _Sequence[_ParamSpec]
+) -> tuple[_Any, ...]:
+    return tuple(params[spec.name] for spec in specs)
+
+
+def sample_unique_settings(
+    specs: _Sequence[_ParamSpec],
+    n: int,
+    *,
+    seed: int,
+    default_step: float,
+    exclude: _Optional[set[tuple[_Any, ...]]] = None,
+) -> list[dict[str, _Any]]:
+    """
+    Draw ``n`` distinct on-grid settings as decoded params dicts, none of them in
+    ``exclude`` (used to hold one split out of another). Each draw is quantized to the
+    capture grid (nearest ``default_step``, per-``ParamSpec`` ``step`` honored) before the
+    uniqueness test, so two draws that snap to the same knob positions count as one.
+
+    Shared by the capture app (:func:`plan_captures`) and the starter-settings script so
+    both emit unique, held-out settings from one implementation.
+    """
+    if n < 0:
+        raise ValueError(f"n must be non-negative; got {n}")
+    seen = set() if exclude is None else set(exclude)
+    ordered: list[dict[str, _Any]] = []
+    if n == 0:
+        return ordered
+
+    def _consume(raw_settings: list[_np.ndarray]) -> bool:
+        for raw in raw_settings:
+            quantized = _quantize_to_capture_grid(raw, specs, default_step=default_step)
+            params = _decode_named_params(quantized, specs)
+            key = _settings_key(params, specs)
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(params)
+            if len(ordered) == n:
+                return True
+        return False
+
+    # The first batch reproduces the historical LHS stream exactly, so a plan with no grid
+    # collisions is byte-for-byte identical to the pre-deduplication behavior.
+    if _consume(sample_raw_settings(specs, n, seed=seed)):
+        return ordered
+
+    # Collisions dropped us short. Oversample with fresh, seed-derived LHS batches to fill
+    # in the gaps while preserving space-filling coverage.
+    rng = _np.random.default_rng(seed)
+    batch = max(n, 256)
+    for _ in range(_OVERSAMPLE_BATCHES):
+        if _consume(sample_raw_settings(specs, batch, seed=int(rng.integers(0, 2**32)))):
+            return ordered
+
+    # The grid is coarse enough that random draws keep colliding. Fill the remainder
+    # deterministically from the full grid so we never loop indefinitely.
+    capacity = _grid_capacity(specs, default_step)
+    if capacity > _ENUMERATION_CAP:
+        raise ValueError(
+            f"Unable to draw {n} unique capture settings after oversampling. The knob "
+            "grid is too large to enumerate; widen the sampling or reduce the count."
+        )
+    for params in _enumerate_grid_params(
+        specs, default_step, seed=int(rng.integers(0, 2**32))
+    ):
+        key = _settings_key(params, specs)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(params)
+        if len(ordered) == n:
+            return ordered
+
+    raise ValueError(
+        f"Cannot plan {n} unique settings: the knob grid yields only {len(ordered)} "
+        "distinct settings beyond those already used. Reduce the capture count, widen a "
+        "knob's range, or use a finer step."
+    )
+
+
+def plan_unique_splits(
+    specs: _Sequence[_ParamSpec],
+    *,
+    n_train: int,
+    n_validation: int,
+    seed: int,
+    default_step: float,
+) -> tuple[list[dict[str, _Any]], list[dict[str, _Any]]]:
+    """
+    Draw ``n_train`` + ``n_validation`` distinct on-grid settings, with the validation
+    settings held out of the train settings. Validation is a separate, reproducible LHS
+    stream (see :data:`VALIDATION_SEED_OFFSET`). Returns the two lists of decoded params
+    dicts.
+
+    Shared by :func:`plan_captures` (capture app) and ``build_starter_data`` (starter
+    script) so both deduplicate and hold out validation the same way.
+    """
+    if n_train < 0:
+        raise ValueError(f"n_train must be non-negative; got {n_train}")
+    if n_validation < 0:
+        raise ValueError(f"n_validation must be non-negative; got {n_validation}")
+
+    # Every train and validation setting must be distinct, and validation must be held out
+    # from train. That is only possible if the knob grid has at least that many distinct
+    # settings; fail loudly up front rather than after sampling work.
+    required = n_train + n_validation
+    capacity = _grid_capacity(specs, default_step)
+    if required > capacity:
+        raise ValueError(
+            f"Cannot plan {n_train} train + {n_validation} validation unique settings: the "
+            f"knob grid yields only {capacity} distinct settings. Reduce the capture "
+            "counts, widen a knob's range, or use a finer step."
+        )
+
+    train = sample_unique_settings(specs, n_train, seed=seed, default_step=default_step)
+    train_keys = {_settings_key(params, specs) for params in train}
+    validation = sample_unique_settings(
+        specs,
+        n_validation,
+        seed=(seed + VALIDATION_SEED_OFFSET) % 2**32,
+        default_step=default_step,
+        exclude=train_keys,
+    )
+    return train, validation
 
 
 def latin_hypercube_unit(
@@ -175,21 +371,14 @@ class PlannedCapture:
     y_path: str
 
 
-def _plan_split(
+def _planned_from_params(
     split: _Literal["train", "validation"],
     specs: _Sequence[_ParamSpec],
-    n: int,
-    *,
-    seed: int,
+    param_dicts: list[dict[str, _Any]],
 ) -> list[PlannedCapture]:
-    if n == 0:
-        return []
-    raw_settings = sample_raw_settings(specs, n, seed=seed)
     abbreviations = _abbreviate_param_names([spec.name for spec in specs])
     planned = []
-    for index, raw in enumerate(raw_settings):
-        quantized = _quantize_to_capture_grid(raw, specs, default_step=_DEFAULT_KNOB_STEP)
-        params = _decode_named_params(quantized, specs)
+    for index, params in enumerate(param_dicts):
         filename = _make_capture_y_path(f"{split}_{index:03d}_", params, abbreviations)
         planned.append(
             PlannedCapture(
@@ -212,7 +401,8 @@ def plan_captures(
     """
     Generate the full capture plan: ``n_train`` Latin-Hypercube training settings and
     ``n_validation`` held-out validation settings (a separate LHS stream derived from
-    the same seed), each snapped to its knob's capture grid.
+    the same seed), each snapped to its knob's capture grid. Every planned setting is
+    distinct and validation is held out from train (see :func:`plan_unique_splits`).
     """
     knobs = _validate_knobs(knobs)
     if n_train <= 0:
@@ -220,8 +410,14 @@ def plan_captures(
     if n_validation < 0:
         raise ValueError(f"n_validation must be non-negative; got {n_validation}")
     specs = tuple(knob.to_param_spec() for knob in knobs)
-    train = _plan_split("train", specs, n_train, seed=seed)
-    validation = _plan_split(
-        "validation", specs, n_validation, seed=(seed + VALIDATION_SEED_OFFSET) % 2**32
+
+    train_params, validation_params = plan_unique_splits(
+        specs,
+        n_train=n_train,
+        n_validation=n_validation,
+        seed=seed,
+        default_step=_DEFAULT_KNOB_STEP,
     )
+    train = _planned_from_params("train", specs, train_params)
+    validation = _planned_from_params("validation", specs, validation_params)
     return train, validation

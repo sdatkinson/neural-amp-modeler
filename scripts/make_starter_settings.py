@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 
 from nam.capture.planner import VALIDATION_SEED_OFFSET
+from nam.capture.planner import plan_unique_splits
 from nam.capture.planner import sample_raw_settings
 from nam.models.parametric import ParamSpec
 from nam.models.parametric import abbreviate_param_names
@@ -90,20 +91,18 @@ def _decode_capture_params(
     )
 
 
-def _build_entries(
-    raw_settings: list[np.ndarray],
+def _entries_from_params(
+    param_dicts: Sequence[dict[str, Any]],
     specs: Sequence[ParamSpec],
     *,
     y_path_prefix: str,
     start_seconds: float,
     stop_seconds: float | None,
     ny: int | None,
-    round_to_nearest: float | None,
 ) -> list[dict[str, Any]]:
     abbreviations = abbreviate_param_names([spec.name for spec in specs])
     entries = []
-    for raw in raw_settings:
-        params = _decode_capture_params(raw, specs, round_to_nearest=round_to_nearest)
+    for params in param_dicts:
         entries.append(
             {
                 "y_path": make_capture_y_path(y_path_prefix, params, abbreviations),
@@ -114,6 +113,18 @@ def _build_entries(
             }
         )
     return entries
+
+
+def _raw_param_dicts(
+    raw_settings: list[np.ndarray],
+    specs: Sequence[ParamSpec],
+    *,
+    round_to_nearest: float | None,
+) -> list[dict[str, Any]]:
+    return [
+        _decode_capture_params(raw, specs, round_to_nearest=round_to_nearest)
+        for raw in raw_settings
+    ]
 
 
 def build_starter_data(
@@ -137,33 +148,54 @@ def build_starter_data(
     if n_validation < 0:
         raise ValueError(f"n_validation must be non-negative; got {n_validation}")
 
-    train_settings = sample_raw_settings(specs, n, seed=seed, full_grid=full_grid)
-    train = _build_entries(
-        train_settings,
+    if round_to_nearest is not None and not full_grid:
+        # Default path: a capture grid is defined (rounding on) and switches are drawn
+        # stratified, so distinct settings are well-defined. Share the app planner so the
+        # starter set is deduplicated and the validation split is held out of train, from
+        # one implementation.
+        train_params, validation_params = plan_unique_splits(
+            specs,
+            n_train=n,
+            n_validation=n_validation,
+            seed=seed,
+            default_step=round_to_nearest,
+        )
+    else:
+        # Raw modes with no dedup: ``round_to_nearest is None`` has no grid to snap to (so
+        # every continuous draw is effectively unique), and ``full_grid`` deliberately
+        # crosses each continuous draw with every switch combination (duplicate switch rows
+        # are the point). Validation stays a separate, reproducible LHS stream.
+        train_params = _raw_param_dicts(
+            sample_raw_settings(specs, n, seed=seed, full_grid=full_grid),
+            specs,
+            round_to_nearest=round_to_nearest,
+        )
+        validation_params = []
+        if n_validation > 0:
+            validation_seed = (seed + _VALIDATION_SEED_OFFSET) % 2**32
+            validation_params = _raw_param_dicts(
+                sample_raw_settings(specs, n_validation, seed=validation_seed, full_grid=False),
+                specs,
+                round_to_nearest=round_to_nearest,
+            )
+
+    train = _entries_from_params(
+        train_params,
         specs,
         y_path_prefix=y_path_prefix,
         start_seconds=start_seconds,
         stop_seconds=stop_seconds,
         ny=ny,
-        round_to_nearest=round_to_nearest,
     )
-
     validation: list[dict[str, Any]] = []
     if n_validation > 0:
-        # Held-out settings: a separate, reproducible LHS stream (always stratified, never
-        # full-grid) so the validation captures are distinct from the train ones.
-        validation_seed = (seed + _VALIDATION_SEED_OFFSET) % 2**32
-        validation_settings = sample_raw_settings(
-            specs, n_validation, seed=validation_seed, full_grid=False
-        )
-        validation = _build_entries(
-            validation_settings,
+        validation = _entries_from_params(
+            validation_params,
             specs,
             y_path_prefix=validation_y_path_prefix,
             start_seconds=validation_start_seconds,
             stop_seconds=validation_stop_seconds,
             ny=validation_ny,
-            round_to_nearest=round_to_nearest,
         )
 
     return {
