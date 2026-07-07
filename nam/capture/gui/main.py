@@ -45,6 +45,7 @@ from ..params import KnobSpec as _KnobSpec
 from ..params import validate_knobs as _validate_knobs
 from ..project import CaptureEntryModel as _CaptureEntryModel
 from ..project import CaptureProject as _CaptureProject
+from ..project import find_recoverable_entries as _find_recoverable_entries
 from ..project import load_project as _load_project
 from ..project import new_project as _new_project
 from ..project import PROJECT_FILENAME as _PROJECT_FILENAME
@@ -479,8 +480,6 @@ class MainWindow(_QMainWindow):
         project_dir = _Path(directory)
         try:
             project = _load_project(project_dir)
-            notes = _reconcile_with_disk(project, project_dir)
-            _save_project(project, project_dir)
         except Exception as exc:
             _QMessageBox.critical(self, "Failed to open project", str(exc))
             return
@@ -496,6 +495,11 @@ class MainWindow(_QMainWindow):
             f"Project: {project.name or project_dir.name} ({project_dir})"
         )
         self._load_knobs_into_ui()
+        # Offer recovery before reconciling: recovered entries become captured, so
+        # reconcile won't then warn that capturing would overwrite their files.
+        recover_notes = self._maybe_recover_from_disk()
+        notes = recover_notes + _reconcile_with_disk(project, project_dir)
+        _save_project(project, project_dir)
         if notes:
             self.project_log.appendPlainText("\n".join(notes))
             _QMessageBox.information(self, "Project reconciled", "\n".join(notes))
@@ -503,6 +507,33 @@ class MainWindow(_QMainWindow):
             self.project_log.appendPlainText(f"Opened project: {project_dir}")
         self._refresh_devices()
         self._refresh_all()
+
+    def _maybe_recover_from_disk(self) -> list[str]:
+        """
+        Offer to restore captures whose WAV files already exist on disk and are recorded
+        in data.json but that the plan lists as pending -- the situation you land in
+        after regenerating the plan with the same seed. Restoring them avoids
+        recapturing settings that are already on disk.
+        """
+        if self.project is None or self.project_dir is None or self.session is None:
+            return []
+        recoverable = _find_recoverable_entries(self.project, self.project_dir)
+        if not recoverable:
+            return []
+        confirm = _QMessageBox.question(
+            self,
+            "Restore existing captures?",
+            f"{len(recoverable)} capture file(s) matching this plan already exist on "
+            "disk and are recorded in data.json, but are not marked as captured. This "
+            "happens when the plan is regenerated with the same seed.\n\n"
+            "Mark them as captured (reusing the recorded delay; QA is reconstructed "
+            "from the files) so you don't have to recapture them?",
+            _QMessageBox.StandardButton.Yes | _QMessageBox.StandardButton.No,
+            _QMessageBox.StandardButton.Yes,
+        )
+        if confirm != _QMessageBox.StandardButton.Yes:
+            return ["Left existing capture files unmarked; they can be recaptured."]
+        return self.session.recover_captured_from_disk(recoverable)
 
     def _load_knobs_into_ui(self) -> None:
         if self.project is None:

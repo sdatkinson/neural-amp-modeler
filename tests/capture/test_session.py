@@ -5,6 +5,7 @@ import numpy as _np
 import pytest as _pytest
 
 from nam.capture.params import KnobSpec as _KnobSpec
+from nam.capture.project import find_recoverable_entries as _find_recoverable_entries
 from nam.capture.project import load_project as _load_project
 from nam.capture.project import new_project as _new_project
 from nam.capture.project import save_project as _save_project
@@ -154,6 +155,66 @@ def test_clipping_is_flagged(tmp_path):
     qa = session.capture_entry(entry)
     assert qa.clipping
     assert any("Clipping" in message for message in qa.messages)
+
+
+def test_recover_captured_from_disk_restores_regenerated_plan(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+
+    # Capture everything so WAVs + data.json (with per-entry delays) land on disk.
+    project = _load_project(project_dir)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    for entry in list(project.pending_entries()):
+        session.capture_entry(entry)
+    captured_delays = {e.y_path: e.delay for e in project.captured_entries()}
+    assert len(captured_delays) == 3
+
+    # Regenerate the plan with the same seed: fresh entries, all pending, identical
+    # y_paths; the WAVs and data.json are left in place.
+    regenerated = _new_project(
+        [_KnobSpec(name="Gain", min=0.0, max=10.0, step=0.5)],
+        n_train=2,
+        n_validation=1,
+        seed=0,
+    )
+    _save_project(regenerated, project_dir)
+    reloaded = _load_project(project_dir)
+    assert all(e.status == "pending" for e in reloaded.entries)
+
+    recoverable = _find_recoverable_entries(reloaded, project_dir)
+    assert len(recoverable) == 3
+
+    session = _CaptureSession(reloaded, project_dir, recorder=_FakeRecorder(0))
+    notes = session.recover_captured_from_disk(recoverable)
+    assert len(notes) == 3
+
+    for entry in reloaded.entries:
+        assert entry.status == "captured"
+        assert entry.delay == captured_delays[entry.y_path]
+        assert entry.qa is not None
+        assert entry.captured_at is not None
+
+    # data.json is rewritten from the restored entries.
+    data = _json.loads((project_dir / "data.json").read_text())
+    assert len(data["train"]) == 2
+    assert len(data["validation"]) == 1
+
+    # The restored statuses survive a reload.
+    assert all(e.status == "captured" for e in _load_project(project_dir).entries)
+
+
+def test_recover_captured_from_disk_skips_unreadable_wav(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    entry = project.pending_entries()[0]
+    # A file that exists and is in data.json but is not a valid WAV.
+    (project_dir / entry.y_path).parent.mkdir(parents=True, exist_ok=True)
+    (project_dir / entry.y_path).write_bytes(b"not a wav")
+
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(0))
+    notes = session.recover_captured_from_disk([(entry, 42)])
+
+    assert entry.status == "pending"
+    assert any("could not read" in note for note in notes)
 
 
 def test_route_test_measures_delay_without_saving_anything(tmp_path):

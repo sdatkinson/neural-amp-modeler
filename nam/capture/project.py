@@ -262,6 +262,58 @@ def reconcile_with_disk(project: CaptureProject, project_dir: _Path) -> list[str
     return notes
 
 
+def _data_json_delays(project_dir: _Path) -> dict[str, _Optional[int]]:
+    """
+    Map each capture's project-relative ``y_path`` to the ``delay`` recorded for it in
+    an existing ``data.json``, if one is present and readable. Returns an empty mapping
+    when there is no usable data.json.
+    """
+    path = _Path(project_dir) / DATA_FILENAME
+    if not path.is_file():
+        return {}
+    try:
+        with path.open() as fp:
+            payload = _json.load(fp)
+    except (OSError, ValueError):
+        return {}
+    delays: dict[str, _Optional[int]] = {}
+    for split in ("train", "validation"):
+        for item in payload.get(split) or []:
+            y_path = item.get("y_path")
+            if y_path is None:
+                continue
+            delays[str(_Path(y_path))] = item.get("delay")
+    return delays
+
+
+def find_recoverable_entries(
+    project: CaptureProject, project_dir: _Path
+) -> list[tuple[CaptureEntryModel, _Optional[int]]]:
+    """
+    Pending entries whose capture WAV already exists on disk *and* is recorded in an
+    existing ``data.json``. Regenerating the plan (e.g. with the same seed) resets entry
+    statuses to pending but leaves the WAV files and data.json in place, so these
+    captures can be restored instead of recaptured.
+
+    Returns ``(entry, delay)`` pairs, where ``delay`` is the value data.json recorded for
+    that capture (``data.json`` does not record QA or ``captured_at``, so those are
+    reconstructed when the entry is restored).
+    """
+    project_dir = _Path(project_dir)
+    delays = _data_json_delays(project_dir)
+    recoverable: list[tuple[CaptureEntryModel, _Optional[int]]] = []
+    for entry in project.entries:
+        if entry.status != "pending":
+            continue
+        key = str(_Path(entry.y_path))
+        if key not in delays:
+            continue
+        if not (project_dir / entry.y_path).is_file():
+            continue
+        recoverable.append((entry, delays[key]))
+    return recoverable
+
+
 def mark_captured(
     entry: CaptureEntryModel,
     *,

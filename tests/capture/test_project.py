@@ -10,6 +10,7 @@ from nam.capture.project import CaptureProject as _CaptureProject
 from nam.capture.project import PROJECT_FILENAME as _PROJECT_FILENAME
 from nam.capture.project import QAModel as _QAModel
 from nam.capture.project import atomic_write_json as _atomic_write_json
+from nam.capture.project import find_recoverable_entries as _find_recoverable_entries
 from nam.capture.project import load_project as _load_project
 from nam.capture.project import mark_captured as _mark_captured
 from nam.capture.project import new_project as _new_project
@@ -138,6 +139,60 @@ def test_reconcile_consistent_project_has_no_notes(tmp_path: _Path):
     notes = _reconcile_with_disk(project, tmp_path)
 
     assert notes == []
+
+
+def _write_data_json(tmp_path: _Path, entries: list[tuple]) -> None:
+    """entries: (split, y_path, delay) rows to record in a data.json."""
+    payload: dict = {
+        "type": "parametric",
+        "common": {"delay": 0},
+        "train": [],
+        "validation": [],
+    }
+    for split, y_path, delay in entries:
+        payload[split].append(
+            {"x_path": "input.wav", "y_path": y_path, "delay": delay, "params": {}}
+        )
+    _atomic_write_json(tmp_path / "data.json", payload)
+
+
+def _touch_wav(tmp_path: _Path, y_path: str) -> None:
+    wav_path = tmp_path / y_path
+    wav_path.parent.mkdir(parents=True, exist_ok=True)
+    wav_path.touch()
+
+
+def test_find_recoverable_entries_matches_disk_and_data_json(tmp_path: _Path):
+    project = _project(n_train=3, n_validation=0)
+    on_disk = project.entries[0]
+    missing_wav = project.entries[1]  # in data.json but no WAV on disk
+    _touch_wav(tmp_path, on_disk.y_path)
+    _touch_wav(tmp_path, project.entries[2].y_path)  # WAV, but not in data.json
+    _write_data_json(
+        tmp_path,
+        [("train", on_disk.y_path, 37), ("train", missing_wav.y_path, 5)],
+    )
+
+    recoverable = _find_recoverable_entries(project, tmp_path)
+
+    assert recoverable == [(on_disk, 37)]
+
+
+def test_find_recoverable_entries_ignores_already_captured(tmp_path: _Path):
+    project = _project(n_train=2, n_validation=0)
+    entry = project.entries[0]
+    _touch_wav(tmp_path, entry.y_path)
+    _write_data_json(tmp_path, [("train", entry.y_path, 9)])
+    _mark_captured(entry, delay=9, qa=_QAModel())
+
+    assert _find_recoverable_entries(project, tmp_path) == []
+
+
+def test_find_recoverable_entries_empty_without_data_json(tmp_path: _Path):
+    project = _project(n_train=2, n_validation=0)
+    _touch_wav(tmp_path, project.entries[0].y_path)
+
+    assert _find_recoverable_entries(project, tmp_path) == []
 
 
 def test_mark_captured_sets_status_and_iso_utc_timestamp():

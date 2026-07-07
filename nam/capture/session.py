@@ -16,6 +16,7 @@ from dataclasses import dataclass as _dataclass
 from pathlib import Path as _Path
 from typing import Callable as _Callable
 from typing import Optional as _Optional
+from typing import Sequence as _Sequence
 
 import numpy as _np
 
@@ -199,6 +200,46 @@ class CaptureSession:
         _save_project(self.project, self.project_dir)
         _update_data_json(self.project, self.project_dir)
         return qa
+
+    def recover_captured_from_disk(
+        self,
+        recoverable: _Sequence[tuple[_CaptureEntryModel, _Optional[int]]],
+    ) -> list[str]:
+        """
+        Restore entries whose capture WAV already exists on disk to "captured" without
+        recapturing (see :func:`nam.capture.project.find_recoverable_entries`).
+
+        The delay comes from data.json; QA is reconstructed from the WAV and
+        ``captured_at`` is stamped now, since data.json records neither. Persists the
+        project and data.json once at the end. Returns a note per entry.
+        """
+        from ..data import wav_to_np
+
+        notes: list[str] = []
+        for entry, delay in recoverable:
+            path = self.project_dir / entry.y_path
+            try:
+                y = _np.asarray(wav_to_np(path), dtype=_np.float32).squeeze()
+            except Exception as exc:
+                notes.append(
+                    f"{entry.y_path}: could not read WAV to restore ({exc})."
+                )
+                continue
+            # data.json proves the delay was measured, so treat the impulse as detected;
+            # only the disagreement-vs-history check inside _qa needs re-running.
+            latency = _LatencyResult(
+                delay=delay,
+                detected=delay is not None,
+                disagreement_too_high=False,
+                safety_factor=0,
+            )
+            qa = self._qa(entry, y, latency)
+            _mark_captured(entry, delay=delay, qa=qa)
+            notes.append(f"{entry.y_path}: restored from disk (delay={delay}).")
+        if notes:
+            _save_project(self.project, self.project_dir)
+            _update_data_json(self.project, self.project_dir)
+        return notes
 
     def _qa(
         self,
