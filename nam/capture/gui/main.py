@@ -17,6 +17,7 @@ from typing import Callable as _Callable
 from typing import Optional as _Optional
 from typing import Sequence as _Sequence
 
+from PySide6.QtCore import Qt as _Qt
 from PySide6.QtWidgets import QApplication as _QApplication
 from PySide6.QtWidgets import QComboBox as _QComboBox
 from PySide6.QtWidgets import QDialog as _QDialog
@@ -100,15 +101,21 @@ def format_entry_row(entry: _CaptureEntryModel) -> tuple:
 
 def knob_rows_to_specs(rows: _Sequence[tuple]) -> list[_KnobSpec]:
     """
-    Convert raw (name, min, max, step) table rows into :class:`KnobSpec`\\ s.
+    Convert raw (name, min, max, step, avoid_zero) table rows into :class:`KnobSpec`\\ s.
 
     Values are passed through as-is; :class:`KnobSpec` parses and validates numeric
     fields itself and raises ``ValueError`` with a message fit to show the user.
     """
 
     return [
-        _KnobSpec(name=name, min=min_value, max=max_value, step=step_value)
-        for name, min_value, max_value, step_value in rows
+        _KnobSpec(
+            name=name,
+            min=min_value,
+            max=max_value,
+            step=step_value,
+            avoid_zero=avoid_zero,
+        )
+        for name, min_value, max_value, step_value, avoid_zero in rows
     ]
 
 
@@ -248,8 +255,14 @@ class MainWindow(_QMainWindow):
         widget = _QWidget()
         layout = _QVBoxLayout(widget)
 
-        self.knob_table = _QTableWidget(0, 4)
-        self.knob_table.setHorizontalHeaderLabels(["Name", "Min", "Max", "Step"])
+        self.knob_table = _QTableWidget(0, 5)
+        self.knob_table.setHorizontalHeaderLabels(
+            ["Name", "Min", "Max", "Step", "Avoid zero"]
+        )
+        self.knob_table.setToolTip(
+            'Tick "Avoid zero" for gain/drive knobs so no capture sets them to zero '
+            "(the nearest non-zero grid value is used instead)."
+        )
         layout.addWidget(self.knob_table)
 
         row_buttons = _QHBoxLayout()
@@ -540,7 +553,9 @@ class MainWindow(_QMainWindow):
             return
         self.knob_table.setRowCount(0)
         for knob in self.project.knobs:
-            self._add_knob_row(knob.name, knob.min, knob.max, knob.step)
+            self._add_knob_row(
+                knob.name, knob.min, knob.max, knob.step, knob.avoid_zero
+            )
         self.n_train_spin.setValue(len(self.project.entries_for_split("train")) or 1)
         self.n_validation_spin.setValue(len(self.project.entries_for_split("validation")))
         self.seed_spin.setValue(self.project.seed)
@@ -548,13 +563,28 @@ class MainWindow(_QMainWindow):
     # -- knobs / plan --------------------------------------------------
 
     def _on_add_knob_row(self) -> None:
-        self._add_knob_row("", 0.0, 10.0, 0.5)
+        self._add_knob_row("", 0.0, 10.0, 0.5, False)
 
-    def _add_knob_row(self, name: _Any, minimum: _Any, maximum: _Any, step: _Any) -> None:
+    def _add_knob_row(
+        self,
+        name: _Any,
+        minimum: _Any,
+        maximum: _Any,
+        step: _Any,
+        avoid_zero: _Any = False,
+    ) -> None:
         row = self.knob_table.rowCount()
         self.knob_table.insertRow(row)
         for col, value in enumerate((name, minimum, maximum, step)):
             self.knob_table.setItem(row, col, _QTableWidgetItem(str(value)))
+        avoid_item = _QTableWidgetItem()
+        avoid_item.setFlags(
+            _Qt.ItemFlag.ItemIsUserCheckable | _Qt.ItemFlag.ItemIsEnabled
+        )
+        avoid_item.setCheckState(
+            _Qt.CheckState.Checked if avoid_zero else _Qt.CheckState.Unchecked
+        )
+        self.knob_table.setItem(row, 4, avoid_item)
 
     def _on_remove_knob_row(self) -> None:
         row = self.knob_table.currentRow()
@@ -568,6 +598,11 @@ class MainWindow(_QMainWindow):
             for col in range(4):
                 item = self.knob_table.item(row, col)
                 values.append(item.text() if item is not None else "")
+            avoid_item = self.knob_table.item(row, 4)
+            values.append(
+                avoid_item is not None
+                and avoid_item.checkState() == _Qt.CheckState.Checked
+            )
             rows.append(tuple(values))
         return rows
 

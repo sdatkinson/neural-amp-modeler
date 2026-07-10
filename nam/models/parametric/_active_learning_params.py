@@ -266,6 +266,42 @@ def quantize_to_capture_grid(
                 f"Capture-grid step for {spec.name!r} must be a positive finite number; "
                 f"got {step}"
             )
-        snapped = _torch.round(quantized[..., i] / step) * step
-        quantized[..., i] = _torch.clamp(snapped, spec.min, spec.max)
+        raw_col = quantized[..., i]
+        snapped = _torch.clamp(_torch.round(raw_col / step) * step, spec.min, spec.max)
+        if getattr(spec, "avoid_zero", False):
+            snapped = _nudge_off_zero(snapped, raw_col, spec.min, spec.max, step)
+        quantized[..., i] = snapped
     return quantized
+
+
+def _nudge_off_zero(
+    snapped: _torch.Tensor,
+    raw: _torch.Tensor,
+    minimum: float,
+    maximum: float,
+    step: float,
+) -> _torch.Tensor:
+    """
+    Replace any grid value that landed exactly on zero with the nearest non-zero grid
+    point (``+step`` or ``-step``), choosing the neighbor on the same side as the
+    pre-snap ``raw`` value when both are within ``[minimum, maximum]``.
+    """
+    zero_mask = snapped == 0.0
+    if not bool(zero_mask.any()):
+        return snapped
+    up_ok = step <= maximum
+    down_ok = -step >= minimum
+    if not up_ok and not down_ok:
+        # Zero is the only reachable grid point; nothing to snap to.
+        return snapped
+    if up_ok and down_ok:
+        replacement = _torch.where(
+            raw >= 0.0,
+            _torch.full_like(snapped, step),
+            _torch.full_like(snapped, -step),
+        )
+    elif up_ok:
+        replacement = _torch.full_like(snapped, step)
+    else:
+        replacement = _torch.full_like(snapped, -step)
+    return _torch.where(zero_mask, replacement, snapped)

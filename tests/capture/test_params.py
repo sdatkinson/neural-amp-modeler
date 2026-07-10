@@ -18,6 +18,14 @@ def test_knob_round_trips_through_dict():
     assert _KnobSpec.from_dict(knob.to_dict()) == knob
 
 
+def test_knob_avoid_zero_defaults_off_and_round_trips():
+    assert _KnobSpec(name="Gain", min=0.0, max=10.0).avoid_zero is False
+    knob = _KnobSpec(name="Gain", min=0.0, max=10.0, step=0.5, avoid_zero=True)
+    assert knob.avoid_zero is True
+    assert _KnobSpec.from_dict(knob.to_dict()) == knob
+    assert knob.to_param_spec().avoid_zero is True
+
+
 def test_knob_converts_to_param_spec_with_step():
     knob = _KnobSpec(name="Gain", min=0.0, max=10.0, step=0.5)
     spec = knob.to_param_spec()

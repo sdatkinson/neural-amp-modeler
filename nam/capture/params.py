@@ -40,6 +40,9 @@ class KnobSpec:
         ``min + k * step`` so every planned value is one a human can actually dial.
     :param default: Resting value baked into the generated model config; the knob's
         midpoint (snapped to the grid) when omitted.
+    :param avoid_zero: When true, no planned capture sets this knob to zero; a draw that
+        would snap to zero uses the next reachable grid value instead. Use for gain/drive
+        knobs that mute the rig at zero and can destabilize training.
     """
 
     name: str
@@ -47,6 +50,7 @@ class KnobSpec:
     max: float
     step: float = DEFAULT_KNOB_STEP
     default: _Optional[float] = None
+    avoid_zero: bool = False
 
     def __post_init__(self):
         if not str(self.name).strip():
@@ -90,6 +94,7 @@ class KnobSpec:
                     f"got {default}"
                 )
             object.__setattr__(self, "default", default)
+        object.__setattr__(self, "avoid_zero", bool(self.avoid_zero))
 
     def to_param_spec(self) -> _ParamSpec:
         return _ParamSpec(
@@ -99,6 +104,7 @@ class KnobSpec:
             default=self.default,
             type="continuous",
             step=self.step,
+            avoid_zero=self.avoid_zero,
         )
 
     def to_dict(self) -> dict[str, _Any]:
@@ -108,6 +114,7 @@ class KnobSpec:
             "max": self.max,
             "step": self.step,
             "default": self.default,
+            "avoid_zero": self.avoid_zero,
         }
 
     @classmethod
@@ -124,6 +131,7 @@ class KnobSpec:
             max=config["max"],
             step=config.get("step", DEFAULT_KNOB_STEP),
             default=config.get("default"),
+            avoid_zero=config.get("avoid_zero", False),
         )
 
 

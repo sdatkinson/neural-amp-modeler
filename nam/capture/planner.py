@@ -71,6 +71,10 @@ def _capture_grid_values(spec: _ParamSpec, default_step: float) -> list[float]:
     for k in range(lo - 1, hi + 2):
         clamped = min(max(k * step, spec.min), spec.max)
         values.add(round(clamped, 6))
+    if getattr(spec, "avoid_zero", False):
+        # Match quantize_to_capture_grid: zero is never a reachable capture setting for
+        # an avoid-zero knob, so the enumeration fallback must not offer it either.
+        values.discard(0.0)
     return sorted(values)
 
 

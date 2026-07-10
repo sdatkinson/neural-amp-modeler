@@ -68,16 +68,20 @@ def test_format_entry_row_matches_plan_columns():
 
 
 def test_knob_rows_to_specs_builds_valid_specs():
-    specs = _knob_rows_to_specs([("Gain", "0", "10", "0.5"), ("Tone", "0.0", "10.0", "1.0")])
+    specs = _knob_rows_to_specs(
+        [("Gain", "0", "10", "0.5", True), ("Tone", "0.0", "10.0", "1.0", False)]
+    )
     assert [spec.name for spec in specs] == ["Gain", "Tone"]
     assert specs[0].min == 0.0
     assert specs[0].max == 10.0
     assert specs[0].step == 0.5
+    assert specs[0].avoid_zero is True
+    assert specs[1].avoid_zero is False
 
 
 def test_knob_rows_to_specs_raises_on_bad_row():
     with _pytest.raises(ValueError):
-        _knob_rows_to_specs([("Gain", "10", "0", "0.5")])
+        _knob_rows_to_specs([("Gain", "10", "0", "0.5", False)])
 
 
 def test_devices_for_direction_filters_by_channel_count():

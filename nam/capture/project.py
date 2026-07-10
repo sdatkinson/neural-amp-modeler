@@ -70,6 +70,7 @@ class KnobModel(_BaseModel):
     max: float
     step: float = DEFAULT_KNOB_STEP
     default: _Optional[float] = None
+    avoid_zero: bool = False
 
     def to_knob_spec(self) -> KnobSpec:
         return KnobSpec(
@@ -78,6 +79,7 @@ class KnobModel(_BaseModel):
             max=self.max,
             step=self.step,
             default=self.default,
+            avoid_zero=self.avoid_zero,
         )
 
     @classmethod

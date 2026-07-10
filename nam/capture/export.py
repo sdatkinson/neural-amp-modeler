@@ -81,6 +81,8 @@ def build_model_config(project: CaptureProject) -> dict[str, _Any]:
         spec = knob.to_param_spec().to_dict()
         # enum_names is a switch-only field; continuous-only projects don't carry it.
         del spec["enum_names"]
+        # avoid_zero is capture-planning metadata only; it has no training meaning.
+        del spec["avoid_zero"]
         params.append(spec)
     config: dict[str, _Any] = {
         "layers": [dict(layer) for layer in _CONCAT_WAVENET_LAYERS],

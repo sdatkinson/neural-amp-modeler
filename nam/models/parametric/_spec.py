@@ -53,6 +53,11 @@ class ParamSpec:
     # Capture-grid step (realizability metadata only; it does not affect normalization
     # or training). ``None`` defers to the consumer's default step.
     step: _Optional[float] = None
+    # Capture-planning metadata: when true, quantization never emits an exact zero for
+    # this continuous param, snapping to the next reachable grid value instead. Guards
+    # against gain/drive knobs that mute the rig at zero and destabilize training. Like
+    # ``step``, it has no effect on normalization or training.
+    avoid_zero: bool = False
 
     def __post_init__(self):
         if not self.name:
@@ -90,6 +95,7 @@ class ParamSpec:
                         f"got {self.step} > {float(self.max) - float(self.min)}"
                     )
                 object.__setattr__(self, "step", float(self.step))
+            object.__setattr__(self, "avoid_zero", bool(self.avoid_zero))
             object.__setattr__(self, "min", float(self.min))
             object.__setattr__(self, "max", float(self.max))
             object.__setattr__(self, "default", float(self.default))
@@ -97,6 +103,8 @@ class ParamSpec:
 
         if self.step is not None:
             raise ValueError(f"Switch ParamSpec {self.name!r} cannot define step")
+        if self.avoid_zero:
+            raise ValueError(f"Switch ParamSpec {self.name!r} cannot set avoid_zero")
         if self.enum_names is None:
             raise ValueError(f"Switch ParamSpec {self.name!r} requires enum_names")
         enum_names = _coerce_enum_names(self.name, self.enum_names)
@@ -168,6 +176,7 @@ class ParamSpec:
             "type": self.type,
             "enum_names": None if self.enum_names is None else list(self.enum_names),
             "step": self.step,
+            "avoid_zero": self.avoid_zero,
         }
 
     @classmethod
@@ -194,5 +203,6 @@ class ParamSpec:
             type=config.get("type", _CONTINUOUS),
             enum_names=enum_names,
             step=config.get("step"),
+            avoid_zero=config.get("avoid_zero", False),
         )
         return spec

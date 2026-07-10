@@ -25,6 +25,19 @@ def test_plan_captures_counts_and_grid():
         assert tone == _pytest.approx(round(tone))
 
 
+def test_plan_captures_avoids_zero_on_flagged_knob():
+    knobs = [
+        _KnobSpec(name="Gain", min=0.0, max=10.0, step=0.5, avoid_zero=True),
+        _KnobSpec(name="Tone", min=0.0, max=10.0, step=1.0),
+    ]
+    train, validation = _plan_captures(knobs, n_train=40, n_validation=8, seed=3)
+
+    for planned in train + validation:
+        assert planned.params["Gain"] != 0.0
+    # Tone, without the flag, is still allowed to reach zero.
+    assert any(planned.params["Tone"] == 0.0 for planned in train + validation)
+
+
 def test_plan_captures_is_reproducible_and_held_out():
     first_train, first_val = _plan_captures(_knobs(), n_train=6, n_validation=2, seed=7)
     second_train, second_val = _plan_captures(_knobs(), n_train=6, n_validation=2, seed=7)
