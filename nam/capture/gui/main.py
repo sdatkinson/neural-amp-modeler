@@ -43,6 +43,7 @@ from PySide6.QtWidgets import QVBoxLayout as _QVBoxLayout
 from PySide6.QtWidgets import QWidget as _QWidget
 
 from .. import al_runner as _al_runner
+from ..audio import current_device_sample_rates as _current_device_sample_rates
 from ..audio import DeviceInfo as _DeviceInfo
 from ..audio import list_devices as _list_devices
 from ..export import write_training_configs as _write_training_configs
@@ -128,6 +129,56 @@ def knob_rows_to_specs(rows: _Sequence[tuple]) -> list[_KnobSpec]:
 
 def format_device_label(device: _DeviceInfo) -> str:
     return f"{device.name} ({device.host_api})"
+
+
+def read_wav_rate(path: _Path) -> _Optional[int]:
+    """Return a WAV file's sample rate from its header, or ``None`` if unreadable."""
+    import wave
+
+    try:
+        with wave.open(str(path), "rb") as fp:
+            return fp.getframerate()
+    except (wave.Error, EOFError, OSError):
+        return None
+
+
+def sample_rate_warnings(
+    train_rate: _Optional[int],
+    validation_rate: _Optional[int],
+    output_device_rate: _Optional[int],
+    input_device_rate: _Optional[int],
+) -> list[str]:
+    """
+    Build warnings about sample-rate mismatches between the input WAVs and the
+    selected audio devices. Captures play back and record at the input files' rate,
+    so a device set to a different rate (or two inputs that disagree) forces silent
+    resampling or an outright failure. Device rates are the current hardware rates.
+    """
+    warnings: list[str] = []
+    if (
+        train_rate is not None
+        and validation_rate is not None
+        and train_rate != validation_rate
+    ):
+        warnings.append(
+            f"Training input ({train_rate} Hz) and validation input "
+            f"({validation_rate} Hz) have different sample rates; they should match."
+        )
+    file_rates = {rate for rate in (train_rate, validation_rate) if rate is not None}
+    # Only compare against devices when the inputs agree on a single rate; otherwise
+    # the file mismatch above is the thing to fix first.
+    if len(file_rates) == 1:
+        file_rate = next(iter(file_rates))
+        for label, device_rate in (
+            ("Output", output_device_rate),
+            ("Input", input_device_rate),
+        ):
+            if device_rate is not None and device_rate != file_rate:
+                warnings.append(
+                    f"{label} device rate ({device_rate} Hz) differs from the "
+                    f"input files ({file_rate} Hz)."
+                )
+    return warnings
 
 
 def devices_for_direction(
@@ -231,6 +282,14 @@ class MainWindow(_QMainWindow):
         self._build_ui()
         self._refresh_devices()
         self._refresh_all()
+
+        # The OS can change a device's sample rate while we run; PortAudio would not
+        # notice, so poll the live rates and keep the mismatch warning (and the capture
+        # lock-out) current.
+        self._rate_poll_timer = _QTimer(self)
+        self._rate_poll_timer.setInterval(1500)
+        self._rate_poll_timer.timeout.connect(self._refresh_sample_rate_warning)
+        self._rate_poll_timer.start()
 
     # -- construction ----------------------------------------------------
 
@@ -340,6 +399,12 @@ class MainWindow(_QMainWindow):
         form.addRow("Buffer size", self.buffer_size_combo)
         layout.addLayout(form)
 
+        self.sample_rate_warning_label = _QLabel("")
+        self.sample_rate_warning_label.setWordWrap(True)
+        self.sample_rate_warning_label.setStyleSheet("color: #b36b00;")
+        self.sample_rate_warning_label.setVisible(False)
+        layout.addWidget(self.sample_rate_warning_label)
+
         buttons = _QHBoxLayout()
         refresh_button = _QPushButton("Refresh devices")
         refresh_button.clicked.connect(self._refresh_devices)
@@ -373,6 +438,12 @@ class MainWindow(_QMainWindow):
 
         self.next_entry_label = _QLabel("No project open.")
         layout.addWidget(self.next_entry_label)
+
+        self.capture_sample_rate_warning_label = _QLabel("")
+        self.capture_sample_rate_warning_label.setWordWrap(True)
+        self.capture_sample_rate_warning_label.setStyleSheet("color: #b36b00;")
+        self.capture_sample_rate_warning_label.setVisible(False)
+        layout.addWidget(self.capture_sample_rate_warning_label)
 
         buttons = _QHBoxLayout()
         self.capture_next_button = _QPushButton("Capture next")
@@ -777,7 +848,7 @@ class MainWindow(_QMainWindow):
 
     def _refresh_devices(self) -> None:
         try:
-            self._devices = _list_devices()
+            self._devices = _list_devices(refresh=True)
         except Exception as exc:
             self._devices = []
             self.project_log.appendPlainText(f"Could not list audio devices: {exc}")
@@ -788,6 +859,7 @@ class MainWindow(_QMainWindow):
             self.input_device_combo, devices_for_direction(self._devices, "input")
         )
         self._load_audio_settings_into_ui()
+        self._refresh_sample_rate_warning()
 
     @staticmethod
     def _populate_device_combo(
@@ -830,10 +902,54 @@ class MainWindow(_QMainWindow):
     def _on_output_device_changed(self) -> None:
         self._update_channel_ranges()
         self._save_audio_settings()
+        self._refresh_sample_rate_warning()
 
     def _on_input_device_changed(self) -> None:
         self._update_channel_ranges()
         self._save_audio_settings()
+        self._refresh_sample_rate_warning()
+
+    def _device_rate(
+        self, device: _Optional[_DeviceInfo], live: dict[str, float]
+    ) -> _Optional[int]:
+        """Current hardware rate for ``device``: live if known, else its PortAudio default."""
+        if device is None:
+            return None
+        rate = live.get(device.name)
+        if rate is None:
+            rate = device.default_samplerate
+        return int(round(rate))
+
+    def _current_sample_rate_warnings(self) -> list[str]:
+        if self.project is None or self.project_dir is None:
+            return []
+        train_rate = read_wav_rate(self.project_dir / self.project.train_input)
+        validation_rate = read_wav_rate(
+            self.project_dir / self.project.validation_input
+        )
+        live = _current_device_sample_rates()
+        return sample_rate_warnings(
+            train_rate,
+            validation_rate,
+            self._device_rate(self.output_device_combo.currentData(), live),
+            self._device_rate(self.input_device_combo.currentData(), live),
+        )
+
+    def _refresh_sample_rate_warning(self) -> None:
+        warnings = self._current_sample_rate_warnings()
+        text = "\n".join(f"⚠ {message}" for message in warnings)
+        for label in (
+            self.sample_rate_warning_label,
+            self.capture_sample_rate_warning_label,
+        ):
+            label.setText(text)
+            label.setVisible(bool(warnings))
+        # Block captures while any rate disagrees, but never fight the worker's own
+        # enable/disable of these buttons while a capture or route test is running.
+        if self._worker is None:
+            blocked = bool(warnings)
+            self.capture_next_button.setEnabled(not blocked)
+            self.capture_selected_button.setEnabled(not blocked)
 
     def _update_channel_ranges(self) -> None:
         output_device = self.output_device_combo.currentData()
@@ -923,6 +1039,16 @@ class MainWindow(_QMainWindow):
         self._begin_capture(self.project.entries[row])
 
     def _begin_capture(self, entry: _CaptureEntryModel) -> None:
+        warnings = self._current_sample_rate_warnings()
+        if warnings:
+            self._refresh_sample_rate_warning()
+            body = "\n".join(f"• {message}" for message in warnings)
+            _QMessageBox.critical(
+                self,
+                "Sample rate mismatch",
+                f"{body}\n\nFix the sample rate mismatch before capturing.",
+            )
+            return
         self.capture_progress.setValue(0)
         self.capture_log.appendPlainText(
             f"Capturing {entry.split} #{entry.index}: {format_params(entry.params)}"
@@ -1272,6 +1398,7 @@ class MainWindow(_QMainWindow):
         self._refresh_next_entry_label()
         self._refresh_status_bar()
         self._refresh_al_tab()
+        self._refresh_sample_rate_warning()
 
     def _refresh_plan_tables(self) -> None:
         entries = self.project.entries if self.project is not None else []

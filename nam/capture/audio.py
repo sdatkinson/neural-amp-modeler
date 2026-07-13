@@ -40,8 +40,25 @@ class DeviceInfo:
     default_samplerate: float
 
 
-def list_devices() -> list[DeviceInfo]:
+def list_devices(refresh: bool = False) -> list[DeviceInfo]:
+    """
+    Enumerate the audio devices PortAudio currently sees.
+
+    PortAudio reads each device's ``default_samplerate`` (and the rest of the table)
+    once when it initialises and caches it, so a sample rate changed in the OS while
+    the app is running is not reflected until PortAudio is reinitialised. Pass
+    ``refresh=True`` to force that reinitialisation and pick up such changes.
+    """
     import sounddevice as sd
+
+    if refresh:
+        # No streams are open on the refresh path, so terminating and reinitialising
+        # PortAudio is safe and is the only way to re-read the current device table.
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception:
+            pass
 
     host_apis = sd.query_hostapis()
     devices = []
@@ -57,6 +74,118 @@ def list_devices() -> list[DeviceInfo]:
             )
         )
     return devices
+
+
+def current_device_sample_rates() -> dict[str, float]:
+    """
+    Map device name -> its *current* nominal sample rate in Hz, read live.
+
+    PortAudio latches each device's ``default_samplerate`` when it initialises, so it
+    cannot see a rate changed in the OS while the app is running. On macOS this reads
+    CoreAudio's nominal sample rate instead, which always reflects the current hardware
+    setting. Returns an empty dict on other platforms or if the query fails; callers
+    then fall back to :attr:`DeviceInfo.default_samplerate`.
+    """
+    import sys as _sys
+
+    if _sys.platform != "darwin":
+        return {}
+    try:
+        return _coreaudio_sample_rates()
+    except Exception:
+        return {}
+
+
+def _coreaudio_sample_rates() -> dict[str, float]:
+    import ctypes
+    import ctypes.util
+
+    def fourcc(code: str) -> int:
+        return (
+            (ord(code[0]) << 24)
+            | (ord(code[1]) << 16)
+            | (ord(code[2]) << 8)
+            | ord(code[3])
+        )
+
+    class _Addr(ctypes.Structure):
+        _fields_ = [
+            ("mSelector", ctypes.c_uint32),
+            ("mScope", ctypes.c_uint32),
+            ("mElement", ctypes.c_uint32),
+        ]
+
+    system_object = 1
+    scope_global = fourcc("glob")
+    element_main = 0
+    prop_devices = fourcc("dev#")
+    prop_name = fourcc("lnam")
+    prop_nominal_rate = fourcc("nsrt")
+    utf8 = 0x08000100
+
+    core_audio = ctypes.CDLL(ctypes.util.find_library("CoreAudio"))
+    core_foundation = ctypes.CDLL(ctypes.util.find_library("CoreFoundation"))
+    core_foundation.CFStringGetCString.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_char_p,
+        ctypes.c_long,
+        ctypes.c_uint32,
+    ]
+    core_foundation.CFStringGetCString.restype = ctypes.c_bool
+
+    addr = _Addr(prop_devices, scope_global, element_main)
+    size = ctypes.c_uint32(0)
+    core_audio.AudioObjectGetPropertyDataSize(
+        system_object, ctypes.byref(addr), 0, None, ctypes.byref(size)
+    )
+    count = size.value // ctypes.sizeof(ctypes.c_uint32)
+    device_ids = (ctypes.c_uint32 * count)()
+    core_audio.AudioObjectGetPropertyData(
+        system_object, ctypes.byref(addr), 0, None, ctypes.byref(size), device_ids
+    )
+
+    rates: dict[str, float] = {}
+    for device_id in device_ids:
+        name_addr = _Addr(prop_name, scope_global, element_main)
+        cfstr = ctypes.c_void_p()
+        name_size = ctypes.c_uint32(ctypes.sizeof(ctypes.c_void_p))
+        if (
+            core_audio.AudioObjectGetPropertyData(
+                device_id,
+                ctypes.byref(name_addr),
+                0,
+                None,
+                ctypes.byref(name_size),
+                ctypes.byref(cfstr),
+            )
+            != 0
+            or not cfstr.value
+        ):
+            continue
+        buffer = ctypes.create_string_buffer(256)
+        ok = core_foundation.CFStringGetCString(cfstr, buffer, 256, utf8)
+        core_foundation.CFRelease(cfstr)
+        if not ok:
+            continue
+        name = buffer.value.decode("utf-8", "replace")
+
+        rate_addr = _Addr(prop_nominal_rate, scope_global, element_main)
+        rate = ctypes.c_double(0)
+        rate_size = ctypes.c_uint32(ctypes.sizeof(ctypes.c_double))
+        if (
+            core_audio.AudioObjectGetPropertyData(
+                device_id,
+                ctypes.byref(rate_addr),
+                0,
+                None,
+                ctypes.byref(rate_size),
+                ctypes.byref(rate),
+            )
+            == 0
+            and rate.value > 0
+        ):
+            rates[name] = rate.value
+    return rates
 
 
 def find_device(
