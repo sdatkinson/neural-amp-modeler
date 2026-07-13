@@ -23,6 +23,23 @@ actually ship is still the **HyperWaveNet**; the LSTM ensemble is thrown away ea
 Design details and rationale live in
 [`docs/panama_active_learning_lstm_plan.md`](panama_active_learning_lstm_plan.md).
 
+## Capture app integration
+
+The capture GUI (`python -m nam.capture.gui.main`) plans a starter set of 10 train / 5
+validation captures via a Latin hypercube over the knobs, then hands rounds off to the
+**Active Learning** tab. "Start round" runs `python -m nam.capture.al_runner` against the
+project folder as a background process; each round regenerates the AL configs from
+`capture_project.json` fresh (`ny` 32768, batch size auto-sized from the machine's GPU/CPU
+memory, and each knob's `step`/`avoid_zero` honored in the proposals). Proposals from a
+finished round import back into the project as pending train captures automatically (and
+the tab offers to import any left over when you reopen a project).
+
+To train remotely: use "Export remote runner files" to write the `active_learning/`
+configs and `run_active_learning.sh`, copy the whole project folder to the training
+machine, run `./run_active_learning.sh`, then copy the `active_learning/` folder back and
+reopen the project in the capture app -- it is the single writer of
+`capture_project.json`, so a remote round never touches it directly.
+
 ## Example configs
 
 Ready-to-edit examples (Gain/Tone continuous 0–10, Boost switch Off/On) live in

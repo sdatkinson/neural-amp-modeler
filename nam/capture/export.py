@@ -22,6 +22,23 @@ from .project import MODEL_CONFIG_FILENAME
 from .project import atomic_write_json as _atomic_write_json
 
 
+# Active-learning training window: above the acquisition-proxy loss's mask_first (8192)
+# and below one ConcatLSTM processing block (65535). Owned here (not al_runner.py) so
+# export.py has no import-time dependency on al_runner; al_runner re-exports it.
+AL_NY = 32768
+AL_MAX_BATCH_SIZE = 256
+AL_REFERENCE_LEARNING_RATE = 0.008
+
+
+def active_learning_learning_rate(batch_size: int) -> float:
+    if not 1 <= batch_size <= AL_MAX_BATCH_SIZE:
+        raise ValueError(
+            f"Active-learning batch_size must be in [1, {AL_MAX_BATCH_SIZE}], got "
+            f"{batch_size}"
+        )
+    return AL_REFERENCE_LEARNING_RATE * batch_size / AL_MAX_BATCH_SIZE
+
+
 def build_data_config(project: CaptureProject) -> dict[str, _Any]:
     """
     Build the parametric ``data.json`` payload from the project's *captured* entries.
@@ -56,6 +73,21 @@ def update_data_json(project: CaptureProject, project_dir: _Path) -> _Path:
     path = _Path(project_dir) / DATA_FILENAME
     _atomic_write_json(path, build_data_config(project))
     return path
+
+
+def build_al_data_config(project: CaptureProject) -> dict[str, _Any]:
+    """
+    Active-learning counterpart of :func:`build_data_config`: same captured entries and
+    per-split paths/delay/params/windowing, but both splits use ``AL_NY`` instead of the
+    project's own windows. The acquisition-proxy ConcatLSTM needs a window above the loss
+    mask_first (8192) and below one LSTM processing block (65535); a finite validation
+    window also sidesteps the Apple-MPS LSTM batch-1 validation crash.
+    """
+    config = build_data_config(project)
+    for split in ("train", "validation"):
+        for entry in config[split]:
+            entry["ny"] = AL_NY
+    return config
 
 
 # ConcatWaveNet counterpart of nam_full_configs/parametric/model.json: the same packed
@@ -99,6 +131,41 @@ def build_model_config(project: CaptureProject) -> dict[str, _Any]:
     }
 
 
+# Mirrors nam_full_configs/active_learning/model.json (a PANAMA-style ConcatLSTM
+# acquisition proxy, not the shipped ConcatWaveNet), less its _notes.
+def build_al_model_config(
+    project: CaptureProject, *, batch_size: int = AL_MAX_BATCH_SIZE
+) -> dict[str, _Any]:
+    params = []
+    for knob in project.knob_specs():
+        spec = knob.to_param_spec().to_dict()
+        # enum_names is a switch-only field; continuous-only projects don't carry it.
+        del spec["enum_names"]
+        # Unlike build_model_config, step and avoid_zero are kept: the active-learning
+        # proposal quantizer (quantize_to_capture_grid) reads them to snap g-opt results
+        # onto the realizable capture grid and to honor avoid-zero knobs.
+        params.append(spec)
+    return {
+        "net": {
+            "name": "ConcatLSTM",
+            "config": {
+                "hidden_size": 18,
+                "num_layers": 3,
+                "train_burn_in": 8192,
+                "train_truncate": None,
+                "params": params,
+            },
+        },
+        "loss": {
+            "mask_first": 8192,
+            "pre_emph_mrstft_weight": 0.002,
+            "pre_emph_mrstft_coef": 0.85,
+        },
+        "optimizer": {"lr": active_learning_learning_rate(batch_size)},
+        "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
+    }
+
+
 def build_learning_config(project: CaptureProject) -> dict[str, _Any]:
     # Mirrors nam_full_configs/parametric/learning.json, but with accelerator "auto"
     # so a generated project trains without edits on CUDA, MPS, or CPU. Keep the
@@ -127,6 +194,33 @@ def build_learning_config(project: CaptureProject) -> dict[str, _Any]:
             "enable_model_summary": True,
         },
         "threshold_esr": None,
+        "trainer_fit_kwargs": {},
+    }
+
+
+# Mirrors nam_full_configs/active_learning/learning.json, less its _notes. trainer.accelerator
+# is a placeholder: nam.train.active_learning.train_ensemble rewrites it at runtime
+# (cuda > mps > cpu).
+def build_al_learning_config(*, batch_size: int, drop_last: bool) -> dict[str, _Any]:
+    return {
+        "train_dataloader": {
+            "batch_size": batch_size,
+            "shuffle": True,
+            "pin_memory": True,
+            "drop_last": drop_last,
+            "num_workers": 0,
+        },
+        "val_dataloader": {
+            "batch_size": batch_size,
+            "pin_memory": True,
+            "num_workers": 0,
+        },
+        "trainer": {
+            "accelerator": "gpu",
+            "devices": 1,
+            "max_epochs": 50,
+            "gradient_clip_val": 1.0,
+        },
         "trainer_fit_kwargs": {},
     }
 

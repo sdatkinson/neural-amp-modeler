@@ -26,7 +26,11 @@
         "drop_last": true,
         "num_workers": 0
     },
-    "val_dataloader": {},
+    "val_dataloader": {
+        "batch_size": 32,
+        "pin_memory": true,
+        "num_workers": 0
+    },
     "trainer": {
         "accelerator": "gpu",
         "devices": 1,

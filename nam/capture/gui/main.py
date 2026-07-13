@@ -17,7 +17,10 @@ from typing import Callable as _Callable
 from typing import Optional as _Optional
 from typing import Sequence as _Sequence
 
+from PySide6.QtCore import QProcess as _QProcess
+from PySide6.QtCore import QProcessEnvironment as _QProcessEnvironment
 from PySide6.QtCore import Qt as _Qt
+from PySide6.QtCore import QTimer as _QTimer
 from PySide6.QtWidgets import QApplication as _QApplication
 from PySide6.QtWidgets import QComboBox as _QComboBox
 from PySide6.QtWidgets import QDialog as _QDialog
@@ -39,6 +42,7 @@ from PySide6.QtWidgets import QTabWidget as _QTabWidget
 from PySide6.QtWidgets import QVBoxLayout as _QVBoxLayout
 from PySide6.QtWidgets import QWidget as _QWidget
 
+from .. import al_runner as _al_runner
 from ..audio import DeviceInfo as _DeviceInfo
 from ..audio import list_devices as _list_devices
 from ..export import write_training_configs as _write_training_configs
@@ -213,6 +217,9 @@ class MainWindow(_QMainWindow):
         self._devices: list[_DeviceInfo] = []
         self._worker: _Optional[_SessionWorker] = None
         self._cancel_token: _Optional[_CancelToken] = None
+        self._al_process: _Optional[_QProcess] = None
+        self._al_kill_timer: _Optional[_QTimer] = None
+        self._al_cancel_requested = False
 
         self._build_ui()
         self._refresh_devices()
@@ -228,6 +235,7 @@ class MainWindow(_QMainWindow):
         tabs.addTab(self._build_plan_tab(), "Plan")
         tabs.addTab(self._build_audio_tab(), "Audio I/O")
         tabs.addTab(self._build_capture_tab(), "Capture")
+        tabs.addTab(self._build_al_tab(), "Active Learning")
         self.status_bar = self.statusBar()
 
     def _build_project_tab(self) -> _QWidget:
@@ -277,7 +285,7 @@ class MainWindow(_QMainWindow):
         form = _QFormLayout()
         self.n_train_spin = _QSpinBox()
         self.n_train_spin.setRange(1, 100_000)
-        self.n_train_spin.setValue(20)
+        self.n_train_spin.setValue(10)
         self.n_validation_spin = _QSpinBox()
         self.n_validation_spin.setRange(0, 100_000)
         self.n_validation_spin.setValue(5)
@@ -289,9 +297,9 @@ class MainWindow(_QMainWindow):
         form.addRow("Seed", self.seed_spin)
         layout.addLayout(form)
 
-        generate_button = _QPushButton("Generate plan")
-        generate_button.clicked.connect(self._on_generate_plan)
-        layout.addWidget(generate_button)
+        self.generate_plan_button = _QPushButton("Generate plan")
+        self.generate_plan_button.clicked.connect(self._on_generate_plan)
+        layout.addWidget(self.generate_plan_button)
 
         self._on_add_knob_row()
         return widget
@@ -384,6 +392,75 @@ class MainWindow(_QMainWindow):
         export_button = _QPushButton("Export training configs")
         export_button.clicked.connect(self._on_export_configs)
         layout.addWidget(export_button)
+        return widget
+
+    def _build_al_tab(self) -> _QWidget:
+        widget = _QWidget()
+        layout = _QVBoxLayout(widget)
+
+        self.al_next_round_label = _QLabel("No project open.")
+        self.al_rounds_completed_label = _QLabel("")
+        self.al_pending_proposals_label = _QLabel("")
+        self.al_unimported_rounds_label = _QLabel("")
+        for label in (
+            self.al_next_round_label,
+            self.al_rounds_completed_label,
+            self.al_pending_proposals_label,
+            self.al_unimported_rounds_label,
+        ):
+            layout.addWidget(label)
+
+        form = _QFormLayout()
+        self.al_max_per_round_spin = _QSpinBox()
+        self.al_max_per_round_spin.setRange(1, 1000)
+        self.al_max_per_round_spin.setValue(_al_runner.AL_MAX_PER_ROUND_DEFAULT)
+        self.al_ensemble_size_spin = _QSpinBox()
+        self.al_ensemble_size_spin.setRange(1, 64)
+        self.al_ensemble_size_spin.setValue(4)
+        self.al_num_restarts_spin = _QSpinBox()
+        self.al_num_restarts_spin.setRange(1, 1000)
+        self.al_num_restarts_spin.setValue(8)
+        self.al_num_steps_spin = _QSpinBox()
+        self.al_num_steps_spin.setRange(1, 100_000)
+        self.al_num_steps_spin.setValue(200)
+        self.al_max_workers_spin = _QSpinBox()
+        self.al_max_workers_spin.setRange(0, 64)
+        self.al_max_workers_spin.setValue(0)
+        self.al_max_workers_spin.setSpecialValueText("Auto")
+        form.addRow("Proposals per round", self.al_max_per_round_spin)
+        form.addRow("Ensemble size", self.al_ensemble_size_spin)
+        form.addRow("Restarts", self.al_num_restarts_spin)
+        form.addRow("Steps", self.al_num_steps_spin)
+        form.addRow("Max workers", self.al_max_workers_spin)
+        layout.addLayout(form)
+
+        buttons = _QHBoxLayout()
+        self.al_start_button = _QPushButton("Start round")
+        self.al_start_button.clicked.connect(self._on_al_start_round)
+        self.al_cancel_button = _QPushButton("Cancel round")
+        self.al_cancel_button.setEnabled(False)
+        self.al_cancel_button.clicked.connect(self._on_al_cancel_round)
+        self.al_import_button = _QPushButton("Import proposals")
+        self.al_import_button.clicked.connect(self._on_al_import_proposals)
+        self.al_export_button = _QPushButton("Export remote runner files")
+        self.al_export_button.clicked.connect(self._on_al_export_runner_files)
+        buttons.addWidget(self.al_start_button)
+        buttons.addWidget(self.al_cancel_button)
+        buttons.addWidget(self.al_import_button)
+        buttons.addWidget(self.al_export_button)
+        layout.addLayout(buttons)
+
+        if getattr(_sys, "frozen", False):
+            self.al_start_button.setEnabled(False)
+            self.al_start_button.setToolTip(
+                "Active learning needs the Python environment; the packaged app "
+                "does not bundle torch."
+            )
+
+        self.al_log = _QPlainTextEdit()
+        self.al_log.setReadOnly(True)
+        layout.addWidget(self.al_log)
+
         return widget
 
     @staticmethod
@@ -518,8 +595,30 @@ class MainWindow(_QMainWindow):
             _QMessageBox.information(self, "Project reconciled", "\n".join(notes))
         else:
             self.project_log.appendPlainText(f"Opened project: {project_dir}")
+        self._maybe_prompt_import_al_proposals()
         self._refresh_devices()
         self._refresh_all()
+
+    def _maybe_prompt_import_al_proposals(self) -> None:
+        if self.project is None or self.project_dir is None:
+            return
+        unimported = _al_runner.unimported_rounds(self.project, self.project_dir)
+        if not unimported:
+            return
+        confirm = _QMessageBox.question(
+            self,
+            "Import active-learning proposals?",
+            f"{len(unimported)} active-learning round(s) have proposals not yet "
+            "imported as pending captures: "
+            f"{', '.join(str(idx) for idx in unimported)}.\n\nImport them now?",
+            _QMessageBox.StandardButton.Yes | _QMessageBox.StandardButton.No,
+            _QMessageBox.StandardButton.Yes,
+        )
+        if confirm != _QMessageBox.StandardButton.Yes:
+            return
+        message = self._import_al_proposals()
+        if message:
+            self.project_log.appendPlainText(message)
 
     def _maybe_recover_from_disk(self) -> list[str]:
         """
@@ -869,6 +968,199 @@ class MainWindow(_QMainWindow):
         self.capture_log.appendPlainText(f"Wrote training configs:\n{message}")
         _QMessageBox.information(self, "Training configs written", message)
 
+    # -- active learning -------------------------------------------------
+
+    def _al_process_args(self) -> list[str]:
+        """
+        Argument list for the ``python -m nam.capture.al_runner`` subprocess (everything
+        after ``sys.executable``), read from the tab's settings widgets. Split out from
+        the launch method so it can be tested without spawning a process.
+        """
+        assert self.project_dir is not None
+        args = [
+            "-m",
+            "nam.capture.al_runner",
+            "--project-dir",
+            str(self.project_dir),
+            "--max-per-round",
+            str(self.al_max_per_round_spin.value()),
+            "--ensemble-size",
+            str(self.al_ensemble_size_spin.value()),
+            "--num-restarts",
+            str(self.al_num_restarts_spin.value()),
+            "--num-steps",
+            str(self.al_num_steps_spin.value()),
+        ]
+        max_workers = self.al_max_workers_spin.value()
+        if max_workers > 0:
+            args += ["--max-workers", str(max_workers)]
+        return args
+
+    def _on_al_start_round(self) -> None:
+        if self.project is None or self.project_dir is None:
+            _QMessageBox.warning(self, "No project", "Open or create a project first.")
+            return
+        if self._worker is not None and self._worker.isRunning():
+            _QMessageBox.warning(
+                self, "Busy", "A capture is currently running; wait for it to finish."
+            )
+            return
+        if self._al_process is not None:
+            _QMessageBox.warning(
+                self, "Busy", "An active-learning round is already running."
+            )
+            return
+
+        env = _QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUNBUFFERED", "1")
+
+        process = _QProcess(self)
+        process.setProcessChannelMode(_QProcess.ProcessChannelMode.MergedChannels)
+        process.setWorkingDirectory(str(self.project_dir))
+        process.setProcessEnvironment(env)
+        process.readyReadStandardOutput.connect(self._on_al_output)
+        process.finished.connect(self._on_al_finished)
+
+        self._al_process = process
+        self._al_cancel_requested = False
+        self.al_start_button.setEnabled(False)
+        self.generate_plan_button.setEnabled(False)
+        self.al_cancel_button.setEnabled(True)
+        self.al_log.appendPlainText("Starting active-learning round...")
+
+        process.start(_sys.executable, self._al_process_args())
+
+    def _on_al_output(self) -> None:
+        if self._al_process is None:
+            return
+        text = bytes(self._al_process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
+        )
+        if text:
+            self.al_log.appendPlainText(text.rstrip("\n"))
+
+    def _on_al_finished(self, exit_code: int, exit_status: _QProcess.ExitStatus) -> None:
+        self._al_process = None
+        self.al_start_button.setEnabled(not getattr(_sys, "frozen", False))
+        self.generate_plan_button.setEnabled(True)
+        self.al_cancel_button.setEnabled(False)
+        if self._al_kill_timer is not None:
+            self._al_kill_timer.stop()
+            self._al_kill_timer = None
+
+        cancelled = self._al_cancel_requested
+        self._al_cancel_requested = False
+
+        success = exit_code == 0 and exit_status == _QProcess.ExitStatus.NormalExit
+        if success:
+            message = self._import_al_proposals()
+            self.al_log.appendPlainText(
+                message or "Active-learning round finished; no new proposals to import."
+            )
+        elif cancelled:
+            self.al_log.appendPlainText("Active-learning round cancelled.")
+        else:
+            self.al_log.appendPlainText(
+                f"Active-learning round exited with code {exit_code}."
+            )
+
+        self._refresh_all()
+
+        if success:
+            self.status_bar.showMessage(message or "Active-learning round finished.")
+        elif cancelled:
+            self.status_bar.showMessage("Active-learning round cancelled.")
+        else:
+            _QMessageBox.warning(
+                self,
+                "Active-learning round failed",
+                f"The active-learning process exited with code {exit_code}. See the "
+                "log pane on the Active Learning tab for details.",
+            )
+
+    def _on_al_cancel_round(self) -> None:
+        if self._al_process is None:
+            return
+        self._al_cancel_requested = True
+        self.al_log.appendPlainText("Cancelling active-learning round...")
+        self._al_process.terminate()
+        timer = _QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(self._on_al_kill_timeout)
+        timer.start(5000)
+        self._al_kill_timer = timer
+
+    def _on_al_kill_timeout(self) -> None:
+        self._al_kill_timer = None
+        if self._al_process is not None:
+            self._al_process.kill()
+
+    def _import_al_proposals(self) -> str:
+        """
+        Import proposals from every unimported active-learning round as pending train
+        entries and save the project. Returns a log line describing what was imported,
+        or "" if there was nothing to do.
+        """
+        if self.project is None or self.project_dir is None:
+            return ""
+        rounds = _al_runner.unimported_rounds(self.project, self.project_dir)
+        if not rounds:
+            return ""
+        added = 0
+        for round_idx in rounds:
+            proposals = _al_runner.load_round_proposals(self.project_dir, round_idx)
+            added += len(_al_runner.import_round_proposals(self.project, proposals))
+        _save_project(self.project, self.project_dir)
+        return (
+            f"Imported {added} proposed capture(s) from round(s) "
+            f"{', '.join(str(idx) for idx in rounds)}."
+        )
+
+    def _on_al_import_proposals(self) -> None:
+        if self.project is None or self.project_dir is None:
+            _QMessageBox.warning(self, "No project", "Open or create a project first.")
+            return
+        message = self._import_al_proposals()
+        self.al_log.appendPlainText(message or "No new active-learning proposals to import.")
+        self._refresh_all()
+
+    def _on_al_export_runner_files(self) -> None:
+        if self.project is None or self.project_dir is None:
+            _QMessageBox.warning(self, "No project", "Open or create a project first.")
+            return
+        if not any(entry.split == "train" for entry in self.project.captured_entries()):
+            _QMessageBox.warning(
+                self,
+                "No captured train entries",
+                "Capture at least one train entry before exporting active-learning "
+                "runner files.",
+            )
+            return
+
+        try:
+            batch_size, drop_last = _al_runner.compute_al_batch_size(
+                _al_runner.available_accelerator_memory_bytes(),
+                _al_runner.AL_NY,
+                _al_runner.count_train_windows(self.project, self.project_dir),
+            )
+        except Exception as exc:
+            batch_size, drop_last = 32, True
+            self.al_log.appendPlainText(
+                f"Could not probe available memory ({exc}); using batch size 32."
+            )
+
+        paths = _al_runner.write_al_configs(
+            self.project, self.project_dir, batch_size=batch_size, drop_last=drop_last
+        )
+        message = "\n".join(str(path) for path in paths)
+        self.al_log.appendPlainText(f"Wrote active-learning runner files:\n{message}")
+        self.al_log.appendPlainText(
+            "Copy the whole project folder to the training machine and run "
+            "./run_active_learning.sh, then copy the active_learning/ folder back "
+            "and reopen the project here."
+        )
+        _QMessageBox.information(self, "Active-learning runner files written", message)
+
     # -- worker plumbing -----------------------------------------------
 
     def _run_worker(
@@ -934,6 +1226,7 @@ class MainWindow(_QMainWindow):
         self._refresh_plan_tables()
         self._refresh_next_entry_label()
         self._refresh_status_bar()
+        self._refresh_al_tab()
 
     def _refresh_plan_tables(self) -> None:
         entries = self.project.entries if self.project is not None else []
@@ -977,6 +1270,25 @@ class MainWindow(_QMainWindow):
             f"Train: {train_done}/{len(train)} captured  |  "
             f"Validation: {validation_done}/{len(validation)} captured"
         )
+
+    def _refresh_al_tab(self) -> None:
+        if self.project is None or self.project_dir is None:
+            self.al_next_round_label.setText("No project open.")
+            self.al_rounds_completed_label.setText("")
+            self.al_pending_proposals_label.setText("")
+            self.al_unimported_rounds_label.setText("")
+            return
+        next_round = _al_runner.next_round_idx(self.project_dir)
+        outstanding = _al_runner.outstanding_proposal_y_paths(
+            self.project, self.project_dir
+        )
+        unimported = _al_runner.unimported_rounds(self.project, self.project_dir)
+        self.al_next_round_label.setText(f"Next round: {next_round}")
+        self.al_rounds_completed_label.setText(f"Rounds completed: {next_round}")
+        self.al_pending_proposals_label.setText(
+            f"AL-proposed captures pending: {len(outstanding)}"
+        )
+        self.al_unimported_rounds_label.setText(f"Unimported rounds: {len(unimported)}")
 
 
 def main() -> None:

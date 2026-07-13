@@ -58,7 +58,7 @@
         "pre_emph_mrstft_coef": 0.85
     },
     "optimizer": {
-        "lr": 0.008
+        "lr": 0.001
     },
     "lr_scheduler": {
         "class": "ExponentialLR",
