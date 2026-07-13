@@ -3,10 +3,11 @@
         "Active-learning ensemble-member config: a parametric ConcatLSTM, NOT the shipped HyperWaveNet.",
         "The active-learning workflow is adapted from PANAMA (arXiv 2509.26564v1); the ConcatLSTM",
         "conditioning scheme (encode the control vector, tile across time, concatenate to audio) is theirs.",
-        "Architecture/loss/optimizer mirror PANAMA's default_config_files/models/lstm.json (3 layers,",
-        "hidden_size 18, train_burn_in 8192, pre-emph MRSTFT loss, lr 0.008, ExponentialLR gamma 0.995)",
-        "rather than this repo's HyperWaveNet-tuned parametric config, since ConcatLSTM is a different",
-        "architecture. Tune during testing as needed.",
+        "Architecture/loss mirror PANAMA's default_config_files/models/lstm.json (3 layers, hidden_size",
+        "18, train_burn_in 8192, pre-emph MRSTFT loss, ExponentialLR gamma 0.995) rather than this repo's",
+        "HyperWaveNet-tuned parametric config, since ConcatLSTM is a different architecture. The lr is",
+        "sqrt-scaled to batch size (~0.005 at batch 20; see nam.capture.export.active_learning_learning_rate);",
+        "the 0.0063 below matches this example's batch_size 32. Tune during testing as needed.",
         "This LSTM is a disposable query-by-committee acquisition proxy: scripts/active_learn.py trains a",
         "4-member ensemble from this config to find the control settings where members disagree most.",
         "ConcatLSTM derives its conditioning width (1 + encoded_param_dim) from the params below, so there",
@@ -58,7 +59,7 @@
         "pre_emph_mrstft_coef": 0.85
     },
     "optimizer": {
-        "lr": 0.001
+        "lr": 0.0063
     },
     "lr_scheduler": {
         "class": "ExponentialLR",

@@ -1138,19 +1138,27 @@ class MainWindow(_QMainWindow):
             return
 
         try:
+            available_bytes = _al_runner.available_accelerator_memory_bytes()
             batch_size, drop_last = _al_runner.compute_al_batch_size(
-                _al_runner.available_accelerator_memory_bytes(),
+                available_bytes,
                 _al_runner.AL_NY,
                 _al_runner.count_train_windows(self.project, self.project_dir),
             )
+            val_batch_size = _al_runner.compute_al_val_batch_size(
+                available_bytes, _al_runner.AL_NY
+            )
         except Exception as exc:
-            batch_size, drop_last = 32, True
+            batch_size, drop_last, val_batch_size = 32, True, None
             self.al_log.appendPlainText(
                 f"Could not probe available memory ({exc}); using batch size 32."
             )
 
         paths = _al_runner.write_al_configs(
-            self.project, self.project_dir, batch_size=batch_size, drop_last=drop_last
+            self.project,
+            self.project_dir,
+            batch_size=batch_size,
+            drop_last=drop_last,
+            val_batch_size=val_batch_size,
         )
         message = "\n".join(str(path) for path in paths)
         self.al_log.appendPlainText(f"Wrote active-learning runner files:\n{message}")

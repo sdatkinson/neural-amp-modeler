@@ -2,21 +2,31 @@
     "_notes": [
         "Active-learning ensemble-member learning config, adapting PANAMA's",
         "default_config_files/learning/active_learning_LSTM.json (arXiv 2509.26564v1):",
-        "50 epochs. Used by scripts/active_learn.py / nam.train.active_learning.train_ensemble",
-        "to train each of the 4 disposable ConcatLSTM members serially on one device.",
+        "150 epochs (raised from PANAMA's 50: this tiny proxy needs a few thousand gradient updates",
+        "to fit, and update count -- steps/epoch x epochs -- is what limits convergence here). Used by",
+        "scripts/active_learn.py / nam.train.active_learning.train_ensemble to train each of the 4",
+        "disposable ConcatLSTM members serially on one device.",
         "DEVIATIONS from PANAMA (intentional, for this single-GPU port):",
         " * trainer.accelerator is rewritten at runtime to cuda > mps > cpu, so this stays device-agnostic",
         "   regardless of the value below.",
         " * PANAMA disables in-loop validation (check_val_every_n_epoch 51) and takes the last checkpoint.",
         "   Our train_ensemble selects the val_loss-monitored BEST checkpoint, so validation must run:",
         "   check_val_every_n_epoch is left at its default (1) and the data config keeps a validation split.",
-        " * batch_size is 128, not PANAMA's 512. ConcatLSTM trains with full backprop-through-time over each",
-        "   ny-length window (train_truncate null), so peak memory scales with batch_size * ny. The starter",
-        "   windows are ny=32768 (above the loss mask_first, below one LSTM block; see the data config), and",
-        "   512 * 32768 backprop OOMs a Mac (~80 GiB); batch_size 32 peaks near 5 GiB on MPS and a batch_size",
-        "   of 128 peaks near 20GB. Raise it on a large-VRAM CUDA box; lower it (and/or set drop_last false)",
-        "   for a very small capture set. Watch the tensorboard to verify that training is converging if you",
-        "   raise the batch size.",
+        " * batch_size is 32, not PANAMA's 512. Size the batch for MANY optimizer steps per epoch",
+        "   (~train_windows / 30), NOT to fill memory: this proxy is limited by gradient-update count, and",
+        "   a memory-filling batch collapses a small round-0 set to a handful of steps/epoch so it never",
+        "   fits. The capture-app runner (nam.capture.al_runner.compute_al_batch_size) picks the batch this",
+        "   way automatically; keep it small here for a small set. ConcatLSTM trains with full",
+        "   backprop-through-time over each ny-length window (train_truncate null), so peak memory scales",
+        "   with batch_size * ny; ny=32768 (above the loss mask_first, below one LSTM block; see the data",
+        "   config). batch_size 32 peaks near 5 GiB on MPS -- memory is only an upper bound on the batch,",
+        "   not the target. If you raise it, also raise the lr (sqrt-scaled) and watch tensorboard to",
+        "   verify convergence.",
+        " * val_dataloader.batch_size is LARGER than train (memory-bounded, not step-bounded): validation",
+        "   does no backprop, and ESR is a ratio, so a per-batch ESR averaged over many small batches is",
+        "   not the whole-set ESR -- validation should run in as few batches as possible (ideally one) so",
+        "   val_loss and best-checkpoint selection are stable. The validation set is fixed-size, so a big",
+        "   batch just covers it in one pass.",
         "Plain shuffled DataLoader (no capture-grouped batch sampler) is used."
     ],
     "train_dataloader": {
@@ -27,14 +37,14 @@
         "num_workers": 0
     },
     "val_dataloader": {
-        "batch_size": 32,
+        "batch_size": 256,
         "pin_memory": true,
         "num_workers": 0
     },
     "trainer": {
         "accelerator": "gpu",
         "devices": 1,
-        "max_epochs": 50,
+        "max_epochs": 150,
         "gradient_clip_val": 1.0
     },
     "trainer_fit_kwargs": {}

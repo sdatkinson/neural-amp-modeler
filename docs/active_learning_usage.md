@@ -29,8 +29,10 @@ The capture GUI (`python -m nam.capture.gui.main`) plans a starter set of 10 tra
 validation captures via a Latin hypercube over the knobs, then hands rounds off to the
 **Active Learning** tab. "Start round" runs `python -m nam.capture.al_runner` against the
 project folder as a background process; each round regenerates the AL configs from
-`capture_project.json` fresh (`ny` 32768, batch size auto-sized from the machine's GPU/CPU
-memory, and each knob's `step`/`avoid_zero` honored in the proposals). Proposals from a
+`capture_project.json` fresh (`ny` 32768, batch size auto-sized to hit ~30 optimizer steps
+per epoch for the current capture-set size — with the machine's GPU/CPU memory only as an
+upper cap — the learning rate scaled to that batch, and each knob's `step`/`avoid_zero`
+honored in the proposals). Proposals from a
 finished round import back into the project as pending train captures automatically (and
 the tab offers to import any left over when you reopen a project).
 
@@ -45,13 +47,22 @@ reopen the project in the capture app -- it is the single writer of
 Ready-to-edit examples (Gain/Tone continuous 0–10, Boost switch Off/On) live in
 [`nam_full_configs/active_learning/`](../nam_full_configs/active_learning/):
 
-- `model.json` — `net.name = "ConcatLSTM"`, with architecture/loss/optimizer mirroring PANAMA's LSTM
-  (3 layers, hidden_size 18, `train_burn_in`/`mask_first` 8192, pre-emph MRSTFT loss, lr 0.008). Its
+- `model.json` — `net.name = "ConcatLSTM"`, with architecture/loss mirroring PANAMA's LSTM
+  (3 layers, hidden_size 18, `train_burn_in`/`mask_first` 8192, pre-emph MRSTFT loss). Its
   `params` block **must match** the params of the parametric production model you are capturing for.
-- `learning.json` — PANAMA's active-learning regime (`batch_size` 512, 50 epochs). The accelerator is
-  rewritten at runtime to `cuda → mps → cpu`, so it is device-agnostic. Unlike PANAMA (which skips
-  in-loop validation), our `train_ensemble` keeps validation on to pick the best checkpoint. With a
-  small starter set, lower `batch_size`/disable `drop_last` so batches aren't all dropped.
+  The learning rate is sqrt-scaled to the batch size (≈0.005 at batch 20); the capture-app path sets
+  it automatically, and this example carries a value matching its own `batch_size`.
+- `learning.json` — 150 epochs at `batch_size` 32. **Convergence note:** the ConcatLSTM proxy is a
+  tiny model on a tiny dataset, so what limits convergence is the *number of gradient updates*, not
+  throughput. Size the batch for many steps per epoch (roughly `train_windows / 30`), **not** to fill
+  memory: a memory-filling batch collapses a round-0 set to a handful of steps per epoch and the model
+  never fits. The capture-app runner (`al_runner.compute_al_batch_size`) does this automatically; if
+  you edit this file by hand, keep `batch_size` small for a small set. The `val_dataloader.batch_size`
+  is deliberately *larger* (memory-bounded, not step-bounded): validation does no backprop, and ESR is
+  a ratio, so validation should run in as few batches as possible (ideally one) or `val_loss` — and the
+  best-checkpoint pick — drifts with the batch count. The accelerator is rewritten at runtime to
+  `cuda → mps → cpu`, so it is device-agnostic. Unlike PANAMA (which skips in-loop validation), our
+  `train_ensemble` keeps validation on to pick the best checkpoint.
 - `data.json` — a 10-setting starter set produced by the script below, used as the round-0 seed.
 
 ## Workflow

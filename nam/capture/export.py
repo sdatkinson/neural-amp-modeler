@@ -12,8 +12,10 @@ parametric trainer needs from the project file —
 
 from __future__ import annotations
 
+import math as _math
 from pathlib import Path as _Path
 from typing import Any as _Any
+from typing import Optional as _Optional
 
 from .project import CaptureProject
 from .project import DATA_FILENAME
@@ -27,7 +29,18 @@ from .project import atomic_write_json as _atomic_write_json
 # export.py has no import-time dependency on al_runner; al_runner re-exports it.
 AL_NY = 32768
 AL_MAX_BATCH_SIZE = 256
-AL_REFERENCE_LEARNING_RATE = 0.008
+
+# The AL learning rate is scaled with the batch size: a larger batch averages its
+# gradient over more windows, so a proportionally larger step stays stable. The batch
+# itself is chosen for a target steps-per-epoch (see al_runner.compute_al_batch_size), so
+# it grows with the capture set across rounds -- roughly batch ~16 at round 0 up toward a
+# few dozen later. sqrt (not linear) scaling is used because training uses Adam, whose
+# update is already normalized by the gradient's running variance: sqrt keeps the lr in a
+# healthy ~0.005-0.01 band across that whole batch range, where linear scaling would
+# undershoot at the small end and overshoot into instability at the large end. lr equals
+# AL_REFERENCE_LEARNING_RATE exactly at AL_REFERENCE_BATCH_SIZE.
+AL_REFERENCE_BATCH_SIZE = 20
+AL_REFERENCE_LEARNING_RATE = 0.005
 
 
 def active_learning_learning_rate(batch_size: int) -> float:
@@ -36,7 +49,7 @@ def active_learning_learning_rate(batch_size: int) -> float:
             f"Active-learning batch_size must be in [1, {AL_MAX_BATCH_SIZE}], got "
             f"{batch_size}"
         )
-    return AL_REFERENCE_LEARNING_RATE * batch_size / AL_MAX_BATCH_SIZE
+    return AL_REFERENCE_LEARNING_RATE * _math.sqrt(batch_size / AL_REFERENCE_BATCH_SIZE)
 
 
 def build_data_config(project: CaptureProject) -> dict[str, _Any]:
@@ -201,7 +214,19 @@ def build_learning_config(project: CaptureProject) -> dict[str, _Any]:
 # Mirrors nam_full_configs/active_learning/learning.json, less its _notes. trainer.accelerator
 # is a placeholder: nam.train.active_learning.train_ensemble rewrites it at runtime
 # (cuda > mps > cpu).
-def build_al_learning_config(*, batch_size: int, drop_last: bool) -> dict[str, _Any]:
+def build_al_learning_config(
+    *, batch_size: int, drop_last: bool, val_batch_size: _Optional[int] = None
+) -> dict[str, _Any]:
+    # val_batch_size is decoupled from the training batch_size on purpose. The training
+    # batch is small (sized for many gradient steps per epoch); validation does no backprop
+    # and has no such concern, so it uses a larger batch to run in as few passes as
+    # possible. ESR is a ratio whose denominator sums target energy over the batch, so a
+    # per-batch ESR averaged over many small batches is NOT the whole-set ESR (see the NOTE
+    # on nam.train.lightning_module.ValidationLoss) -- fragmenting validation would make
+    # val_loss, and thus best-checkpoint selection, depend on the batch count. Defaults to
+    # batch_size when unset (e.g. an explicit user-forced batch applies to both splits).
+    if val_batch_size is None:
+        val_batch_size = batch_size
     return {
         "train_dataloader": {
             "batch_size": batch_size,
@@ -211,14 +236,18 @@ def build_al_learning_config(*, batch_size: int, drop_last: bool) -> dict[str, _
             "num_workers": 0,
         },
         "val_dataloader": {
-            "batch_size": batch_size,
+            "batch_size": val_batch_size,
             "pin_memory": True,
             "num_workers": 0,
         },
         "trainer": {
             "accelerator": "gpu",
             "devices": 1,
-            "max_epochs": 50,
+            # ~150 epochs x AL_TARGET_STEPS_PER_EPOCH (~30) gives the ConcatLSTM proxy a
+            # few thousand gradient updates -- enough to actually fit the capture set.
+            # Together with AL_TARGET_STEPS_PER_EPOCH this sets the total update budget;
+            # they are the two knobs to turn if the proxy under/over-fits.
+            "max_epochs": 150,
             "gradient_clip_val": 1.0,
         },
         "trainer_fit_kwargs": {},
