@@ -116,6 +116,7 @@ class PlaybackRecorder(_Protocol):
         input_device: _Optional[int] = None,
         output_channel: int = 1,
         input_channel: int = 1,
+        blocksize: int = 0,
         progress: _Optional[_Callable[[float], None]] = None,
         cancel: _Optional[_Callable[[], bool]] = None,
     ) -> _np.ndarray:
@@ -153,6 +154,7 @@ class SounddeviceRecorder:
         input_device: _Optional[int] = None,
         output_channel: int = 1,
         input_channel: int = 1,
+        blocksize: int = 0,
         progress: _Optional[_Callable[[float], None]] = None,
         cancel: _Optional[_Callable[[], bool]] = None,
     ) -> _np.ndarray:
@@ -192,6 +194,7 @@ class SounddeviceRecorder:
             device=(input_device, output_device),
             channels=input_channels,
             dtype="float32",
+            blocksize=blocksize,
             blocking=False,
         )
         duration = len(playback) / sample_rate

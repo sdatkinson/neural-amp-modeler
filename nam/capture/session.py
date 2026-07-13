@@ -137,6 +137,7 @@ class CaptureSession:
             sample_rate,
             output_channel=self.project.audio.output_channel,
             input_channel=self.project.audio.input_channel,
+            blocksize=self.project.audio.blocksize,
             progress=progress,
             cancel=cancel,
             **self._resolve_devices(),

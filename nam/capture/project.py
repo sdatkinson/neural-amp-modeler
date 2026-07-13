@@ -111,6 +111,9 @@ class AudioSettingsModel(_BaseModel):
     input_device: _Optional[str] = None
     output_channel: int = 1
     input_channel: int = 1
+    # Device buffer/block size in frames passed to the audio stream. 0 lets
+    # PortAudio pick an optimal block size.
+    blocksize: int = 0
 
 
 class QAModel(_BaseModel):

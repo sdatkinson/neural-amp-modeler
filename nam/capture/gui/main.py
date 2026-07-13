@@ -64,6 +64,9 @@ from .workers import SessionWorker as _SessionWorker
 
 _PLAN_COLUMNS = ("Split", "Index", "Params", "Filename", "Status", "Delay", "QA")
 
+# Selectable audio device buffer sizes in frames; 0 lets PortAudio choose.
+_BUFFER_SIZE_CHOICES = (0, 32, 64, 128, 256, 512, 1024, 2048, 4096)
+
 
 def format_number(value: float) -> str:
     """
@@ -326,10 +329,15 @@ class MainWindow(_QMainWindow):
         self.output_channel_spin.setRange(1, 1)
         self.input_channel_spin = _QSpinBox()
         self.input_channel_spin.setRange(1, 1)
+        self.buffer_size_combo = _QComboBox()
+        for frames in _BUFFER_SIZE_CHOICES:
+            label = "Auto" if frames == 0 else f"{frames} frames"
+            self.buffer_size_combo.addItem(label, frames)
         form.addRow("Output device", self.output_device_combo)
         form.addRow("Output channel", self.output_channel_spin)
         form.addRow("Input device", self.input_device_combo)
         form.addRow("Input channel", self.input_channel_spin)
+        form.addRow("Buffer size", self.buffer_size_combo)
         layout.addLayout(form)
 
         buttons = _QHBoxLayout()
@@ -356,6 +364,7 @@ class MainWindow(_QMainWindow):
         )
         self.output_channel_spin.valueChanged.connect(self._save_audio_settings)
         self.input_channel_spin.valueChanged.connect(self._save_audio_settings)
+        self.buffer_size_combo.currentIndexChanged.connect(self._save_audio_settings)
         return widget
 
     def _build_capture_tab(self) -> _QWidget:
@@ -813,6 +822,10 @@ class MainWindow(_QMainWindow):
         self.input_channel_spin.blockSignals(True)
         self.input_channel_spin.setValue(audio.input_channel)
         self.input_channel_spin.blockSignals(False)
+        self.buffer_size_combo.blockSignals(True)
+        buffer_index = self.buffer_size_combo.findData(audio.blocksize)
+        self.buffer_size_combo.setCurrentIndex(max(0, buffer_index))
+        self.buffer_size_combo.blockSignals(False)
 
     def _on_output_device_changed(self) -> None:
         self._update_channel_ranges()
@@ -848,6 +861,7 @@ class MainWindow(_QMainWindow):
             self.project.audio.host_api = input_device.host_api
         self.project.audio.output_channel = self.output_channel_spin.value()
         self.project.audio.input_channel = self.input_channel_spin.value()
+        self.project.audio.blocksize = int(self.buffer_size_combo.currentData())
         _save_project(self.project, self.project_dir)
 
     def _on_route_test(self) -> None:
