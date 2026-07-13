@@ -130,6 +130,17 @@ class PlaybackRecorder(_Protocol):
         ...
 
 
+def _device_channels(index: _Optional[int], *, kind: str) -> int:
+    """
+    Number of channels the device exposes in ``kind`` ("input" or "output"). ``None``
+    means PortAudio's default device for that direction.
+    """
+    import sounddevice as sd
+
+    info = sd.query_devices(kind=kind) if index is None else sd.query_devices(index)
+    return int(info[f"max_{kind}_channels"])
+
+
 class SounddeviceRecorder:
     _POLL_MS = 50
 
@@ -151,12 +162,35 @@ class SounddeviceRecorder:
         if playback.ndim != 1:
             raise ValueError(f"Expected mono playback; got shape {playback.shape}")
 
+        # Open the device at its full channel width and place the signal on the exact
+        # channel index, the way a DAW does. sounddevice's channel *mapping* would
+        # instead open only max(mapping) channels; a 1-channel stream on a
+        # multichannel interface is routed by CoreAudio to the device's default pair
+        # rather than physical output 1, so "output on channel 1" would land
+        # elsewhere. Addressing full-width buffers keeps channel numbers literal.
+        output_channels = _device_channels(output_device, kind="output")
+        input_channels = _device_channels(input_device, kind="input")
+        if not 1 <= output_channel <= output_channels:
+            raise AudioDeviceError(
+                f"Output channel {output_channel} is out of range for a device with "
+                f"{output_channels} output channels."
+            )
+        if not 1 <= input_channel <= input_channels:
+            raise AudioDeviceError(
+                f"Input channel {input_channel} is out of range for a device with "
+                f"{input_channels} input channels."
+            )
+
+        playback_frame = _np.zeros(
+            (len(playback), output_channels), dtype=_np.float32
+        )
+        playback_frame[:, output_channel - 1] = playback
+
         recording = sd.playrec(
-            playback[:, None],
+            playback_frame,
             samplerate=sample_rate,
             device=(input_device, output_device),
-            input_mapping=[input_channel],
-            output_mapping=[output_channel],
+            channels=input_channels,
             dtype="float32",
             blocking=False,
         )
@@ -177,4 +211,4 @@ class SounddeviceRecorder:
             raise
         if progress is not None:
             progress(1.0)
-        return recording[:, 0].copy()
+        return recording[:, input_channel - 1].copy()

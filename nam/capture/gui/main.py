@@ -216,6 +216,10 @@ class MainWindow(_QMainWindow):
         self._validation_input_name: str = "input_validation.wav"
         self._devices: list[_DeviceInfo] = []
         self._worker: _Optional[_SessionWorker] = None
+        # Workers are retained here until their ``finished`` signal fires so the
+        # underlying QThread is never garbage-collected (and destroyed) while its
+        # ``run`` is still unwinding on the worker thread, which aborts the process.
+        self._retired_workers: set[_SessionWorker] = set()
         self._cancel_token: _Optional[_CancelToken] = None
         self._al_process: _Optional[_QProcess] = None
         self._al_kill_timer: _Optional[_QTimer] = None
@@ -1198,6 +1202,19 @@ class MainWindow(_QMainWindow):
         worker = _SessionWorker(call, cancel_token)
         self._worker = worker
         self._cancel_token = cancel_token
+
+        # Keep a reference to the thread until it has genuinely finished. The
+        # success/failure/cancelled handlers below run (queued) on the GUI thread
+        # while the worker's run() is still returning, so clearing self._worker
+        # there would otherwise drop the last reference and delete the QThread on
+        # its own thread -- a fatal "Destroyed while thread is still running".
+        self._retired_workers.add(worker)
+
+        def release_worker() -> None:
+            self._retired_workers.discard(worker)
+            worker.deleteLater()
+
+        worker.finished.connect(release_worker)
 
         for widget in disable:
             widget.setEnabled(False)
