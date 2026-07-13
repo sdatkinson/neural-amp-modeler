@@ -416,13 +416,13 @@ class MainWindow(_QMainWindow):
         self.al_max_per_round_spin.setValue(_al_runner.AL_MAX_PER_ROUND_DEFAULT)
         self.al_ensemble_size_spin = _QSpinBox()
         self.al_ensemble_size_spin.setRange(1, 64)
-        self.al_ensemble_size_spin.setValue(4)
+        self.al_ensemble_size_spin.setValue(_al_runner.AL_ENSEMBLE_SIZE_DEFAULT)
         self.al_num_restarts_spin = _QSpinBox()
         self.al_num_restarts_spin.setRange(1, 1000)
-        self.al_num_restarts_spin.setValue(8)
+        self.al_num_restarts_spin.setValue(_al_runner.AL_NUM_RESTARTS_DEFAULT)
         self.al_num_steps_spin = _QSpinBox()
         self.al_num_steps_spin.setRange(1, 100_000)
-        self.al_num_steps_spin.setValue(200)
+        self.al_num_steps_spin.setValue(_al_runner.AL_NUM_STEPS_DEFAULT)
         self.al_max_workers_spin = _QSpinBox()
         self.al_max_workers_spin.setRange(0, 64)
         self.al_max_workers_spin.setValue(0)
@@ -1153,12 +1153,18 @@ class MainWindow(_QMainWindow):
                 f"Could not probe available memory ({exc}); using batch size 32."
             )
 
+        max_workers = self.al_max_workers_spin.value()
         paths = _al_runner.write_al_configs(
             self.project,
             self.project_dir,
             batch_size=batch_size,
             drop_last=drop_last,
             val_batch_size=val_batch_size,
+            max_per_round=self.al_max_per_round_spin.value(),
+            ensemble_size=self.al_ensemble_size_spin.value(),
+            num_restarts=self.al_num_restarts_spin.value(),
+            num_steps=self.al_num_steps_spin.value(),
+            max_workers=max_workers if max_workers > 0 else None,
         )
         message = "\n".join(str(path) for path in paths)
         self.al_log.appendPlainText(f"Wrote active-learning runner files:\n{message}")

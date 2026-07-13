@@ -45,6 +45,9 @@ if _TYPE_CHECKING:
 
 AL_DIRNAME = "active_learning"
 AL_MAX_PER_ROUND_DEFAULT = 10
+AL_ENSEMBLE_SIZE_DEFAULT = 4
+AL_NUM_RESTARTS_DEFAULT = 16
+AL_NUM_STEPS_DEFAULT = 300
 RUNNER_SCRIPT_FILENAME = "run_active_learning.sh"
 
 # Target number of optimizer steps per epoch for AL ensemble training. The batch size is
@@ -61,7 +64,7 @@ _RUNNER_SCRIPT = """\
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-"${PYTHON:-python}" -m nam.capture.al_runner --project-dir . "$@"
+"${{PYTHON:-python}}" -m nam.capture.al_runner --project-dir . {default_args} "$@"
 """
 
 _PROPOSAL_FILENAME_RE = _re.compile(r"^proposed_captures_round_(\d+)\.json$")
@@ -283,10 +286,38 @@ def import_round_proposals(
     return appended
 
 
-def write_runner_script(project_dir: _Path) -> _Path:
-    """Write the remote-runnable ``run_active_learning.sh`` wrapper at the project root."""
+def write_runner_script(
+    project_dir: _Path,
+    *,
+    max_per_round: int = AL_MAX_PER_ROUND_DEFAULT,
+    ensemble_size: int = AL_ENSEMBLE_SIZE_DEFAULT,
+    num_restarts: int = AL_NUM_RESTARTS_DEFAULT,
+    num_steps: int = AL_NUM_STEPS_DEFAULT,
+    max_workers: _Optional[int] = None,
+) -> _Path:
+    """
+    Write the remote-runnable ``run_active_learning.sh`` wrapper at the project root.
+
+    The round parameters are baked into the script as default flags so a plain
+    ``./run_active_learning.sh`` on the training machine reproduces the settings chosen in
+    the GUI (rather than falling back to :func:`main`'s argparse defaults). Because they
+    precede ``"$@"``, any flag passed on the command line still overrides its baked-in
+    default -- argparse keeps the last occurrence.
+    """
+    default_args = [
+        "--max-per-round",
+        str(max_per_round),
+        "--ensemble-size",
+        str(ensemble_size),
+        "--num-restarts",
+        str(num_restarts),
+        "--num-steps",
+        str(num_steps),
+    ]
+    if max_workers is not None and max_workers > 0:
+        default_args += ["--max-workers", str(max_workers)]
     path = _Path(project_dir) / RUNNER_SCRIPT_FILENAME
-    path.write_text(_RUNNER_SCRIPT)
+    path.write_text(_RUNNER_SCRIPT.format(default_args=" ".join(default_args)))
     path.chmod(0o755)
     return path
 
@@ -298,6 +329,11 @@ def write_al_configs(
     batch_size: int,
     drop_last: bool,
     val_batch_size: _Optional[int] = None,
+    max_per_round: int = AL_MAX_PER_ROUND_DEFAULT,
+    ensemble_size: int = AL_ENSEMBLE_SIZE_DEFAULT,
+    num_restarts: int = AL_NUM_RESTARTS_DEFAULT,
+    num_steps: int = AL_NUM_STEPS_DEFAULT,
+    max_workers: _Optional[int] = None,
 ) -> list[_Path]:
     """
     Write ``active_learning/{model,learning,data}.json`` from the project's current
@@ -308,6 +344,11 @@ def write_al_configs(
     ``val_batch_size`` sizes the validation dataloader independently of the (small,
     step-sized) training ``batch_size``; see :func:`compute_al_val_batch_size`. When unset
     it falls back to ``batch_size``.
+
+    The round parameters (``max_per_round``, ``ensemble_size``, ``num_restarts``,
+    ``num_steps``, ``max_workers``) are baked into the emitted ``run_active_learning.sh``
+    so the remote run reproduces the caller's chosen settings; see
+    :func:`write_runner_script`.
     """
     al_dir = _Path(project_dir) / AL_DIRNAME
     model_path = al_dir / MODEL_CONFIG_FILENAME
@@ -321,7 +362,14 @@ def write_al_configs(
         ),
     )
     _atomic_write_json(data_path, _build_al_data_config(project))
-    write_runner_script(project_dir)
+    write_runner_script(
+        project_dir,
+        max_per_round=max_per_round,
+        ensemble_size=ensemble_size,
+        num_restarts=num_restarts,
+        num_steps=num_steps,
+        max_workers=max_workers,
+    )
     return [model_path, learning_path, data_path]
 
 
@@ -330,9 +378,9 @@ def run_active_learning_round(
     *,
     round_idx: _Optional[int] = None,
     max_per_round: int = AL_MAX_PER_ROUND_DEFAULT,
-    ensemble_size: int = 4,
-    num_restarts: int = 8,
-    num_steps: int = 200,
+    ensemble_size: int = AL_ENSEMBLE_SIZE_DEFAULT,
+    num_restarts: int = AL_NUM_RESTARTS_DEFAULT,
+    num_steps: int = AL_NUM_STEPS_DEFAULT,
     seed: _Optional[int] = None,
     max_workers: _Optional[int] = None,
     batch_size: _Optional[int] = None,
@@ -403,6 +451,11 @@ def run_active_learning_round(
         batch_size=resolved_batch_size,
         drop_last=resolved_drop_last,
         val_batch_size=resolved_val_batch_size,
+        max_per_round=max_per_round,
+        ensemble_size=ensemble_size,
+        num_restarts=num_restarts,
+        num_steps=num_steps,
+        max_workers=max_workers,
     )
 
     al_dir = project_dir / AL_DIRNAME
@@ -447,9 +500,9 @@ def main(argv: _Optional[list[str]] = None) -> int:
     parser.add_argument("--project-dir", default=".", type=_Path)
     parser.add_argument("--round-idx", type=int, default=None)
     parser.add_argument("--max-per-round", type=int, default=AL_MAX_PER_ROUND_DEFAULT)
-    parser.add_argument("--ensemble-size", type=int, default=4)
-    parser.add_argument("--num-restarts", type=int, default=8)
-    parser.add_argument("--num-steps", type=int, default=200)
+    parser.add_argument("--ensemble-size", type=int, default=AL_ENSEMBLE_SIZE_DEFAULT)
+    parser.add_argument("--num-restarts", type=int, default=AL_NUM_RESTARTS_DEFAULT)
+    parser.add_argument("--num-steps", type=int, default=AL_NUM_STEPS_DEFAULT)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--max-workers", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
