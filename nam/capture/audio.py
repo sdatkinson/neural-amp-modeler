@@ -76,22 +76,40 @@ def list_devices(refresh: bool = False) -> list[DeviceInfo]:
     return devices
 
 
-def current_device_sample_rates() -> dict[str, float]:
+def current_device_sample_rates(allow_reinit: bool = False) -> dict[str, float]:
     """
     Map device name -> its *current* nominal sample rate in Hz, read live.
 
     PortAudio latches each device's ``default_samplerate`` when it initialises, so it
-    cannot see a rate changed in the OS while the app is running. On macOS this reads
-    CoreAudio's nominal sample rate instead, which always reflects the current hardware
-    setting. Returns an empty dict on other platforms or if the query fails; callers
-    then fall back to :attr:`DeviceInfo.default_samplerate`.
+    cannot see a rate changed in the OS while the app is running.
+
+    - On macOS this reads CoreAudio's nominal sample rate, which always reflects the
+      current hardware setting and is cheap enough to poll.
+    - On other platforms there is no comparably cheap always-live query, so the only
+      way to re-read the current rates is to reinitialise PortAudio. That must never
+      happen while a stream is open, so it is done only when ``allow_reinit`` is True;
+      the refreshed rates still come straight from PortAudio, so they are never wrong,
+      at worst merely not refreshed.
+
+    Returns an empty dict when it cannot produce live values; callers then fall back to
+    :attr:`DeviceInfo.default_samplerate`.
     """
     import sys as _sys
 
-    if _sys.platform != "darwin":
+    if _sys.platform == "darwin":
+        try:
+            return _coreaudio_sample_rates()
+        except Exception:
+            return {}
+
+    if not allow_reinit:
         return {}
+    import sounddevice as sd
+
     try:
-        return _coreaudio_sample_rates()
+        sd._terminate()
+        sd._initialize()
+        return {device.name: device.default_samplerate for device in list_devices()}
     except Exception:
         return {}
 

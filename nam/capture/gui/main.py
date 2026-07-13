@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import shutil as _shutil
 import sys as _sys
+import time as _time
 from pathlib import Path as _Path
 from typing import Any as _Any
 from typing import Callable as _Callable
@@ -269,6 +270,11 @@ class MainWindow(_QMainWindow):
         self._train_input_name: str = "input_train.wav"
         self._validation_input_name: str = "input_validation.wav"
         self._devices: list[_DeviceInfo] = []
+        # Last known live device sample rates (name -> Hz), refreshed by the poll. Held
+        # so non-macOS polls that skip the throttled PortAudio reinit reuse the last
+        # reading instead of falling back and flickering.
+        self._live_device_rates: dict[str, float] = {}
+        self._last_rate_reinit: float = 0.0
         self._worker: _Optional[_SessionWorker] = None
         # Workers are retained here until their ``finished`` signal fires so the
         # underlying QThread is never garbage-collected (and destroyed) while its
@@ -920,6 +926,18 @@ class MainWindow(_QMainWindow):
             rate = device.default_samplerate
         return int(round(rate))
 
+    def _update_live_device_rates(self) -> None:
+        now = _time.monotonic()
+        # Off macOS a refresh reinitialises PortAudio (disruptive and noisy), so
+        # throttle it and never run it while a capture or route test holds a stream.
+        # macOS ignores the flag: its CoreAudio read is cheap and stream-safe.
+        allow_reinit = self._worker is None and (now - self._last_rate_reinit) >= 2.5
+        rates = _current_device_sample_rates(allow_reinit=allow_reinit)
+        if allow_reinit:
+            self._last_rate_reinit = now
+        if rates:
+            self._live_device_rates = rates
+
     def _current_sample_rate_warnings(self) -> list[str]:
         if self.project is None or self.project_dir is None:
             return []
@@ -927,7 +945,8 @@ class MainWindow(_QMainWindow):
         validation_rate = read_wav_rate(
             self.project_dir / self.project.validation_input
         )
-        live = _current_device_sample_rates()
+        self._update_live_device_rates()
+        live = self._live_device_rates
         return sample_rate_warnings(
             train_rate,
             validation_rate,
