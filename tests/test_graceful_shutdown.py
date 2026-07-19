@@ -16,11 +16,13 @@ from tempfile import TemporaryDirectory
 from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
+from lightning_fabric.plugins.io import torch_io
 
 # Add the parent directory to the path so we can import nam
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from nam.data import np_to_wav
+from nam.train.full import main as nam_full_main
 
 
 def _os_process_helpers() -> Dict[str, Callable]:
@@ -521,10 +523,6 @@ class TestExportFallbackOnBadCheckpoint:
     def test_main_exports_nam_when_best_checkpoint_unloadable(
         self, monkeypatch, tmp_path
     ):
-        from lightning_fabric.plugins.io import torch_io
-
-        from nam.train.full import main as nam_full_main
-
         x_path, y_path = create_test_data(tmp_path)
         data_config_path, model_config_path, learning_config_path = create_configs(
             tmp_path, x_path, y_path, num_epochs=1
