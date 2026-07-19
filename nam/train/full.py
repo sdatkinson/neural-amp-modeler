@@ -25,6 +25,7 @@ from nam.data import apply_joint_dataset_hooks as _apply_joint_dataset_hooks
 from nam.data import get_joint_dataset_hooks as _get_joint_dataset_hooks
 from nam.data import init_dataset as _init_dataset
 from nam.train import lightning_module as _lightning_module
+from nam.train import util as _util
 from nam.util import filter_warnings as _filter_warnings
 
 _torch.manual_seed(0)
@@ -208,11 +209,7 @@ def main(
             _json.dump(config, fp, indent=4)
 
     is_packed = model_config["net"]["name"] == "PackedWaveNet"
-    lightning_cls = (
-        _lightning_module.PackedLightningModule
-        if is_packed
-        else _lightning_module.LightningModule
-    )
+    lightning_cls = _util.resolve_lightning_module_class(model_config)
     model = lightning_cls.init_from_config(model_config)
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
