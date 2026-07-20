@@ -49,6 +49,9 @@ def test_model_config_is_concat_lstm():
     model_config = _load("model.json")
     assert model_config["net"]["name"] == "ConcatLSTM"
     assert model_config["net"]["config"]["params"], "model must declare param specs"
+    assert model_config["net"]["config"]["num_layers"] == 3
+    assert model_config["net"]["config"]["train_truncate"] is None
+    assert model_config["loss"]["mel_weight"] == _pytest.approx(6.2e-05)
 
 
 def test_model_config_builds_and_runs_both_shapes():
@@ -62,13 +65,14 @@ def test_model_config_builds_and_runs_both_shapes():
     raw = _resolve_named_params({"Gain": 7.0, "Tone": 3.0, "Boost": "On"}, specs)
 
     # (L,) + (P,)
-    x = _torch.randn(256, requires_grad=True)
+    x = _torch.randn(8192 + 16, requires_grad=True)
     y = net(x, raw)
     assert y.ndim == 1
     y.sum().backward()
     assert x.grad is not None and _torch.isfinite(x.grad).all()
 
     # (B, L) + (B, P)
+    net.eval()
     x_b = _torch.randn(3, 256)
     raw_b = _torch.stack([raw, raw, raw])
     y_b = net(x_b, raw_b)
@@ -79,6 +83,8 @@ def test_learning_config_has_required_keys_and_builds_trainer():
     learning_config = _load("learning.json")
     for key in ("train_dataloader", "val_dataloader", "trainer"):
         assert key in learning_config, f"learning.json missing {key}"
+    assert learning_config["trainer"]["deterministic"] == "warn"
+    assert learning_config["trainer"]["benchmark"] is False
 
     trainer_kw = _deepcopy(learning_config["trainer"])
     # Force CPU + a single minimal step so this is fast and device-agnostic.
@@ -189,6 +195,10 @@ def test_example_configs_train_one_epoch_ensemble(tmp_path, monkeypatch):
         "nam.train.active_learning._resolve_device",
         lambda: _torch.device("cpu"),
     )
+    monkeypatch.setattr(
+        "nam.train.parametric._ParametricLightningModule._mel_mrstft_loss",
+        lambda self, preds, targets: _torch.nn.functional.l1_loss(preds, targets),
+    )
 
     model_config = _load("model.json")
     learning_config = _load("learning.json")
@@ -210,9 +220,12 @@ def test_example_configs_train_one_epoch_ensemble(tmp_path, monkeypatch):
     learning_config["train_dataloader"]["batch_size"] = 2
     learning_config["train_dataloader"]["drop_last"] = False
     learning_config["val_dataloader"]["batch_size"] = 1
+    learning_config["trainer"]["accumulate_grad_batches"] = 1
+    learning_config["batch_sizing"]["auto"] = False
 
-    # ny clears the committed loss's mask_first=8192 so the masked loss has real samples.
-    data_config = _smoke_data_config(tmp_path, ny=16384)
+    # ny must exceed the model's train_burn_in (8192), or the burn-in window consumes the
+    # whole sequence and there is nothing left to score; 12288 leaves a 4096-sample region.
+    data_config = _smoke_data_config(tmp_path, ny=12288)
 
     checkpoint_paths = _train_ensemble(
         data_config,

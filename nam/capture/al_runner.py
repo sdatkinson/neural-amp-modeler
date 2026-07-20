@@ -27,7 +27,9 @@ from typing import Optional as _Optional
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from .export import AL_NY
+from .export import AL_DEFAULT_MAX_EPOCHS
 from .export import AL_MAX_BATCH_SIZE
+from .export import AL_TARGET_EFFECTIVE_BATCH_SIZE
 from .export import build_al_data_config as _build_al_data_config
 from .export import build_al_learning_config as _build_al_learning_config
 from .export import build_al_model_config as _build_al_model_config
@@ -50,16 +52,6 @@ AL_NUM_RESTARTS_DEFAULT = 16
 AL_NUM_STEPS_DEFAULT = 300
 RUNNER_SCRIPT_FILENAME = "run_active_learning.sh"
 
-# Target number of optimizer steps per epoch for AL ensemble training. The batch size is
-# chosen to hit this (see :func:`compute_al_batch_size`) rather than to fill GPU memory,
-# because the acquisition-proxy dataset is tiny (round 0 is ~10 captures) and convergence
-# is bottlenecked by the *number* of gradient updates, not throughput. Sizing the batch to
-# memory once collapsed round 0 to ~5 steps/epoch (~250 updates over 50 epochs), which is
-# far too few for a 3-layer LSTM -- it never left its near-silence initialization. The
-# capture set grows by ~10 entries per round, so anchoring on steps-per-epoch (not a fixed
-# batch) keeps the per-round update budget ~constant as the dataset grows.
-AL_TARGET_STEPS_PER_EPOCH = 30
-
 _RUNNER_SCRIPT = """\
 #!/usr/bin/env bash
 set -euo pipefail
@@ -73,52 +65,51 @@ _PROPOSAL_FILENAME_RE = _re.compile(r"^proposed_captures_round_(\d+)\.json$")
 def compute_al_batch_size(
     available_bytes: int, ny: int, num_train_windows: int
 ) -> tuple[int, bool]:
-    """
-    Pick a batch size (and whether to drop the final partial batch) for one AL ensemble
-    member's training. Pure and torch-free so it is cheap to call speculatively from the
-    GUI.
+    """Backward-compatible view of :func:`compute_al_batch_plan`."""
+    batch_size, _, _ = compute_al_batch_plan(
+        available_bytes, ny, num_train_windows
+    )
+    return batch_size, True
 
-    Primary objective -- steps per epoch, not memory. The batch is sized so training does
-    ~``AL_TARGET_STEPS_PER_EPOCH`` optimizer steps per epoch
-    (``batch ~= num_train_windows / AL_TARGET_STEPS_PER_EPOCH``). Gradient-update count is
-    what limits convergence on this tiny acquisition-proxy dataset, and expressing the
-    target in *windows* makes it size-adaptive for free: it shrinks the batch for a small
-    round-0 set (so it still gets many updates) and grows it as the capture set grows over
-    rounds, holding the per-epoch update budget roughly constant. Because window count is
-    ``usable_samples // ny``, a change to ``ny`` flows through automatically -- longer
-    windows mean fewer of them, hence a smaller batch for the same step target.
 
-    Memory is only a ceiling. Full-BPTT ConcatLSTM training peaks near 5 GiB at batch 32
-    and ny 32768 (~160 MiB/window), scaling linearly with ``ny``; 75% of
-    ``available_bytes`` is budgeted to leave headroom for the rest of the process. This
-    memory cap (and the hard ``AL_MAX_BATCH_SIZE`` clamp) only bites if a large dataset's
-    step target would demand a batch that does not fit -- in which case steps-per-epoch
-    simply rises above the target, which is harmless.
-
-    When ``num_train_windows`` is 0 the dataset size is unknown (a speculative GUI probe
-    before any windows are known); fall back to the memory ceiling.
-    """
+def compute_al_batch_plan(
+    available_bytes: int, ny: int, num_train_windows: int
+) -> tuple[int, int, int]:
+    """Return physical batch, accumulation count, and effective batch."""
     ceiling = _al_memory_ceiling(available_bytes, ny)
+    if num_train_windows > 0:
+        ceiling = min(ceiling, num_train_windows)
+        target = min(AL_TARGET_EFFECTIVE_BATCH_SIZE, num_train_windows)
+    else:
+        target = AL_TARGET_EFFECTIVE_BATCH_SIZE
 
-    if num_train_windows <= 0:
-        return ceiling, True
-
-    target_batch = max(round(num_train_windows / AL_TARGET_STEPS_PER_EPOCH), 1)
-    batch_size = min(target_batch, ceiling, num_train_windows)
-
-    dropped = num_train_windows % batch_size
-    # Keep drop_last True (the shuffled-dataloader default) unless doing so would throw
-    # away more than 10% of a small dataset's windows.
-    drop_last = dropped <= max(1, num_train_windows // 10)
-    return batch_size, drop_last
+    best: tuple[int, int, int, int] | None = None
+    tolerance = max(round(target * 0.02), 1)
+    for accumulation in range(1, target + 1):
+        physical = min(ceiling, max(round(target / accumulation), 1))
+        effective = physical * accumulation
+        error = abs(effective - target)
+        candidate = (
+            0 if error <= tolerance else 1,
+            -physical if error <= tolerance else error,
+            error,
+            accumulation,
+        )
+        if best is None or candidate < best:
+            best = candidate
+    if best is None:
+        raise RuntimeError("Failed to resolve an active-learning batch plan")
+    _, _, _, accumulation = best
+    physical = min(ceiling, max(round(target / accumulation), 1))
+    return physical, accumulation, physical * accumulation
 
 
 def _al_memory_ceiling(available_bytes: int, ny: int) -> int:
     """
     Largest batch that fits the memory budget, clamped to ``[1, AL_MAX_BATCH_SIZE]``.
-    Full-BPTT ConcatLSTM training peaks near 5 GiB at batch 32 and ny 32768
-    (~160 MiB/window, linear in ``ny``); only 75% of ``available_bytes`` is budgeted to
-    leave headroom for the rest of the process.
+    Full-BPTT ConcatLSTM training is budgeted at about 5 KiB per timestep per window,
+    scaled linearly with ``ny``. Only 75% of ``available_bytes`` is used so CUDA,
+    cuDNN, loss workspaces, and transient allocations retain headroom.
     """
     bytes_per_window = 5120 * ny
     memory_cap = int(available_bytes * 0.75) // bytes_per_window
@@ -328,7 +319,10 @@ def write_al_configs(
     *,
     batch_size: int,
     drop_last: bool,
+    accumulate_grad_batches: int = 1,
+    auto_batch_size: bool = False,
     val_batch_size: _Optional[int] = None,
+    num_train_windows: _Optional[int] = None,
     max_per_round: int = AL_MAX_PER_ROUND_DEFAULT,
     ensemble_size: int = AL_ENSEMBLE_SIZE_DEFAULT,
     num_restarts: int = AL_NUM_RESTARTS_DEFAULT,
@@ -341,9 +335,13 @@ def write_al_configs(
     fresh every round: the AL data config always reflects the project's captured entries
     at call time, so later rounds never need y_path-filling in aggregated configs.
 
-    ``val_batch_size`` sizes the validation dataloader independently of the (small,
-    step-sized) training ``batch_size``; see :func:`compute_al_val_batch_size`. When unset
+    ``val_batch_size`` sizes the validation dataloader independently of the physical
+    training ``batch_size``; see :func:`compute_al_val_batch_size`. When unset
     it falls back to ``batch_size``.
+
+    ``accumulate_grad_batches`` combines a memory-fitting physical batch into the target
+    effective batch. With ``auto_batch_size``, every ensemble worker recalculates this plan
+    from its own GPU's free memory immediately before training.
 
     The round parameters (``max_per_round``, ``ensemble_size``, ``num_restarts``,
     ``num_steps``, ``max_workers``) are baked into the emitted ``run_active_learning.sh``
@@ -354,11 +352,20 @@ def write_al_configs(
     model_path = al_dir / MODEL_CONFIG_FILENAME
     learning_path = al_dir / LEARNING_CONFIG_FILENAME
     data_path = al_dir / DATA_FILENAME
-    _atomic_write_json(model_path, _build_al_model_config(project, batch_size=batch_size))
+    max_epochs = AL_DEFAULT_MAX_EPOCHS
+    _atomic_write_json(
+        model_path,
+        _build_al_model_config(project, batch_size=batch_size, max_epochs=max_epochs),
+    )
     _atomic_write_json(
         learning_path,
         _build_al_learning_config(
-            batch_size=batch_size, drop_last=drop_last, val_batch_size=val_batch_size
+            batch_size=batch_size,
+            drop_last=drop_last,
+            val_batch_size=val_batch_size,
+            max_epochs=max_epochs,
+            accumulate_grad_batches=accumulate_grad_batches,
+            auto_batch_size=auto_batch_size,
         ),
     )
     _atomic_write_json(data_path, _build_al_data_config(project))
@@ -424,18 +431,24 @@ def run_active_learning_round(
     if round_idx is None:
         round_idx = next_round_idx(project_dir)
 
+    # Also sizes max_epochs (fixed update budget); computed for both batch-size paths.
+    num_train_windows = count_train_windows(project, project_dir)
     if batch_size is None:
-        # Probe memory once and reuse it for both the (step-sized) train batch and the
-        # (memory-sized) validation batch.
         available_bytes = available_accelerator_memory_bytes()
-        resolved_batch_size, resolved_drop_last = compute_al_batch_size(
+        (
+            resolved_batch_size,
+            resolved_accumulate_grad_batches,
+            _,
+        ) = compute_al_batch_plan(
             available_bytes,
             AL_NY,
-            count_train_windows(project, project_dir),
+            num_train_windows,
         )
+        resolved_drop_last = True
         resolved_val_batch_size: _Optional[int] = compute_al_val_batch_size(
             available_bytes, AL_NY
         )
+        auto_batch_size = True
     else:
         if not 1 <= batch_size <= AL_MAX_BATCH_SIZE:
             raise ValueError(
@@ -444,13 +457,19 @@ def run_active_learning_round(
         # An explicit batch size applies to both splits (val_batch_size None -> batch_size).
         resolved_batch_size, resolved_drop_last = batch_size, True
         resolved_val_batch_size = None
+        target = min(AL_TARGET_EFFECTIVE_BATCH_SIZE, max(num_train_windows, 1))
+        resolved_accumulate_grad_batches = max(round(target / batch_size), 1)
+        auto_batch_size = False
 
     write_al_configs(
         project,
         project_dir,
         batch_size=resolved_batch_size,
         drop_last=resolved_drop_last,
+        accumulate_grad_batches=resolved_accumulate_grad_batches,
+        auto_batch_size=auto_batch_size,
         val_batch_size=resolved_val_batch_size,
+        num_train_windows=num_train_windows,
         max_per_round=max_per_round,
         ensemble_size=ensemble_size,
         num_restarts=num_restarts,

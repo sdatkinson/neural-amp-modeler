@@ -3,19 +3,21 @@
         "Active-learning ensemble-member config: a parametric ConcatLSTM, NOT the shipped HyperWaveNet.",
         "The active-learning workflow is adapted from PANAMA (arXiv 2509.26564v1); the ConcatLSTM",
         "conditioning scheme (encode the control vector, tile across time, concatenate to audio) is theirs.",
-        "Architecture/loss mirror PANAMA's default_config_files/models/lstm.json (3 layers, hidden_size",
-        "18, train_burn_in 8192, pre-emph MRSTFT loss, ExponentialLR gamma 0.995) rather than this repo's",
-        "HyperWaveNet-tuned parametric config, since ConcatLSTM is a different architecture. The lr is",
-        "sqrt-scaled to batch size (~0.005 at batch 20; see nam.capture.export.active_learning_learning_rate);",
-        "the 0.0063 below matches this example's batch_size 32. Tune during testing as needed.",
+        "Architecture, loss, and gamma follow PANAMA's published LSTM defaults (3 layers of 18 units,",
+        "MSE plus seven-resolution log-mel loss, ExponentialLR gamma 0.995), but the recurrent-gradient",
+        "path, learning rate, and warmup are set for the short single-file dataset used here:",
+        "lr 0.008 and 16 warmup epochs. train_truncate is null (full BPTT): every truncated",
+        "recipe tried on this capture generalized worse than the pre-truncation full-BPTT runs",
+        "at this batch size, whose logs show occasional non-finite gradients (survived by",
+        "configure_gradient_clipping's non-finite skip, not a crash) that are likely a bounded",
+        "catapult effect helping escape sharp minima.",
         "This LSTM is a disposable query-by-committee acquisition proxy: scripts/active_learn.py trains a",
         "4-member ensemble from this config to find the control settings where members disagree most.",
         "ConcatLSTM derives its conditioning width (1 + encoded_param_dim) from the params below, so there",
         "is no PANAMA-style 'conditioning_dim' key; the params block MUST match the production parametric",
         "model you intend to capture for (here: the Gain/Tone/Boost example).",
-        "train_truncate is null so the full window trains in one gradient-carrying pass; with no truncation",
-        "the burn-in length is informational only and the loss mask_first (8192) is what excludes the",
-        "warm-up region from the loss, so training windows (ny) must exceed 8192."
+        "Physical batches are GPU-sized and gradient-accumulated to the effective batch of 37",
+        "(see nam_full_configs/active_learning/learning.json), smaller than PANAMA's 512."
     ],
     "net": {
         "name": "ConcatLSTM",
@@ -54,17 +56,17 @@
         }
     },
     "loss": {
-        "mask_first": 8192,
-        "pre_emph_mrstft_weight": 0.002,
-        "pre_emph_mrstft_coef": 0.85
+        "mel_weight": 0.000062
     },
     "optimizer": {
-        "lr": 0.0063
+        "lr": 0.008,
+        "weight_decay": 0.0
     },
     "lr_scheduler": {
         "class": "ExponentialLR",
         "kwargs": {
             "gamma": 0.995
-        }
+        },
+        "warmup_epochs": 16
     }
 }

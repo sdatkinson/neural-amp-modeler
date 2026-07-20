@@ -1,10 +1,12 @@
 import json as _json
+from dataclasses import dataclass as _dataclass
 from pathlib import Path as _Path
 from time import time as _time
 from collections.abc import Sequence as _Sequence
 from typing import Optional as _Optional
 from warnings import warn as _warn
 
+import librosa as _librosa
 import matplotlib.pyplot as _plt
 import pytorch_lightning as _pl
 import torch as _torch
@@ -31,6 +33,8 @@ from nam.train.full import _create_callbacks
 from nam.train.full import _handshake_datasets
 from nam.train.full import _rms as _rms
 from nam.train.lightning_module import LightningModule as _LightningModule
+from nam.train.lightning_module import LossConfig as _LossConfig
+from nam.train.lightning_module import _LossItem
 from nam.util import filter_warnings as _filter_warnings
 
 # NB: the global RNG seed is set once by `nam.train.full` (imported above); no need to
@@ -66,6 +70,59 @@ _VALIDATION_BUCKET = "unseen_audio_unseen_params"
 # Means reduced as sample-weighted averages across the epoch. ESR is handled
 # separately because it is a ratio of energies, not a mean.
 _BUCKET_MEAN_METRICS = ("MSE", "MRSTFT")
+
+
+class _MelSpectrogram(_torch.nn.Module):
+    """Pure-torch mel spectrogram equivalent to ``torchaudio.transforms.MelSpectrogram``
+    with its default HTK, unnormalized filterbank and centered reflection-padded STFT.
+
+    The PANAMA mel objectives previously depended on torchaudio, whose prebuilt wheel loads
+    a compiled extension that must match the installed torch ABI exactly; a mismatched pair
+    fails to ``dlopen`` at runtime. This reimplements the only piece those objectives use
+    (an STFT magnitude raised to ``power`` and projected onto a mel filterbank) using
+    ``torch.stft`` plus a librosa-built filterbank, so training needs no torchaudio.
+    """
+
+    def __init__(
+        self,
+        *,
+        sample_rate: int,
+        n_fft: int,
+        win_length: int,
+        hop_length: int,
+        n_mels: int,
+        power: float = 1.0,
+    ):
+        super().__init__()
+        self._n_fft = int(n_fft)
+        self._win_length = int(win_length)
+        self._hop_length = int(hop_length)
+        self._power = float(power)
+        self.register_buffer("_window", _torch.hann_window(self._win_length))
+        # (n_mels, n_freqs); htk + norm=None matches torchaudio's melscale_fbanks defaults.
+        filterbank = _librosa.filters.mel(
+            sr=sample_rate, n_fft=self._n_fft, n_mels=n_mels, htk=True, norm=None
+        )
+        self.register_buffer(
+            "_mel_fb", _torch.tensor(filterbank, dtype=_torch.float32)
+        )
+
+    def forward(self, waveform: _torch.Tensor) -> _torch.Tensor:
+        original = waveform.shape
+        spec = _torch.stft(
+            waveform.reshape(-1, original[-1]),
+            n_fft=self._n_fft,
+            hop_length=self._hop_length,
+            win_length=self._win_length,
+            window=self._window,
+            center=True,
+            pad_mode="reflect",
+            normalized=False,
+            return_complex=True,
+        )
+        spectrogram = spec.abs().pow(self._power)  # (B, n_freqs, n_frames)
+        mel = _torch.matmul(self._mel_fb, spectrogram)  # (B, n_mels, n_frames)
+        return mel.reshape(*original[:-1], mel.shape[-2], mel.shape[-1])
 
 
 class _CaptureBatchSampler(_Sampler):
@@ -222,7 +279,134 @@ def _bucket_means(loss_dict: dict) -> dict[str, _torch.Tensor]:
     }
 
 
+@_dataclass
+class _ParametricLossConfig(_LossConfig):
+    mel_weight: _Optional[float] = None
+
+    @classmethod
+    def parse_config(cls, config):
+        parsed = super().parse_config(config)
+        parsed["mel_weight"] = config.get("mel_weight")
+        return parsed
+
+
 class _ParametricLightningModule(_LightningModule):
+    def __init__(
+        self,
+        net,
+        optimizer_config=None,
+        scheduler_config=None,
+        loss_config=None,
+    ):
+        super().__init__(
+            net,
+            optimizer_config=optimizer_config,
+            scheduler_config=scheduler_config,
+            loss_config=(
+                _ParametricLossConfig() if loss_config is None else loss_config
+            ),
+        )
+        self._mel_mrstft = None
+
+    @classmethod
+    def parse_config(cls, config):
+        parsed = super().parse_config(config)
+        parsed["loss_config"] = _ParametricLossConfig.init_from_config(
+            config.get("loss", {})
+        )
+        return parsed
+
+    def _get_loss_dict(self, preds, targets):
+        loss_dict = super()._get_loss_dict(preds, targets)
+        if self._loss_config.mel_weight is not None:
+            loss_dict["Mel"] = _LossItem(
+                self._loss_config.mel_weight,
+                self._mel_mrstft_loss(preds, targets),
+            )
+        return loss_dict
+
+    def _mel_mrstft_loss(
+        self, preds: _torch.Tensor, targets: _torch.Tensor
+    ) -> _torch.Tensor:
+        """PANAMA's seven-resolution log-mel L1 loss."""
+        if self._mel_mrstft is None:
+            sample_rate = self.net.sample_rate
+            if sample_rate is None:
+                raise RuntimeError("mel_weight requires the model sample rate")
+            self._mel_mrstft = [
+                _MelSpectrogram(
+                    sample_rate=sample_rate,
+                    n_fft=window_length,
+                    hop_length=window_length // 4,
+                    win_length=window_length,
+                    n_mels=n_mels,
+                    power=1.0,
+                ).to(preds.device)
+                for window_length, n_mels in zip(
+                    (32, 64, 128, 256, 512, 1024, 2048),
+                    (5, 10, 20, 40, 80, 160, 320),
+                )
+            ]
+        return sum(
+            _torch.nn.functional.l1_loss(
+                _torch.log10(transform(preds) + 1e-5),
+                _torch.log10(transform(targets) + 1e-5),
+            )
+            for transform in self._mel_mrstft
+        )
+
+    def configure_gradient_clipping(
+        self, optimizer, gradient_clip_val=None, gradient_clip_algorithm=None
+    ):
+        # A non-finite gradient poisons Adam's moment estimates. Marking every gradient None
+        # excludes the parameters from this step entirely: weights, weight decay, moments,
+        # and per-parameter step counters all stay unchanged.
+        non_finite = any(
+            p.grad is not None and not _torch.isfinite(p.grad).all()
+            for p in self.parameters()
+        )
+        if non_finite:
+            for parameter in self.parameters():
+                parameter.grad = None
+        super().configure_gradient_clipping(
+            optimizer, gradient_clip_val, gradient_clip_algorithm
+        )
+
+    def configure_optimizers(self):
+        # Mirrors the base wiring but (a) uses AdamW for decoupled weight decay -- the
+        # optimizer_config's "weight_decay" curbs the proxy's train/val overfitting, and
+        # weight_decay 0.0 (the default) is identical to plain Adam -- and (b) adds optional
+        # linear LR warmup via scheduler_config["warmup_epochs"], which keeps the earliest
+        # updates small so full-BPTT LSTM training settles onto the descent before full-size
+        # steps, avoiding the early gradient blow-ups that otherwise drive a run to NaN.
+        optimizer_config = {"weight_decay": 0.0, **self._optimizer_config}
+        optimizer = _torch.optim.AdamW(self.parameters(), **optimizer_config)
+        if self._scheduler_config is None:
+            return optimizer
+        base_scheduler = getattr(
+            _torch.optim.lr_scheduler, self._scheduler_config["class"]
+        )(optimizer, **self._scheduler_config["kwargs"])
+        warmup_epochs = self._scheduler_config.get("warmup_epochs") or 0
+        if warmup_epochs > 0:
+            warmup = _torch.optim.lr_scheduler.LinearLR(
+                optimizer,
+                start_factor=1.0 / warmup_epochs,
+                end_factor=1.0,
+                total_iters=warmup_epochs,
+            )
+            scheduler = _torch.optim.lr_scheduler.SequentialLR(
+                optimizer,
+                schedulers=[warmup, base_scheduler],
+                milestones=[warmup_epochs],
+            )
+        else:
+            scheduler = base_scheduler
+        lr_scheduler_config = {"scheduler": scheduler}
+        for key in ("interval", "frequency", "monitor"):
+            if key in self._scheduler_config:
+                lr_scheduler_config[key] = self._scheduler_config[key]
+        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
+
     def on_train_epoch_start(self):
         self._train_metrics = _EpochMetrics()
 

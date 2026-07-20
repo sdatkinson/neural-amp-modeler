@@ -16,6 +16,7 @@ from nam.models.wavenet import WaveNet as _WaveNet
 from nam.train.core import _ValidationStopping as _ValidationStopping
 from nam.train.parametric import _CaptureBatchSampler as _CaptureBatchSampler
 from nam.train.parametric import _ParametricLightningModule as _ParametricLightningModule
+from nam.train.parametric import _ParametricLossConfig as _ParametricLossConfig
 from nam.train.parametric import _TRAIN_BUCKET as _TRAIN_BUCKET
 from nam.train.parametric import _VALIDATION_BUCKET as _VALIDATION_BUCKET
 from nam.train.parametric import _create_parametric_callbacks as _create_parametric_callbacks
@@ -23,6 +24,63 @@ from nam.train.parametric import _make_parametric_dataloader as _make_parametric
 from nam.train.parametric import _parametric_plot_label as _parametric_plot_label
 from nam.train.parametric import main as _main
 from tests.test_nam.test_models.test_base import MockBaseNet as _MockBaseNet
+
+
+def test_parametric_panama_mel_loss(mocker):
+    obj = _ParametricLightningModule(
+        _MockBaseNet(1.0),
+        loss_config=_ParametricLossConfig(mel_weight=6.2e-05),
+    )
+    mocked = mocker.patch.object(
+        obj,
+        "_mel_mrstft_loss",
+        return_value=_torch.tensor(2.0),
+    )
+    preds = _torch.randn((3, 2048))
+    targets = _torch.randn(preds.shape)
+
+    loss_dict = obj._get_loss_dict(preds, targets)
+
+    mocked.assert_called_once_with(preds, targets)
+    assert loss_dict["Mel"].weight == _pytest.approx(6.2e-05)
+    assert loss_dict["Mel"].value == _pytest.approx(_torch.tensor(2.0))
+
+
+def test_parametric_loss_config_parses_mel_weight():
+    parsed = _ParametricLossConfig.parse_config({"mel_weight": 6.2e-05})
+    assert parsed["mel_weight"] == _pytest.approx(6.2e-05)
+
+
+def test_mel_spectrogram_shapes_and_finite_without_torchaudio():
+    from nam.train.parametric import _MelSpectrogram
+
+    mel = _MelSpectrogram(
+        sample_rate=48000, n_fft=256, win_length=256, hop_length=64, n_mels=40, power=1.0
+    )
+    batched = mel(_torch.randn(3, 4096))
+    assert batched.shape[0] == 3 and batched.shape[1] == 40
+    assert _torch.isfinite(batched).all()
+
+    # A single (T,) waveform keeps the batch dim collapsed.
+    single = mel(_torch.randn(4096))
+    assert single.shape[0] == 40 and _torch.isfinite(single).all()
+
+
+def test_parametric_mel_loss_runs_and_backprops_without_torchaudio():
+    obj = _ParametricLightningModule(
+        _MockBaseNet(1.0),
+        loss_config=_ParametricLossConfig(mel_weight=6.2e-05),
+    )
+    # train_ensemble injects the dataset's sample rate onto the net; mirror that here.
+    obj.net.sample_rate = 48000
+    preds = _torch.randn((2, 8192), requires_grad=True)
+    targets = _torch.randn((2, 8192))
+
+    loss = obj._mel_mrstft_loss(preds, targets)
+
+    assert loss.ndim == 0 and _torch.isfinite(loss)
+    loss.backward()
+    assert preds.grad is not None and _torch.isfinite(preds.grad).all()
 
 
 def _write_json(path: _Path, payload: dict) -> None:
@@ -377,6 +435,64 @@ def test_parametric_lightning_validation_logs_unseen_audio_unseen_params_bucket(
     assert "val_loss" in captured
     assert captured["val_loss"] == _pytest.approx(captured[module._val_loss_key()])
     assert f"MSE/{_VALIDATION_BUCKET}" in captured
+
+
+def test_parametric_lightning_nonfinite_gradient_preserves_adamw_state(monkeypatch):
+    module = _ParametricLightningModule(
+        _torch.nn.Linear(1, 1, bias=False),
+        optimizer_config={
+            "lr": 0.01,
+            "weight_decay": 0.1,
+        },
+    )
+    monkeypatch.setattr(module, "clip_gradients", lambda *args, **kwargs: None)
+    optimizer = module.configure_optimizers()
+    parameter = next(module.parameters())
+
+    parameter.grad = _torch.full_like(parameter, 0.25)
+    optimizer.step()
+    optimizer.zero_grad(set_to_none=True)
+    weight_before = parameter.detach().clone()
+    state_before = {
+        key: value.detach().clone() if _torch.is_tensor(value) else value
+        for key, value in optimizer.state[parameter].items()
+    }
+
+    parameter.grad = _torch.full_like(parameter, float("nan"))
+    module.configure_gradient_clipping(
+        optimizer, gradient_clip_val=1.0, gradient_clip_algorithm="norm"
+    )
+
+    assert parameter.grad is None
+    optimizer.step()
+    assert _torch.equal(parameter, weight_before)
+    for key, before in state_before.items():
+        after = optimizer.state[parameter][key]
+        if _torch.is_tensor(before):
+            assert _torch.equal(after, before)
+        else:
+            assert after == before
+
+
+def test_parametric_lightning_large_finite_gradient_updates(monkeypatch):
+    module = _ParametricLightningModule(
+        _torch.nn.Linear(1, 1, bias=False),
+        optimizer_config={"lr": 0.01},
+    )
+    monkeypatch.setattr(module, "clip_gradients", lambda *args, **kwargs: None)
+    optimizer = module.configure_optimizers()
+    parameter = next(module.parameters())
+    weight_before = parameter.detach().clone()
+    parameter.grad = _torch.full_like(parameter, 2.0)
+
+    module.configure_gradient_clipping(
+        optimizer, gradient_clip_val=1.0, gradient_clip_algorithm="norm"
+    )
+
+    assert parameter.grad is not None
+    optimizer.step()
+    assert not _torch.equal(parameter, weight_before)
+    assert optimizer.state[parameter]["step"] == 1
 
 
 def test_capture_batch_sampler_keeps_batches_within_one_capture():

@@ -12,7 +12,6 @@ parametric trainer needs from the project file —
 
 from __future__ import annotations
 
-import math as _math
 from pathlib import Path as _Path
 from typing import Any as _Any
 from typing import Optional as _Optional
@@ -24,23 +23,53 @@ from .project import MODEL_CONFIG_FILENAME
 from .project import atomic_write_json as _atomic_write_json
 
 
-# Active-learning training window: above the acquisition-proxy loss's mask_first (8192)
-# and below one ConcatLSTM processing block (65535). Owned here (not al_runner.py) so
-# export.py has no import-time dependency on al_runner; al_runner re-exports it.
-AL_NY = 32768
-AL_MAX_BATCH_SIZE = 256
+# Active-learning defaults, adapted from PANAMA's LSTM recipe for the short single-file
+# dataset used here. Batch 37 (matching the best-generalizing prior runs -- the small-batch
+# gradient noise is itself a regularizer; batches of 40/64 trained smoother but plateaued at a
+# worse unseen-ESR floor) and lr 0.008 over 50 epochs: the hotter rate takes bigger honest
+# steps and reached the best unseen ESR of any run (~0.24 min / ~0.30 ensemble mean) in a
+# third the epochs of the earlier lr-0.003/150-epoch recipe, with grads staying finite (max
+# ~0.9, zero non-finite steps) -- so the generalization edge here comes from the larger step,
+# not from the rare gradient blowups seen historically. train_truncate is None: the
+# pre-truncation full-BPTT runs at this batch size generalized best of anything tried on this
+# capture (unseen ESR ~0.29 vs ~0.35-0.44 for every truncated recipe since). Their tensorboard
+# logs additionally showed occasional non-finite gradients (grad norm up to inf), silently
+# survived by configure_gradient_clipping's non-finite skip (the step is dropped, not applied;
+# Adam's moments are untouched) -- a bounded version of the "catapult" effect (Lewkowycz et al.
+# 2020): a step large enough to escape a sharp minimum, discarded only when it overshoots into
+# instability. That mechanism plausibly helped those runs, but the current lr-0.008 recipe does
+# not depend on it (its grads stay finite). truncate=8192 capped the
+# recurrent path specifically to eliminate those events (introduced when a *different*
+# regime -- effective batch 512, full BPTT -- destabilized), which bought stability at the cost
+# of the mechanism that was likely doing the regularizing. Reverting to None re-enables it,
+# at this AL_NY (22050, burn_in 8192 -> ~13.9k scored samples) rather than the ~32768 the
+# historical runs used -- a cheaper first test of the same mechanism, not an exact replay.
+# Backprop now runs through the whole undetached ~13.9k-sample chain per window instead of two
+# ~8192/5666 detached segments, so each step costs more, not less -- this is a fit-quality bet,
+# not a speed one. Physical batches are still fitted to each GPU at runtime and accumulated to
+# reach the effective batch (accumulation is 1 whenever 37 windows fit).
+AL_NY = 22050
+AL_MAX_BATCH_SIZE = 512
+AL_TARGET_EFFECTIVE_BATCH_SIZE = 37
+AL_REFERENCE_BATCH_SIZE = AL_TARGET_EFFECTIVE_BATCH_SIZE
+AL_REFERENCE_LEARNING_RATE = 0.008
+AL_LSTM_NUM_LAYERS = 3
+AL_TRAIN_TRUNCATE = None
+AL_MEL_WEIGHT = 6.2e-05
+AL_DEFAULT_MAX_EPOCHS = 50
+AL_WARMUP_EPOCHS = 16
+AL_LR_GAMMA = 0.995
 
-# The AL learning rate is scaled with the batch size: a larger batch averages its
-# gradient over more windows, so a proportionally larger step stays stable. The batch
-# itself is chosen for a target steps-per-epoch (see al_runner.compute_al_batch_size), so
-# it grows with the capture set across rounds -- roughly batch ~16 at round 0 up toward a
-# few dozen later. sqrt (not linear) scaling is used because training uses Adam, whose
-# update is already normalized by the gradient's running variance: sqrt keeps the lr in a
-# healthy ~0.005-0.01 band across that whole batch range, where linear scaling would
-# undershoot at the small end and overshoot into instability at the large end. lr equals
-# AL_REFERENCE_LEARNING_RATE exactly at AL_REFERENCE_BATCH_SIZE.
-AL_REFERENCE_BATCH_SIZE = 20
-AL_REFERENCE_LEARNING_RATE = 0.005
+# Retain the stabilized trainer's exceptional-gradient protection and diagnostics around
+# the PANAMA recipe. Weight decay zero makes AdamW's update identical to Adam's.
+AL_GRADIENT_CLIP_VAL = 1.0
+AL_WEIGHT_DECAY = 0.0
+AL_LOG_EVERY_N_STEPS = 1
+# The ConcatLSTM proxy is tiny and each optimizer step is short, so a synchronous
+# (num_workers=0) dataloader stalls the GPU between steps assembling the next batch. Prefetch
+# with a few workers, kept alive across epochs. The parallel-ensemble path collapses this back
+# to 0 (nested workers under spawned member processes are unsafe); serial training keeps it.
+AL_TRAIN_DATALOADER_NUM_WORKERS = 4
 
 
 def active_learning_learning_rate(batch_size: int) -> float:
@@ -49,7 +78,37 @@ def active_learning_learning_rate(batch_size: int) -> float:
             f"Active-learning batch_size must be in [1, {AL_MAX_BATCH_SIZE}], got "
             f"{batch_size}"
         )
-    return AL_REFERENCE_LEARNING_RATE * _math.sqrt(batch_size / AL_REFERENCE_BATCH_SIZE)
+    return AL_REFERENCE_LEARNING_RATE
+
+
+def active_learning_steps_per_epoch(
+    num_train_windows: int, batch_size: int, drop_last: bool
+) -> int:
+    """
+    Optimizer steps in one epoch for ``num_train_windows`` windows at ``batch_size``, or 0
+    when the window count is unknown (a speculative probe). ``drop_last`` mirrors the
+    training dataloader: the final partial batch is a step only when it is kept.
+    """
+    if num_train_windows <= 0 or batch_size <= 0:
+        return 0
+    if drop_last:
+        return num_train_windows // batch_size
+    return -(-num_train_windows // batch_size)
+
+
+def active_learning_max_epochs(steps_per_epoch: int) -> int:
+    """Train each fresh ensemble for a fixed number of epochs."""
+    return AL_DEFAULT_MAX_EPOCHS
+
+
+def active_learning_lr_gamma(max_epochs: int) -> float:
+    """Return PANAMA's fixed ExponentialLR decay."""
+    return AL_LR_GAMMA
+
+
+def active_learning_warmup_epochs(max_epochs: int) -> int:
+    """Warm the learning rate over the first epochs, capped below ``max_epochs``."""
+    return min(AL_WARMUP_EPOCHS, max(max_epochs - 1, 0))
 
 
 def build_data_config(project: CaptureProject) -> dict[str, _Any]:
@@ -91,10 +150,9 @@ def update_data_json(project: CaptureProject, project_dir: _Path) -> _Path:
 def build_al_data_config(project: CaptureProject) -> dict[str, _Any]:
     """
     Active-learning counterpart of :func:`build_data_config`: same captured entries and
-    per-split paths/delay/params/windowing, but both splits use ``AL_NY`` instead of the
-    project's own windows. The acquisition-proxy ConcatLSTM needs a window above the loss
-    mask_first (8192) and below one LSTM processing block (65535); a finite validation
-    window also sidesteps the Apple-MPS LSTM batch-1 validation crash.
+    per-split paths/delay/params/windowing, but both splits use PANAMA's ``AL_NY`` instead
+    of the project's own windows. A finite validation window also sidesteps the Apple-MPS
+    LSTM batch-1 validation crash.
     """
     config = build_data_config(project)
     for split in ("train", "validation"):
@@ -147,7 +205,10 @@ def build_model_config(project: CaptureProject) -> dict[str, _Any]:
 # Mirrors nam_full_configs/active_learning/model.json (a PANAMA-style ConcatLSTM
 # acquisition proxy, not the shipped ConcatWaveNet), less its _notes.
 def build_al_model_config(
-    project: CaptureProject, *, batch_size: int = AL_MAX_BATCH_SIZE
+    project: CaptureProject,
+    *,
+    batch_size: int = AL_MAX_BATCH_SIZE,
+    max_epochs: int = AL_DEFAULT_MAX_EPOCHS,
 ) -> dict[str, _Any]:
     params = []
     for knob in project.knob_specs():
@@ -163,19 +224,24 @@ def build_al_model_config(
             "name": "ConcatLSTM",
             "config": {
                 "hidden_size": 18,
-                "num_layers": 3,
+                "num_layers": AL_LSTM_NUM_LAYERS,
                 "train_burn_in": 8192,
-                "train_truncate": None,
+                "train_truncate": AL_TRAIN_TRUNCATE,
                 "params": params,
             },
         },
         "loss": {
-            "mask_first": 8192,
-            "pre_emph_mrstft_weight": 0.002,
-            "pre_emph_mrstft_coef": 0.85,
+            "mel_weight": AL_MEL_WEIGHT,
         },
-        "optimizer": {"lr": active_learning_learning_rate(batch_size)},
-        "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.995}},
+        "optimizer": {
+            "lr": active_learning_learning_rate(batch_size),
+            "weight_decay": AL_WEIGHT_DECAY,
+        },
+        "lr_scheduler": {
+            "class": "ExponentialLR",
+            "kwargs": {"gamma": active_learning_lr_gamma(max_epochs)},
+            "warmup_epochs": active_learning_warmup_epochs(max_epochs),
+        },
     }
 
 
@@ -215,11 +281,16 @@ def build_learning_config(project: CaptureProject) -> dict[str, _Any]:
 # is a placeholder: nam.train.active_learning.train_ensemble rewrites it at runtime
 # (cuda > mps > cpu).
 def build_al_learning_config(
-    *, batch_size: int, drop_last: bool, val_batch_size: _Optional[int] = None
+    *,
+    batch_size: int,
+    drop_last: bool,
+    val_batch_size: _Optional[int] = None,
+    max_epochs: int = AL_DEFAULT_MAX_EPOCHS,
+    accumulate_grad_batches: int = 1,
+    auto_batch_size: bool = False,
 ) -> dict[str, _Any]:
-    # val_batch_size is decoupled from the training batch_size on purpose. The training
-    # batch is small (sized for many gradient steps per epoch); validation does no backprop
-    # and has no such concern, so it uses a larger batch to run in as few passes as
+    # val_batch_size is decoupled from the training batch_size on purpose. Validation does
+    # no backprop, so it uses a memory-fitting batch to run in as few passes as
     # possible. ESR is a ratio whose denominator sums target energy over the batch, so a
     # per-batch ESR averaged over many small batches is NOT the whole-set ESR (see the NOTE
     # on nam.train.lightning_module.ValidationLoss) -- fragmenting validation would make
@@ -233,7 +304,8 @@ def build_al_learning_config(
             "shuffle": True,
             "pin_memory": True,
             "drop_last": drop_last,
-            "num_workers": 0,
+            "num_workers": AL_TRAIN_DATALOADER_NUM_WORKERS,
+            "persistent_workers": AL_TRAIN_DATALOADER_NUM_WORKERS > 0,
         },
         "val_dataloader": {
             "batch_size": val_batch_size,
@@ -243,12 +315,20 @@ def build_al_learning_config(
         "trainer": {
             "accelerator": "gpu",
             "devices": 1,
-            # ~150 epochs x AL_TARGET_STEPS_PER_EPOCH (~30) gives the ConcatLSTM proxy a
-            # few thousand gradient updates -- enough to actually fit the capture set.
-            # Together with AL_TARGET_STEPS_PER_EPOCH this sets the total update budget;
-            # they are the two knobs to turn if the proxy under/over-fits.
-            "max_epochs": 150,
-            "gradient_clip_val": 1.0,
+            "benchmark": False,
+            "deterministic": "warn",
+            "max_epochs": max_epochs,
+            "accumulate_grad_batches": accumulate_grad_batches,
+            "gradient_clip_val": AL_GRADIENT_CLIP_VAL,
+            "log_every_n_steps": AL_LOG_EVERY_N_STEPS,
+        },
+        "batch_sizing": {
+            "auto": auto_batch_size,
+            "target_effective_batch_size": AL_TARGET_EFFECTIVE_BATCH_SIZE,
+            "max_physical_batch_size": AL_MAX_BATCH_SIZE,
+            "memory_fraction": 0.75,
+            "bytes_per_timestep": 5120,
+            "ny": AL_NY,
         },
         "trainer_fit_kwargs": {},
     }

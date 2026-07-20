@@ -11,6 +11,7 @@ import gc as _gc
 import importlib as _importlib
 import json as _json
 import math as _math
+import os as _os
 import shutil as _shutil
 from concurrent.futures import ProcessPoolExecutor as _ProcessPoolExecutor
 from concurrent.futures import as_completed as _as_completed
@@ -21,6 +22,9 @@ from collections.abc import Sequence as _Sequence
 from typing import Any as _Any
 from typing import cast as _cast
 from warnings import warn as _warn
+
+# CUDA LSTM kernels need a cuBLAS workspace configuration for deterministic execution.
+_os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:2")
 
 import pytorch_lightning as _pl
 import torch as _torch
@@ -49,11 +53,14 @@ from nam.models.parametric import switch_combinations as _switch_combinations
 from nam.models.parametric import ParamSpec as _ParamSpec
 from nam.models.parametric._dataset import _coerce_param_specs
 from nam.train.full import _handshake_datasets
+from nam.train.parametric import _MelSpectrogram
 from nam.train.parametric import _ParametricLightningModule
 from nam.train.parametric import _create_parametric_callbacks
 from nam.train.parametric import _iter_inner_datasets
 from nam.train.parametric import _make_parametric_dataloader
 from nam.util import filter_warnings as _filter_warnings
+
+_torch.set_float32_matmul_precision("medium")
 
 __all__ = [
     "DisagreementCandidate",
@@ -114,6 +121,108 @@ def _prepare_learning_config(
     trainer_config.update(_trainer_device_config(device))
     learning_config["trainer"] = trainer_config
     return learning_config
+
+
+def _device_memory_bytes(device: _torch.device) -> tuple[int | None, int | None]:
+    if device.type == "cuda":
+        with _torch.cuda.device(device):
+            free, total = _torch.cuda.mem_get_info()
+        return int(free), int(total)
+    if device.type == "mps":
+        mps = getattr(_torch, "mps", None)
+        if mps is not None and hasattr(mps, "recommended_max_memory"):
+            total = int(mps.recommended_max_memory())
+            free = total - int(mps.current_allocated_memory())
+            return max(free, 0), total
+    return None, None
+
+
+def _closest_effective_batch_plan(
+    *, physical_ceiling: int, target: int
+) -> tuple[int, int, int]:
+    physical_ceiling = max(physical_ceiling, 1)
+    target = max(target, 1)
+    best: tuple[int, int, int, int] | None = None
+    tolerance = max(round(target * 0.02), 1)
+    for accumulation in range(1, target + 1):
+        physical = min(physical_ceiling, max(round(target / accumulation), 1))
+        effective = physical * accumulation
+        error = abs(effective - target)
+        candidate = (
+            0 if error <= tolerance else 1,
+            -physical if error <= tolerance else error,
+            error,
+            accumulation,
+        )
+        if best is None or candidate < best:
+            best = candidate
+    if best is None:
+        raise RuntimeError("Failed to resolve an active-learning batch plan")
+    _, _, _, accumulation = best
+    physical = min(
+        physical_ceiling, max(round(target / accumulation), 1)
+    )
+    return physical, accumulation, physical * accumulation
+
+
+def _resolve_member_batching(
+    learning_config: dict,
+    *,
+    device: _torch.device,
+    num_train_windows: int,
+    num_validation_windows: int,
+) -> dict[str, _Any]:
+    sizing = learning_config.get("batch_sizing", {})
+    train_config = learning_config["train_dataloader"]
+    trainer_config = learning_config["trainer"]
+    free_bytes, total_bytes = _device_memory_bytes(device)
+
+    if sizing.get("auto") and free_bytes is not None:
+        memory_fraction = float(sizing["memory_fraction"])
+        bytes_per_window = int(sizing["bytes_per_timestep"]) * int(sizing["ny"])
+        memory_ceiling = max(int(free_bytes * memory_fraction) // bytes_per_window, 1)
+        physical_ceiling = min(
+            memory_ceiling,
+            int(sizing["max_physical_batch_size"]),
+            max(num_train_windows, 1),
+        )
+        target = min(
+            int(sizing["target_effective_batch_size"]),
+            max(num_train_windows, 1),
+        )
+        physical, accumulation, effective = _closest_effective_batch_plan(
+            physical_ceiling=physical_ceiling,
+            target=target,
+        )
+        train_config["batch_size"] = physical
+        train_config["drop_last"] = True
+        trainer_config["accumulate_grad_batches"] = accumulation
+        learning_config["val_dataloader"]["batch_size"] = min(
+            memory_ceiling,
+            int(sizing["max_physical_batch_size"]),
+            max(num_validation_windows, 1),
+        )
+    else:
+        physical = int(train_config["batch_size"])
+        accumulation = int(trainer_config.get("accumulate_grad_batches", 1))
+        effective = physical * accumulation
+        memory_ceiling = None
+
+    return {
+        "device": str(device),
+        "device_name": (
+            _torch.cuda.get_device_name(device) if device.type == "cuda" else device.type
+        ),
+        "free_vram_bytes": free_bytes,
+        "total_vram_bytes": total_bytes,
+        "memory_batch_ceiling": memory_ceiling,
+        "physical_batch_size": physical,
+        "accumulate_grad_batches": accumulation,
+        "effective_batch_size": effective,
+        "target_effective_batch_size": sizing.get("target_effective_batch_size"),
+        "train_windows": num_train_windows,
+        "validation_windows": num_validation_windows,
+    }
 
 
 def _canonical_param_specs(raw_param_specs: _Any) -> list[dict[str, _Any]]:
@@ -229,6 +338,7 @@ def _build_dataloaders(
     data_config: dict,
     learning_config: dict,
     model: _ParametricLightningModule,
+    device: _torch.device,
 ):
     net = model.net
     # getattr (not net.receptive_field) keeps the type checker from widening to nn.Module.
@@ -248,6 +358,13 @@ def _build_dataloaders(
     setattr(net, "sample_rate", getattr(dataset_train, "sample_rate", None))
     _handshake_datasets(model, dataset_train, dataset_validation)
 
+    batch_plan = _resolve_member_batching(
+        learning_config,
+        device=device,
+        num_train_windows=len(dataset_train),
+        num_validation_windows=len(dataset_validation),
+    )
+
     train_loader_config = dict(learning_config["train_dataloader"])
     train_loader_config["capture_grouped_batches"] = False
     train_loader_config["shuffle"] = True
@@ -260,6 +377,7 @@ def _build_dataloaders(
         dataset_validation,
         _make_parametric_dataloader(dataset_train, train_loader_config),
         _make_parametric_dataloader(dataset_validation, val_loader_config),
+        batch_plan,
     )
 
 
@@ -660,12 +778,6 @@ def _build_mel_transforms(
 ):
     if not use_mel:
         return ()
-    try:
-        _torchaudio = _importlib.import_module("torchaudio")
-    except ImportError as exc:
-        raise RuntimeError(
-            "use_mel=True requires torchaudio to be installed"
-        ) from exc
 
     transforms = []
     for n_fft, hop_length, n_mels in (
@@ -674,14 +786,13 @@ def _build_mel_transforms(
         (2048, 512, 128),
     ):
         transforms.append(
-            _torchaudio.transforms.MelSpectrogram(
+            _MelSpectrogram(
                 sample_rate=sample_rate,
                 n_fft=n_fft,
                 win_length=n_fft,
                 hop_length=hop_length,
                 n_mels=n_mels,
                 power=2.0,
-                center=True,
             ).to(device)
         )
     return tuple(transforms)
@@ -755,7 +866,7 @@ def _train_single_member(
     ``learning_config`` is the raw config -- device selection is applied here so each
     worker binds its own assigned ``device`` (e.g. ``cuda:1``).
     """
-    _torch.manual_seed(base_seed + member_idx)
+    _pl.seed_everything(base_seed + member_idx, workers=True)
     learning_config = _prepare_learning_config(learning_config, device)
     member_outdir = _Path(outdir) / f"member_{member_idx:02d}"
     member_outdir.mkdir(parents=True, exist_ok=True)
@@ -773,7 +884,17 @@ def _train_single_member(
             dataset_validation,
             train_dataloader,
             val_dataloader,
-        ) = _build_dataloaders(data_config, learning_config, model)
+            batch_plan,
+        ) = _build_dataloaders(data_config, learning_config, model, device)
+        batch_plan_path = member_outdir / "batch_plan.json"
+        batch_plan_path.write_text(_json.dumps(batch_plan, indent=2) + "\n")
+        print(
+            f"  member_{member_idx:02d} batch plan on {batch_plan['device_name']}: "
+            f"physical={batch_plan['physical_batch_size']}, "
+            f"accumulate={batch_plan['accumulate_grad_batches']}, "
+            f"effective={batch_plan['effective_batch_size']}",
+            flush=True,
+        )
 
         trainer_kwargs = dict(learning_config["trainer"])
         if not enable_progress_bar:
@@ -859,12 +980,16 @@ def _coerce_parallel_dataloader_workers(learning_config: dict) -> dict:
     learning_config = _deepcopy(learning_config)
     for key in ("train_dataloader", "val_dataloader"):
         loader_config = learning_config.get(key)
-        if isinstance(loader_config, dict) and loader_config.get("num_workers", 0):
+        if not isinstance(loader_config, dict):
+            continue
+        if loader_config.get("num_workers", 0):
             _warn(
                 f"Forcing {key}.num_workers=0 for parallel ensemble training "
                 "(nested dataloader workers under spawned member processes are unsafe)."
             )
-            loader_config["num_workers"] = 0
+        loader_config["num_workers"] = 0
+        # persistent_workers requires num_workers > 0, so it cannot survive the collapse.
+        loader_config.pop("persistent_workers", None)
     return learning_config
 
 
@@ -1022,7 +1147,18 @@ def find_disagreement_settings(
     continuous_idx, _, _ = _split_param_indices(specs)
 
     device = _resolve_device()
-    members = _load_disagreement_members(checkpoint_paths, model_config, device)
+    # train_truncate is a training-only BPTT setting. At g-opt time every frozen member runs
+    # a single full-sequence forward from its initial state, which is what eval() already does
+    # regardless of train_truncate -- so forcing it off does not change any disagreement score.
+    # It does let the members run in train() mode (identical forward), which is what re-enables
+    # cuDNN's RNN backward on cuda and avoids the slow native per-timestep unroll.
+    g_opt_model_config = _deepcopy(model_config)
+    _g_opt_net_config = g_opt_model_config.get("net")
+    if isinstance(_g_opt_net_config, dict) and isinstance(
+        _g_opt_net_config.get("config"), dict
+    ):
+        _g_opt_net_config["config"]["train_truncate"] = None
+    members = _load_disagreement_members(checkpoint_paths, g_opt_model_config, device)
     if len(members) == 0:
         return []
 
@@ -1053,7 +1189,7 @@ def find_disagreement_settings(
     # (see _g_opt_cuda_train_mode_safe). Otherwise fall back to eval() + cuDNN disabled, which
     # is correct but runs the slow native RNN unroll. cpu/mps always use the plain eval() path.
     use_cuda_train_mode = device.type == "cuda" and _g_opt_cuda_train_mode_safe(
-        members, model_config
+        members, g_opt_model_config
     )
     if use_cuda_train_mode:
         for member in members:

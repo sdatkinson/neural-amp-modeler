@@ -1,9 +1,12 @@
 {
     "_notes": [
         "Active-learning ensemble-member learning config, adapting PANAMA's",
-        "default_config_files/learning/active_learning_LSTM.json (arXiv 2509.26564v1):",
-        "150 epochs (raised from PANAMA's 50: this tiny proxy needs a few thousand gradient updates",
-        "to fit, and update count -- steps/epoch x epochs -- is what limits convergence here). Used by",
+        "default_config_files/learning/active_learning_LSTM.json (arXiv 2509.26564v1).",
+        "50 epochs and a smaller effective batch of 37 than PANAMA's 512: the short single-file",
+        "dataset here yields few windows, so a 512 effective batch would leave only a handful of",
+        "optimizer updates per epoch. A 37 effective batch also matches the best-generalizing prior",
+        "runs on this capture -- the small-batch gradient noise is itself a regularizer; batches of",
+        "40/64 trained smoother but plateaued at a worse unseen-ESR floor. Used by",
         "scripts/active_learn.py / nam.train.active_learning.train_ensemble to train each of the 4",
         "disposable ConcatLSTM members serially on one device.",
         "DEVIATIONS from PANAMA (intentional, for this single-GPU port):",
@@ -12,16 +15,9 @@
         " * PANAMA disables in-loop validation (check_val_every_n_epoch 51) and takes the last checkpoint.",
         "   Our train_ensemble selects the val_loss-monitored BEST checkpoint, so validation must run:",
         "   check_val_every_n_epoch is left at its default (1) and the data config keeps a validation split.",
-        " * batch_size is 32, not PANAMA's 512. Size the batch for MANY optimizer steps per epoch",
-        "   (~train_windows / 30), NOT to fill memory: this proxy is limited by gradient-update count, and",
-        "   a memory-filling batch collapses a small round-0 set to a handful of steps/epoch so it never",
-        "   fits. The capture-app runner (nam.capture.al_runner.compute_al_batch_size) picks the batch this",
-        "   way automatically; keep it small here for a small set. ConcatLSTM trains with full",
-        "   backprop-through-time over each ny-length window (train_truncate null), so peak memory scales",
-        "   with batch_size * ny; ny=32768 (above the loss mask_first, below one LSTM block; see the data",
-        "   config). batch_size 32 peaks near 5 GiB on MPS -- memory is only an upper bound on the batch,",
-        "   not the target. If you raise it, also raise the lr (sqrt-scaled) and watch tensorboard to",
-        "   verify convergence.",
+        " * physical batch size is fitted independently to each GPU with 25% VRAM headroom, then",
+        "   gradient accumulation reaches the target effective batch size of 37 (accumulation is 1",
+        "   whenever a 37-window physical batch fits).",
         " * val_dataloader.batch_size is LARGER than train (memory-bounded, not step-bounded): validation",
         "   does no backprop, and ESR is a ratio, so a per-batch ESR averaged over many small batches is",
         "   not the whole-set ESR -- validation should run in as few batches as possible (ideally one) so",
@@ -30,11 +26,12 @@
         "Plain shuffled DataLoader (no capture-grouped batch sampler) is used."
     ],
     "train_dataloader": {
-        "batch_size": 32,
+        "batch_size": 37,
         "shuffle": true,
         "pin_memory": true,
         "drop_last": true,
-        "num_workers": 0
+        "num_workers": 4,
+        "persistent_workers": true
     },
     "val_dataloader": {
         "batch_size": 256,
@@ -44,8 +41,20 @@
     "trainer": {
         "accelerator": "gpu",
         "devices": 1,
-        "max_epochs": 150,
-        "gradient_clip_val": 1.0
+        "benchmark": false,
+        "deterministic": "warn",
+        "max_epochs": 50,
+        "accumulate_grad_batches": 1,
+        "gradient_clip_val": 1.0,
+        "log_every_n_steps": 1
+    },
+    "batch_sizing": {
+        "auto": true,
+        "target_effective_batch_size": 37,
+        "max_physical_batch_size": 512,
+        "memory_fraction": 0.75,
+        "bytes_per_timestep": 5120,
+        "ny": 22050
     },
     "trainer_fit_kwargs": {}
 }

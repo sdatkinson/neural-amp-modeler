@@ -100,9 +100,11 @@ def test_build_al_model_config_shape_and_params_keep_step_and_avoid_zero():
     assert net_config["num_layers"] == 3
     assert net_config["train_burn_in"] == 8192
     assert net_config["train_truncate"] is None
+    assert config["loss"] == {"mel_weight": _pytest.approx(6.2e-05)}
+    assert "gradient_reject_norm" not in config["optimizer"]
 
 
-def test_build_al_model_config_scales_learning_rate_with_batch_size():
+def test_build_al_model_config_uses_reference_learning_rate_for_all_physical_batches():
     from nam.capture.export import AL_REFERENCE_BATCH_SIZE as _ref_bs
     from nam.capture.export import AL_REFERENCE_LEARNING_RATE as _ref_lr
 
@@ -111,10 +113,49 @@ def test_build_al_model_config_scales_learning_rate_with_batch_size():
     def lr(batch_size: int) -> float:
         return _build_al_model_config(project, batch_size=batch_size)["optimizer"]["lr"]
 
-    # lr equals the reference at the reference batch, and scales as sqrt(batch) elsewhere.
+    assert _ref_bs == 37
+    assert _ref_lr == _pytest.approx(0.008)
     assert lr(_ref_bs) == _pytest.approx(_ref_lr)
-    assert lr(4 * _ref_bs) == _pytest.approx(_ref_lr * 2.0)  # sqrt(4) = 2
-    assert lr(_ref_bs // 4) == _pytest.approx(_ref_lr * 0.5)  # sqrt(1/4) = 1/2
+    assert lr(32) == _pytest.approx(_ref_lr)
+
+
+def test_active_learning_max_epochs_is_fixed():
+    from nam.capture.export import AL_DEFAULT_MAX_EPOCHS as _default
+    from nam.capture.export import active_learning_max_epochs as _epochs
+
+    assert _default == 50
+    assert _epochs(1) == _default
+    assert _epochs(600) == _default
+    assert _epochs(0) == _default
+
+
+def test_active_learning_steps_per_epoch_respects_drop_last():
+    from nam.capture.export import active_learning_steps_per_epoch as _steps
+
+    assert _steps(100, 30, drop_last=True) == 3  # floor: final partial batch dropped
+    assert _steps(100, 30, drop_last=False) == 4  # ceil: final partial batch kept
+    assert _steps(0, 30, drop_last=True) == 0  # unknown window count
+
+
+def test_active_learning_lr_gamma_matches_panama():
+    from nam.capture.export import active_learning_lr_gamma as _gamma
+
+    assert _gamma(50) == _pytest.approx(0.995)
+    assert _gamma(600) == _pytest.approx(0.995)
+
+
+def test_build_al_model_config_uses_fixed_panama_gamma():
+    from nam.capture.export import active_learning_lr_gamma as _gamma
+
+    project = _project()
+
+    def kwargs(max_epochs: int) -> dict:
+        cfg = _build_al_model_config(project, max_epochs=max_epochs)
+        return cfg["lr_scheduler"]["kwargs"]
+
+    assert kwargs(50)["gamma"] == _pytest.approx(_gamma(50))
+    assert kwargs(30)["gamma"] == _pytest.approx(_gamma(30))
+    assert kwargs(30)["gamma"] == _pytest.approx(0.995)
 
 
 def test_build_al_model_config_is_loadable_by_concat_lstm():
@@ -168,92 +209,92 @@ def test_build_al_learning_config_val_batch_decoupled_and_defaults():
     assert cfg["train_dataloader"]["batch_size"] == 8
     assert cfg["train_dataloader"]["drop_last"] is True
     assert cfg["val_dataloader"]["batch_size"] == 200
+    assert cfg["trainer"]["accumulate_grad_batches"] == 1
+    assert cfg["batch_sizing"]["target_effective_batch_size"] == 37
 
     # val_batch_size falls back to batch_size when unset.
     default_cfg = build_al_learning_config(batch_size=8, drop_last=True)
     assert default_cfg["val_dataloader"]["batch_size"] == 8
 
+    # max_epochs defaults to the reference schedule and is otherwise passed through.
+    from nam.capture.export import AL_DEFAULT_MAX_EPOCHS as _default_epochs
+
+    assert default_cfg["trainer"]["max_epochs"] == _default_epochs
+    assert default_cfg["trainer"]["deterministic"] == "warn"
+    assert default_cfg["trainer"]["benchmark"] is False
+    assert (
+        build_al_learning_config(batch_size=8, drop_last=True, max_epochs=42)["trainer"][
+            "max_epochs"
+        ]
+        == 42
+    )
+
+    # The standard 1.0 gradient clip: a tighter clip distorts Adam's second-moment estimate
+    # during a spike and destabilizes training, so the clip stays at the usual 1.0.
+    from nam.capture.export import AL_GRADIENT_CLIP_VAL as _clip
+
+    assert default_cfg["trainer"]["gradient_clip_val"] == _clip
+    assert _clip == 1.0
+
 
 # --- compute_al_batch_size ---------------------------------------------------------
 
 
-def test_compute_al_batch_size_targets_steps_per_epoch():
-    # With ample memory, the batch is chosen so training does ~AL_TARGET_STEPS_PER_EPOCH
-    # optimizer steps per epoch.
-    target = _al_runner.AL_TARGET_STEPS_PER_EPOCH
-    windows = 30 * target  # evenly divisible for a clean assertion
-    batch, drop_last = _al_runner.compute_al_batch_size(10**15, 32768, windows)
+def test_compute_al_batch_plan_uses_target_batch_when_it_fits():
+    physical, accumulation, effective = _al_runner.compute_al_batch_plan(
+        10**15, _AL_NY, 2_000
+    )
 
-    assert batch == round(windows / target)
-    assert windows // batch == target
-    assert drop_last is True
+    assert (physical, accumulation, effective) == (37, 1, 37)
 
 
-def test_compute_al_batch_size_grows_batch_with_dataset():
-    # As the capture set grows over rounds, the batch grows but steps/epoch stays ~constant.
-    target = _al_runner.AL_TARGET_STEPS_PER_EPOCH
-    small, _ = _al_runner.compute_al_batch_size(10**15, 32768, 550)
-    large, _ = _al_runner.compute_al_batch_size(10**15, 32768, 1650)
+def test_compute_al_batch_plan_accumulates_on_smaller_gpu():
+    bytes_per_window = 5120 * _AL_NY
+    available = 4 * bytes_per_window
+    physical, accumulation, effective = _al_runner.compute_al_batch_plan(
+        available, _AL_NY, 2_000
+    )
 
-    assert small == round(550 / target)
-    assert large == round(1650 / target)
-    assert large > small
-    assert abs(550 // small - target) <= 2
-    assert abs(1650 // large - target) <= 2
+    assert physical == 3
+    assert accumulation == 12
+    assert effective == 36
 
 
-def test_compute_al_batch_size_tiny_dataset_prefers_many_steps():
-    # A tiny dataset is sized down toward batch 1 (maximal steps), not packed into one
-    # big batch the way memory-driven sizing used to do.
-    batch, drop_last = _al_runner.compute_al_batch_size(10**15, 32768, 7)
-    assert batch == 1
-    assert drop_last is True
+def test_compute_al_batch_plan_caps_target_at_tiny_dataset():
+    physical, accumulation, effective = _al_runner.compute_al_batch_plan(
+        10**15, _AL_NY, 7
+    )
+
+    assert (physical, accumulation, effective) == (7, 1, 7)
 
 
 def test_compute_al_batch_size_memory_is_only_a_ceiling():
     # A large step-target batch is clamped down to what memory allows; the memory cap
     # only ever lowers the batch, never raises it.
-    bytes_per_window = 5120 * 32768
+    bytes_per_window = 5120 * _AL_NY
     available = 4 * bytes_per_window  # budgets 0.75*4 = 3 windows
-    batch, _ = _al_runner.compute_al_batch_size(available, 32768, 10_000)
+    batch, _ = _al_runner.compute_al_batch_size(available, _AL_NY, 10_000)
     assert batch == int(available * 0.75) // bytes_per_window == 3
 
 
-def test_compute_al_batch_size_unknown_dataset_falls_back_to_memory_ceiling():
-    bytes_per_window = 5120 * 32768
+def test_compute_al_batch_size_unknown_dataset_uses_best_effective_batch_plan():
+    bytes_per_window = 5120 * _AL_NY
     available = 200 * bytes_per_window
-    batch, drop_last = _al_runner.compute_al_batch_size(available, 32768, 0)
+    batch, drop_last = _al_runner.compute_al_batch_size(available, _AL_NY, 0)
 
-    assert batch == int(available * 0.75) // bytes_per_window
+    assert batch == 37
     assert drop_last is True
 
 
-def test_compute_al_batch_size_clamps_to_256():
-    batch, _ = _al_runner.compute_al_batch_size(10**15, 32768, 0)
-    assert batch == 256
+def test_compute_al_batch_size_bounded_by_target_effective_batch():
+    batch, _ = _al_runner.compute_al_batch_size(10**15, _AL_NY, 0)
+    assert batch == 37
 
 
 def test_compute_al_batch_size_tiny_memory_floors_at_one():
-    batch, drop_last = _al_runner.compute_al_batch_size(1, 32768, 100)
+    batch, drop_last = _al_runner.compute_al_batch_size(1, _AL_NY, 100)
     assert batch == 1
     assert drop_last is True
-
-
-def test_compute_al_batch_size_drop_last_flips_to_false_past_10_percent_remainder(
-    monkeypatch: _pytest.MonkeyPatch,
-):
-    # drop_last stays True in normal use; it flips off only if the step target ever makes
-    # the batch large enough that the dropped tail exceeds 10% of the windows.
-    monkeypatch.setattr(_al_runner, "AL_TARGET_STEPS_PER_EPOCH", 3)
-    batch, drop_last = _al_runner.compute_al_batch_size(10**15, 32768, 20)
-    assert batch == 7  # round(20 / 3)
-    assert drop_last is False  # dropped = 20 % 7 = 6 > max(1, 20 // 10) = 2
-
-
-def test_compute_al_batch_size_drop_last_stays_true_for_even_split():
-    batch, drop_last = _al_runner.compute_al_batch_size(10**15, 32768, 900)
-    assert batch == 30
-    assert drop_last is True  # 900 % 30 == 0
 
 
 # --- compute_al_val_batch_size -----------------------------------------------------
@@ -261,23 +302,26 @@ def test_compute_al_batch_size_drop_last_stays_true_for_even_split():
 
 def test_compute_al_val_batch_size_is_memory_ceiling_ignoring_dataset():
     # Validation is sized by memory only (no steps-per-epoch concern, no dataset arg).
-    assert _al_runner.compute_al_val_batch_size(10**15, 32768) == 256  # AL_MAX clamp
-    bytes_per_window = 5120 * 32768
+    assert _al_runner.compute_al_val_batch_size(10**15, _AL_NY) == 512
+    bytes_per_window = 5120 * _AL_NY
     available = 4 * bytes_per_window
     assert (
-        _al_runner.compute_al_val_batch_size(available, 32768)
+        _al_runner.compute_al_val_batch_size(available, _AL_NY)
         == int(available * 0.75) // bytes_per_window
         == 3
     )
-    assert _al_runner.compute_al_val_batch_size(1, 32768) == 1  # floor
+    assert _al_runner.compute_al_val_batch_size(1, _AL_NY) == 1
 
 
-def test_compute_al_val_batch_size_exceeds_step_sized_train_batch():
-    # With ample memory the validation batch is much larger than the step-sized train batch,
-    # so validation runs in as few passes as possible (a stable whole-set ESR).
+def test_compute_al_val_batch_size_at_least_train_batch_when_memory_allows():
+    # Validation is memory-bounded (fewest passes); training is bounded by the smaller
+    # effective-batch target. With ample memory the validation batch is therefore at least
+    # as large as the training batch, and fills the memory ceiling.
     available = 10**15
-    train_batch, _ = _al_runner.compute_al_batch_size(available, 32768, 550)
-    assert _al_runner.compute_al_val_batch_size(available, 32768) > train_batch
+    train_batch, _ = _al_runner.compute_al_batch_size(available, _AL_NY, 550)
+    val_batch = _al_runner.compute_al_val_batch_size(available, _AL_NY)
+    assert val_batch >= train_batch
+    assert val_batch == 512
 
 
 # --- next_round_idx / load_round_proposals -----------------------------------------
@@ -493,6 +537,8 @@ def test_run_active_learning_round_explicit_batch_size_forces_drop_last_true(
     assert learning_config["train_dataloader"]["batch_size"] == 3
     assert learning_config["train_dataloader"]["drop_last"] is True
     assert learning_config["val_dataloader"]["batch_size"] == 3
+    assert learning_config["trainer"]["accumulate_grad_batches"] > 1
+    assert learning_config["batch_sizing"]["auto"] is False
     with (al_dir / "model.json").open() as fp:
         model_config = _json.load(fp)
     from nam.capture.export import active_learning_learning_rate as _al_lr
@@ -500,7 +546,7 @@ def test_run_active_learning_round_explicit_batch_size_forces_drop_last_true(
     assert model_config["optimizer"]["lr"] == _pytest.approx(_al_lr(3))
 
 
-@_pytest.mark.parametrize("batch_size", [0, 257])
+@_pytest.mark.parametrize("batch_size", [0, 513])
 def test_run_active_learning_round_rejects_batch_size_above_limit(
     tmp_path: _Path, batch_size: int
 ):

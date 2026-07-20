@@ -29,10 +29,10 @@ The capture GUI (`python -m nam.capture.gui.main`) plans a starter set of 10 tra
 validation captures via a Latin hypercube over the knobs, then hands rounds off to the
 **Active Learning** tab. "Start round" runs `python -m nam.capture.al_runner` against the
 project folder as a background process; each round regenerates the AL configs from
-`capture_project.json` fresh (`ny` 32768, batch size auto-sized to hit ~30 optimizer steps
-per epoch for the current capture-set size — with the machine's GPU/CPU memory only as an
-upper cap — the learning rate scaled to that batch, and each knob's `step`/`avoid_zero`
-honored in the proposals). Proposals from a
+`capture_project.json` fresh (`ny` 22050, physical batch auto-sized to use 75% of each
+GPU's available VRAM, and gradient accumulation chosen to approximate PANAMA's effective
+batch of 512). Each member records the resolved plan in `batch_plan.json`; knob `step` and
+`avoid_zero` metadata are honored in the proposals. Proposals from a
 finished round import back into the project as pending train captures automatically (and
 the tab offers to import any left over when you reopen a project).
 
@@ -48,17 +48,12 @@ Ready-to-edit examples (Gain/Tone continuous 0–10, Boost switch Off/On) live i
 [`nam_full_configs/active_learning/`](../nam_full_configs/active_learning/):
 
 - `model.json` — `net.name = "ConcatLSTM"`, with architecture/loss mirroring PANAMA's LSTM
-  (3 layers, hidden_size 18, `train_burn_in`/`mask_first` 8192, pre-emph MRSTFT loss). Its
+  (3 layers, hidden size 18, full BPTT, and MSE plus seven-resolution log-mel loss). Its
   `params` block **must match** the params of the parametric production model you are capturing for.
-  The learning rate is sqrt-scaled to the batch size (≈0.005 at batch 20); the capture-app path sets
-  it automatically, and this example carries a value matching its own `batch_size`.
-- `learning.json` — 150 epochs at `batch_size` 32. **Convergence note:** the ConcatLSTM proxy is a
-  tiny model on a tiny dataset, so what limits convergence is the *number of gradient updates*, not
-  throughput. Size the batch for many steps per epoch (roughly `train_windows / 30`), **not** to fill
-  memory: a memory-filling batch collapses a round-0 set to a handful of steps per epoch and the model
-  never fits. The capture-app runner (`al_runner.compute_al_batch_size`) does this automatically; if
-  you edit this file by hand, keep `batch_size` small for a small set. The `val_dataloader.batch_size`
-  is deliberately *larger* (memory-bounded, not step-bounded): validation does no backprop, and ESR is
+- `learning.json` — PANAMA's 50 epochs and learning rate 0.008. At runtime, each worker
+  chooses a memory-fitting physical batch and `accumulate_grad_batches` so the effective
+  optimizer batch remains close to 512 across 16–24 GB GPUs. The `val_dataloader.batch_size`
+  is independently memory-bounded: validation does no backprop, and ESR is
   a ratio, so validation should run in as few batches as possible (ideally one) or `val_loss` — and the
   best-checkpoint pick — drifts with the batch count. The accelerator is rewritten at runtime to
   `cuda → mps → cpu`, so it is device-agnostic. Unlike PANAMA (which skips in-loop validation), our
@@ -85,11 +80,9 @@ quantization), the `--start-seconds`/`--stop-seconds`/`--ny` window controls, an
 `--validation-*` variants. Continuous values are snapped to the realizable knob grid (default 0.5)
 so the recorded setting equals the setting a human can actually dial.
 
-Train and validation windows default to `--ny`/`--validation-ny` of 32768 samples. That value is
-deliberately above the loss `mask_first` (8192 — below it the whole window is masked from the loss)
-and below one ConcatLSTM processing block (65535 — a longer window is split into several sequential
-LSTM calls, which crashes the LSTM kernel on Apple MPS during the batch-size-1 validation forward).
-The script refuses any `--ny`/`--validation-ny` at or below the model's `mask_first`.
+The capture-app active-learning runner uses PANAMA's 22050-sample training windows. The
+standalone starter script retains configurable `--ny` and `--validation-ny` values for
+experimentation.
 
 The script prints a capture checklist. **Reamp `input.wav` at each listed setting**, save each output
 to its `y_path` wav, and you have a trainable round-0 `data.json`.
@@ -158,10 +151,11 @@ seeds and checkpoint order are identical to the serial path (reproducible either
 `num_workers` is forced to 0 under parallel training (nested workers under spawned processes are
 unsafe), and the per-member progress bars are suppressed.
 
-**When over-subscribing one GPU pays off.** The ConcatLSTM is tiny, so a single member badly
-underutilizes a large-VRAM card — concurrent members fill the idle gaps. Memory is the constraint:
-peak scales with `batch_size × ny` per member (see `learning.json`). At `batch_size` 32 (~5 GiB/member)
-a 24–48 GB card fits all four members; e.g. on a single RTX 6000:
+**Single-GPU runs should normally remain serial.** Automatic sizing gives each worker a physical
+batch based on the free VRAM it sees at startup. Explicitly starting several workers on one GPU can
+therefore overcommit memory if they probe concurrently; use a fixed conservative `--batch-size` when
+you deliberately opt into single-GPU concurrency. Multi-GPU runs remain one member per GPU by
+default, and each member sizes itself from its assigned device:
 
 ```bash
 python scripts/active_learn.py \
@@ -173,9 +167,8 @@ python scripts/active_learn.py \
   --max-workers 4
 ```
 
-Lower `--max-workers` (or the batch size) if you raise `batch_size`/`ny` and hit OOM. Without NVIDIA
-MPS (e.g. on Colab) the members time-slice the GPU rather than running truly simultaneously, so expect
-roughly a 2–3× speedup for four small members, not a clean 4×.
+Lower `--max-workers` or set a smaller explicit batch if an over-subscribed run hits OOM. Without
+NVIDIA MPS (e.g. on Colab), same-GPU members time-slice rather than running truly simultaneously.
 
 ### Step 3 — Train the production model
 

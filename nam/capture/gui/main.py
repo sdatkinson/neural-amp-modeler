@@ -1300,18 +1300,29 @@ class MainWindow(_QMainWindow):
             )
             return
 
+        num_train_windows: _Optional[int] = None
         try:
             available_bytes = _al_runner.available_accelerator_memory_bytes()
-            batch_size, drop_last = _al_runner.compute_al_batch_size(
+            num_train_windows = _al_runner.count_train_windows(
+                self.project, self.project_dir
+            )
+            batch_size, accumulate_grad_batches, _ = _al_runner.compute_al_batch_plan(
                 available_bytes,
                 _al_runner.AL_NY,
-                _al_runner.count_train_windows(self.project, self.project_dir),
+                num_train_windows,
             )
+            drop_last = True
             val_batch_size = _al_runner.compute_al_val_batch_size(
                 available_bytes, _al_runner.AL_NY
             )
         except Exception as exc:
-            batch_size, drop_last, val_batch_size = 32, True, None
+            batch_size, accumulate_grad_batches, drop_last, val_batch_size = (
+                32,
+                16,
+                True,
+                None,
+            )
+            num_train_windows = None
             self.al_log.appendPlainText(
                 f"Could not probe available memory ({exc}); using batch size 32."
             )
@@ -1322,7 +1333,10 @@ class MainWindow(_QMainWindow):
             self.project_dir,
             batch_size=batch_size,
             drop_last=drop_last,
+            accumulate_grad_batches=accumulate_grad_batches,
+            auto_batch_size=True,
             val_batch_size=val_batch_size,
+            num_train_windows=num_train_windows,
             max_per_round=self.al_max_per_round_spin.value(),
             ensemble_size=self.al_ensemble_size_spin.value(),
             num_restarts=self.al_num_restarts_spin.value(),

@@ -33,6 +33,11 @@ from nam.train.active_learning import train_ensemble as _train_ensemble
 from nam.train.active_learning import (
     _resolve_ensemble_parallel_plan as _resolve_ensemble_parallel_plan,
 )
+from nam.train.active_learning import _resolve_member_batching as _resolve_member_batching
+from nam.train.active_learning import _g_opt_cuda_train_mode_safe as _g_opt_cuda_train_mode_safe
+from nam.train.active_learning import (
+    _coerce_parallel_dataloader_workers as _coerce_parallel_dataloader_workers,
+)
 from nam.train.parametric import _ParametricLightningModule
 
 
@@ -923,6 +928,45 @@ def test_resolve_ensemble_parallel_plan_rejects_nonpositive_max_workers(monkeypa
         _resolve_ensemble_parallel_plan(4, 0)
 
 
+def test_resolve_member_batching_uses_assigned_gpu_memory(monkeypatch):
+    ny = 22050
+    bytes_per_window = 5120 * ny
+    learning_config = {
+        "train_dataloader": {"batch_size": 32, "drop_last": True},
+        "val_dataloader": {"batch_size": 32},
+        "trainer": {"accumulate_grad_batches": 16},
+        "batch_sizing": {
+            "auto": True,
+            "target_effective_batch_size": 512,
+            "max_physical_batch_size": 512,
+            "memory_fraction": 0.75,
+            "bytes_per_timestep": 5120,
+            "ny": ny,
+        },
+    }
+    monkeypatch.setattr(
+        "nam.train.active_learning._device_memory_bytes",
+        lambda device: (4 * bytes_per_window, 8 * bytes_per_window),
+    )
+    monkeypatch.setattr("torch.cuda.get_device_name", lambda device: "test GPU")
+
+    plan = _resolve_member_batching(
+        learning_config,
+        device=_torch.device("cuda:2"),
+        num_train_windows=2_000,
+        num_validation_windows=20,
+    )
+
+    assert plan["device"] == "cuda:2"
+    assert plan["device_name"] == "test GPU"
+    assert plan["physical_batch_size"] == 3
+    assert plan["accumulate_grad_batches"] == 171
+    assert plan["effective_batch_size"] == 513
+    assert learning_config["train_dataloader"]["batch_size"] == 3
+    assert learning_config["trainer"]["accumulate_grad_batches"] == 171
+    assert learning_config["val_dataloader"]["batch_size"] == 3
+
+
 def test_train_ensemble_parallel_matches_serial_members(tmp_path, monkeypatch):
     # Parallel training must reproduce the serial per-member results (same seed per
     # member, results keyed by member index) up to floating-point noise.
@@ -981,3 +1025,56 @@ def test_train_ensemble_parallel_propagates_member_failure(tmp_path, monkeypatch
             ensemble_size=2,
             max_workers=2,
         )
+
+
+def test_g_opt_cuda_train_mode_safe_requires_no_truncation():
+    # The g-opt cuda fast path (train() mode re-enabling cuDNN RNN backward) is only valid
+    # when train() forward equals eval() forward: train_truncate must be off, no dropout/bn.
+    cfg = _concat_lstm_model_config()
+    members = [_ParametricLightningModule.init_from_config(cfg).net]
+
+    assert cfg["net"]["config"]["train_truncate"] == 8
+    assert not _g_opt_cuda_train_mode_safe(members, cfg)
+
+    cfg_none = _deepcopy(cfg)
+    cfg_none["net"]["config"]["train_truncate"] = None
+    assert _g_opt_cuda_train_mode_safe(members, cfg_none)
+
+
+def test_find_disagreement_disables_truncation_for_members(monkeypatch):
+    # find_disagreement_settings must strip train_truncate before loading members so the
+    # cuda fast path is reachable; without it a truncated recipe forces the slow native unroll.
+    import nam.train.active_learning as al
+
+    seen = {}
+
+    def _fake_load(checkpoint_paths, model_config, device):
+        seen["train_truncate"] = model_config["net"]["config"].get("train_truncate", "MISSING")
+        return []  # empty -> find_disagreement_settings returns early
+
+    monkeypatch.setattr(al, "_resolve_device", lambda: _torch.device("cpu"))
+    monkeypatch.setattr(al, "_load_disagreement_members", _fake_load)
+
+    cfg = _concat_lstm_model_config()
+    assert cfg["net"]["config"]["train_truncate"] == 8
+    result = _find_disagreement_settings(["ckpt_a.ckpt"], cfg, g_opt_input_wav="x.wav")
+
+    assert result == []
+    assert seen["train_truncate"] is None
+    # The caller's config is not mutated.
+    assert cfg["net"]["config"]["train_truncate"] == 8
+
+
+def test_coerce_parallel_dataloader_workers_disables_workers_and_persistence():
+    cfg = {
+        "train_dataloader": {"batch_size": 4, "num_workers": 4, "persistent_workers": True},
+        "val_dataloader": {"batch_size": 4, "num_workers": 0},
+    }
+    out = _coerce_parallel_dataloader_workers(cfg)
+
+    assert out["train_dataloader"]["num_workers"] == 0
+    assert "persistent_workers" not in out["train_dataloader"]
+    assert out["val_dataloader"]["num_workers"] == 0
+    # Input config is copied, not mutated.
+    assert cfg["train_dataloader"]["num_workers"] == 4
+    assert cfg["train_dataloader"]["persistent_workers"] is True
