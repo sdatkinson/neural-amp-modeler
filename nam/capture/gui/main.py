@@ -23,6 +23,7 @@ from PySide6.QtCore import QProcessEnvironment as _QProcessEnvironment
 from PySide6.QtCore import Qt as _Qt
 from PySide6.QtCore import QTimer as _QTimer
 from PySide6.QtWidgets import QApplication as _QApplication
+from PySide6.QtWidgets import QCheckBox as _QCheckBox
 from PySide6.QtWidgets import QComboBox as _QComboBox
 from PySide6.QtWidgets import QDialog as _QDialog
 from PySide6.QtWidgets import QDialogButtonBox as _QDialogButtonBox
@@ -93,6 +94,8 @@ def format_qa_summary(qa: _Optional[_QAModel]) -> str:
         parts.append("no impulse")
     if qa.delay_disagreement:
         parts.append("delay disagreement")
+    if qa.loopback_disagreement:
+        parts.append("loopback mismatch")
     return ", ".join(parts)
 
 
@@ -182,14 +185,16 @@ def sample_rate_warnings(
     return warnings
 
 
-def devices_for_direction(
-    devices: _Sequence[_DeviceInfo], direction: str
-) -> list[_DeviceInfo]:
-    if direction == "output":
-        return [device for device in devices if device.max_output_channels > 0]
-    if direction == "input":
-        return [device for device in devices if device.max_input_channels > 0]
-    raise ValueError(f"direction must be 'output' or 'input'; got {direction!r}")
+def duplex_devices(devices: _Sequence[_DeviceInfo]) -> list[_DeviceInfo]:
+    """
+    Devices usable as a single capture interface: they expose both input and output
+    channels, so the same device drives playback and recording.
+    """
+    return [
+        device
+        for device in devices
+        if device.max_input_channels > 0 and device.max_output_channels > 0
+    ]
 
 
 class InputWavDialog(_QDialog):
@@ -388,20 +393,38 @@ class MainWindow(_QMainWindow):
         layout = _QVBoxLayout(widget)
 
         form = _QFormLayout()
-        self.output_device_combo = _QComboBox()
-        self.input_device_combo = _QComboBox()
+        self.device_combo = _QComboBox()
+        self.device_combo.setToolTip(
+            "One audio interface used for both playback and recording. Capture and the "
+            "loopback both run on this device's channels."
+        )
         self.output_channel_spin = _QSpinBox()
         self.output_channel_spin.setRange(1, 1)
         self.input_channel_spin = _QSpinBox()
         self.input_channel_spin.setRange(1, 1)
+        self.loopback_check = _QCheckBox(
+            "Use a second I/O pair as a clean delay-detection loopback"
+        )
+        self.loopback_check.setToolTip(
+            "Play the timing blips on a second output channel patched straight back "
+            "into a second input channel. The delay is measured from that clean "
+            "loopback instead of the amp return, so it stays consistent as gain and "
+            "distortion increase (the buffer size must not change between captures)."
+        )
+        self.loopback_output_channel_spin = _QSpinBox()
+        self.loopback_output_channel_spin.setRange(1, 1)
+        self.loopback_input_channel_spin = _QSpinBox()
+        self.loopback_input_channel_spin.setRange(1, 1)
         self.buffer_size_combo = _QComboBox()
         for frames in _BUFFER_SIZE_CHOICES:
             label = "Auto" if frames == 0 else f"{frames} frames"
             self.buffer_size_combo.addItem(label, frames)
-        form.addRow("Output device", self.output_device_combo)
+        form.addRow("Audio device", self.device_combo)
         form.addRow("Output channel", self.output_channel_spin)
-        form.addRow("Input device", self.input_device_combo)
         form.addRow("Input channel", self.input_channel_spin)
+        form.addRow(self.loopback_check)
+        form.addRow("Loopback output channel", self.loopback_output_channel_spin)
+        form.addRow("Loopback input channel", self.loopback_input_channel_spin)
         form.addRow("Buffer size", self.buffer_size_combo)
         layout.addLayout(form)
 
@@ -427,15 +450,18 @@ class MainWindow(_QMainWindow):
         self.route_test_result_label = _QLabel("")
         layout.addWidget(self.route_test_result_label)
 
-        self.output_device_combo.currentIndexChanged.connect(
-            self._on_output_device_changed
-        )
-        self.input_device_combo.currentIndexChanged.connect(
-            self._on_input_device_changed
-        )
+        self.device_combo.currentIndexChanged.connect(self._on_device_changed)
         self.output_channel_spin.valueChanged.connect(self._save_audio_settings)
         self.input_channel_spin.valueChanged.connect(self._save_audio_settings)
+        self.loopback_check.toggled.connect(self._on_loopback_toggled)
+        self.loopback_output_channel_spin.valueChanged.connect(
+            self._save_audio_settings
+        )
+        self.loopback_input_channel_spin.valueChanged.connect(
+            self._save_audio_settings
+        )
         self.buffer_size_combo.currentIndexChanged.connect(self._save_audio_settings)
+        self._update_loopback_enabled_state()
         return widget
 
     def _build_capture_tab(self) -> _QWidget:
@@ -859,10 +885,7 @@ class MainWindow(_QMainWindow):
             self._devices = []
             self.project_log.appendPlainText(f"Could not list audio devices: {exc}")
         self._populate_device_combo(
-            self.output_device_combo, devices_for_direction(self._devices, "output")
-        )
-        self._populate_device_combo(
-            self.input_device_combo, devices_for_direction(self._devices, "input")
+            self.device_combo, duplex_devices(self._devices)
         )
         self._load_audio_settings_into_ui()
         self._refresh_sample_rate_warning()
@@ -891,8 +914,9 @@ class MainWindow(_QMainWindow):
         if self.project is None:
             return
         audio = self.project.audio
-        self._select_combo_by_name(self.output_device_combo, audio.output_device)
-        self._select_combo_by_name(self.input_device_combo, audio.input_device)
+        self._select_combo_by_name(
+            self.device_combo, audio.output_device or audio.input_device
+        )
         self._update_channel_ranges()
         self.output_channel_spin.blockSignals(True)
         self.output_channel_spin.setValue(audio.output_channel)
@@ -900,17 +924,24 @@ class MainWindow(_QMainWindow):
         self.input_channel_spin.blockSignals(True)
         self.input_channel_spin.setValue(audio.input_channel)
         self.input_channel_spin.blockSignals(False)
+        self.loopback_check.blockSignals(True)
+        self.loopback_check.setChecked(audio.loopback_enabled)
+        self.loopback_check.blockSignals(False)
+        self.loopback_output_channel_spin.blockSignals(True)
+        self.loopback_output_channel_spin.setValue(
+            audio.loopback_output_channel or 1
+        )
+        self.loopback_output_channel_spin.blockSignals(False)
+        self.loopback_input_channel_spin.blockSignals(True)
+        self.loopback_input_channel_spin.setValue(audio.loopback_input_channel or 1)
+        self.loopback_input_channel_spin.blockSignals(False)
+        self._update_loopback_enabled_state()
         self.buffer_size_combo.blockSignals(True)
         buffer_index = self.buffer_size_combo.findData(audio.blocksize)
         self.buffer_size_combo.setCurrentIndex(max(0, buffer_index))
         self.buffer_size_combo.blockSignals(False)
 
-    def _on_output_device_changed(self) -> None:
-        self._update_channel_ranges()
-        self._save_audio_settings()
-        self._refresh_sample_rate_warning()
-
-    def _on_input_device_changed(self) -> None:
+    def _on_device_changed(self) -> None:
         self._update_channel_ranges()
         self._save_audio_settings()
         self._refresh_sample_rate_warning()
@@ -947,11 +978,12 @@ class MainWindow(_QMainWindow):
         )
         self._update_live_device_rates()
         live = self._live_device_rates
+        device_rate = self._device_rate(self.device_combo.currentData(), live)
         return sample_rate_warnings(
             train_rate,
             validation_rate,
-            self._device_rate(self.output_device_combo.currentData(), live),
-            self._device_rate(self.input_device_combo.currentData(), live),
+            device_rate,
+            device_rate,
         )
 
     def _refresh_sample_rate_warning(self) -> None:
@@ -971,33 +1003,46 @@ class MainWindow(_QMainWindow):
             self.capture_selected_button.setEnabled(not blocked)
 
     def _update_channel_ranges(self) -> None:
-        output_device = self.output_device_combo.currentData()
-        input_device = self.input_device_combo.currentData()
-        self.output_channel_spin.setRange(
-            1, max(1, output_device.max_output_channels if output_device else 1)
-        )
-        self.input_channel_spin.setRange(
-            1, max(1, input_device.max_input_channels if input_device else 1)
-        )
+        device = self.device_combo.currentData()
+        max_output = max(1, device.max_output_channels if device else 1)
+        max_input = max(1, device.max_input_channels if device else 1)
+        self.output_channel_spin.setRange(1, max_output)
+        self.input_channel_spin.setRange(1, max_input)
+        self.loopback_output_channel_spin.setRange(1, max_output)
+        self.loopback_input_channel_spin.setRange(1, max_input)
 
     def _save_audio_settings(self) -> None:
         if self.project is None or self.project_dir is None:
             return
-        output_device = self.output_device_combo.currentData()
-        input_device = self.input_device_combo.currentData()
-        self.project.audio.output_device = output_device.name if output_device else None
-        self.project.audio.input_device = input_device.name if input_device else None
-        # A device name is disambiguated by one shared host API; if the chosen output
-        # and input devices live on different host APIs, that disambiguation can only
-        # cover one of them (see the docstring on AudioSettingsModel in project.py).
-        if output_device is not None:
-            self.project.audio.host_api = output_device.host_api
-        elif input_device is not None:
-            self.project.audio.host_api = input_device.host_api
+        # One duplex device drives both playback and recording, so the same device
+        # (and its host API) is stored for the output and input directions.
+        device = self.device_combo.currentData()
+        self.project.audio.output_device = device.name if device else None
+        self.project.audio.input_device = device.name if device else None
+        self.project.audio.host_api = device.host_api if device else None
         self.project.audio.output_channel = self.output_channel_spin.value()
         self.project.audio.input_channel = self.input_channel_spin.value()
+        if self.loopback_check.isChecked():
+            self.project.audio.loopback_output_channel = (
+                self.loopback_output_channel_spin.value()
+            )
+            self.project.audio.loopback_input_channel = (
+                self.loopback_input_channel_spin.value()
+            )
+        else:
+            self.project.audio.loopback_output_channel = None
+            self.project.audio.loopback_input_channel = None
         self.project.audio.blocksize = int(self.buffer_size_combo.currentData())
         _save_project(self.project, self.project_dir)
+
+    def _on_loopback_toggled(self) -> None:
+        self._update_loopback_enabled_state()
+        self._save_audio_settings()
+
+    def _update_loopback_enabled_state(self) -> None:
+        enabled = self.loopback_check.isChecked()
+        self.loopback_output_channel_spin.setEnabled(enabled)
+        self.loopback_input_channel_spin.setEnabled(enabled)
 
     def _on_route_test(self) -> None:
         if self.session is None:
@@ -1025,10 +1070,22 @@ class MainWindow(_QMainWindow):
     def _on_route_test_success(self, result: _Any) -> None:
         self.route_test_progress.setValue(100)
         if result.ok:
-            self.route_test_result_label.setText(
-                f"Route OK: delay={result.latency.delay} samples, "
+            source = "loopback" if result.loopback_used else "amp return"
+            text = (
+                f"Route OK: delay={result.latency.delay} samples (from {source}), "
                 f"peak={result.peak:.3f}"
             )
+            if result.loopback_used and result.crosscheck is not None:
+                amp_delay = result.crosscheck.delay
+                if amp_delay is None:
+                    text += "; amp-return blip not detected (loopback only)"
+                elif result.loopback_disagreement:
+                    text += (
+                        f"; ⚠ amp-return delay {amp_delay} disagrees with the loopback"
+                    )
+                else:
+                    text += f"; amp-return delay {amp_delay} agrees"
+            self.route_test_result_label.setText(text)
         else:
             self.route_test_result_label.setText(
                 f"Route test did not detect the signal (peak={result.peak:.3f}). "

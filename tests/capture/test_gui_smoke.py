@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication as _QApplication
 
 from nam.capture.audio import DeviceInfo as _DeviceInfo
 from nam.capture.gui.main import MainWindow as _MainWindow
-from nam.capture.gui.main import devices_for_direction as _devices_for_direction
+from nam.capture.gui.main import duplex_devices as _duplex_devices
 from nam.capture.gui.main import format_device_label as _format_device_label
 from nam.capture.gui.main import format_entry_row as _format_entry_row
 from nam.capture.gui.main import format_params as _format_params
@@ -39,6 +39,9 @@ def test_format_qa_summary_flags_problems():
     assert "CLIPPING" in summary
     assert "no impulse" in summary
     assert "delay disagreement" in summary
+
+    loopback = _QAModel(peak=0.5, impulse_detected=True, loopback_disagreement=True)
+    assert "loopback mismatch" in _format_qa_summary(loopback)
 
 
 def test_format_qa_summary_handles_missing_qa():
@@ -84,11 +87,11 @@ def test_knob_rows_to_specs_raises_on_bad_row():
         _knob_rows_to_specs([("Gain", "10", "0", "0.5", False)])
 
 
-def test_devices_for_direction_filters_by_channel_count():
+def test_duplex_devices_keeps_only_full_io_devices():
     devices = [
         _DeviceInfo(
             index=0,
-            name="Interface In",
+            name="Input Only",
             host_api="Core Audio",
             max_input_channels=8,
             max_output_channels=0,
@@ -96,15 +99,22 @@ def test_devices_for_direction_filters_by_channel_count():
         ),
         _DeviceInfo(
             index=1,
-            name="Interface Out",
+            name="Output Only",
             host_api="Core Audio",
             max_input_channels=0,
             max_output_channels=8,
             default_samplerate=48000.0,
         ),
+        _DeviceInfo(
+            index=2,
+            name="Duplex Interface",
+            host_api="Core Audio",
+            max_input_channels=4,
+            max_output_channels=4,
+            default_samplerate=48000.0,
+        ),
     ]
-    assert [d.name for d in _devices_for_direction(devices, "input")] == ["Interface In"]
-    assert [d.name for d in _devices_for_direction(devices, "output")] == ["Interface Out"]
+    assert [d.name for d in _duplex_devices(devices)] == ["Duplex Interface"]
 
 
 def test_format_device_label_includes_host_api():

@@ -38,6 +38,11 @@ from .project import save_project as _save_project
 CLIPPING_THRESHOLD = 0.999
 # Matches the ensemble-disagreement threshold inside the wrapped NAM calibration.
 DELAY_DISAGREEMENT_SAMPLES = 20
+# When a clean loopback is used to measure the delay, the amp-return blip is still
+# detected as a cross-check. The two share the interface round-trip, so their measured
+# delays should agree to within a handful of samples; a larger gap means a mispatched
+# loopback or a genuine routing problem worth flagging.
+LOOPBACK_CROSSCHECK_SAMPLES = 10
 # Extra playback beyond the input audio so the delayed response tail is still inside
 # the stream when the recording stops.
 TAIL_SECONDS = 0.5
@@ -49,8 +54,14 @@ class CaptureSessionError(RuntimeError):
 
 @_dataclass(frozen=True)
 class RouteTestResult:
+    # ``latency`` is the authoritative measurement (the clean loopback when one is
+    # configured, otherwise the amp return). ``crosscheck`` is the amp-return
+    # measurement when a loopback was used, kept so the UI can show both.
     latency: _LatencyResult
     peak: float
+    loopback_used: bool = False
+    crosscheck: _Optional[_LatencyResult] = None
+    loopback_disagreement: bool = False
 
     @property
     def ok(self) -> bool:
@@ -125,29 +136,89 @@ class CaptureSession:
             )
         return resolved
 
+    @staticmethod
+    def _loopback_playback(
+        playback: _np.ndarray, preamble: _BlipPreamble
+    ) -> _np.ndarray:
+        """
+        The signal for the loopback output channel: only the timing blips, followed by
+        silence for the rest of the playback. It carries no program material, so the
+        loopback stays clean regardless of the input audio.
+        """
+        loopback = _np.zeros_like(playback)
+        loopback[: preamble.n_samples] = preamble.render()
+        return loopback
+
     def _playrec(
         self,
         playback: _np.ndarray,
         sample_rate: int,
         progress: _Optional[_Callable[[float], None]],
         cancel: _Optional[_Callable[[], bool]],
-    ) -> _np.ndarray:
-        recording = self._recorder.playrec(
+        loopback_playback: _Optional[_np.ndarray] = None,
+    ) -> tuple[_np.ndarray, _Optional[_np.ndarray]]:
+        audio = self.project.audio
+        use_loopback = audio.loopback_enabled and loopback_playback is not None
+        main, loopback = self._recorder.playrec(
             playback,
             sample_rate,
-            output_channel=self.project.audio.output_channel,
-            input_channel=self.project.audio.input_channel,
-            blocksize=self.project.audio.blocksize,
+            output_channel=audio.output_channel,
+            input_channel=audio.input_channel,
+            loopback_output_channel=(
+                audio.loopback_output_channel if use_loopback else None
+            ),
+            loopback_input_channel=(
+                audio.loopback_input_channel if use_loopback else None
+            ),
+            loopback_playback=loopback_playback if use_loopback else None,
+            blocksize=audio.blocksize,
             progress=progress,
             cancel=cancel,
             **self._resolve_devices(),
         )
-        recording = _np.asarray(recording, dtype=_np.float32).squeeze()
-        if recording.shape != playback.shape:
+        main = _np.asarray(main, dtype=_np.float32).squeeze()
+        if main.shape != playback.shape:
             raise CaptureSessionError(
-                f"Recorder returned shape {recording.shape}; expected {playback.shape}"
+                f"Recorder returned shape {main.shape}; expected {playback.shape}"
             )
-        return recording
+        if loopback is not None:
+            loopback = _np.asarray(loopback, dtype=_np.float32).squeeze()
+            if loopback.shape != playback.shape:
+                raise CaptureSessionError(
+                    f"Recorder returned loopback shape {loopback.shape}; expected "
+                    f"{playback.shape}"
+                )
+        return main, loopback
+
+    def _resolve_latency(
+        self,
+        main_recording: _np.ndarray,
+        loopback_recording: _Optional[_np.ndarray],
+        preamble: _BlipPreamble,
+    ) -> tuple[_LatencyResult, _Optional[_LatencyResult], bool]:
+        """
+        Measure the delay. Returns ``(authoritative, crosscheck, disagreement)``.
+
+        With a loopback the clean loopback delay is authoritative (it is undistorted no
+        matter how hard the amp is driven) and the amp return is measured only as a
+        cross-check. Without one the amp return is authoritative and there is no
+        cross-check. ``disagreement`` is set when both are detected but their delays
+        differ by more than :data:`LOOPBACK_CROSSCHECK_SAMPLES`.
+        """
+        amp_latency = _measure_delay(main_recording, preamble)
+        if loopback_recording is None:
+            return amp_latency, None, False
+        loopback_latency = _measure_delay(loopback_recording, preamble)
+        disagreement = (
+            loopback_latency.delay is not None
+            and amp_latency.delay is not None
+            and abs(loopback_latency.delay - amp_latency.delay)
+            > LOOPBACK_CROSSCHECK_SAMPLES
+        )
+        # Trust the loopback when it actually detected the blips; fall back to the amp
+        # return if the loopback route itself came up empty (e.g. cable unplugged).
+        authoritative = loopback_latency if loopback_latency.detected else amp_latency
+        return authoritative, amp_latency, disagreement
 
     def route_test(
         self,
@@ -168,10 +239,23 @@ class CaptureSession:
         preamble = _BlipPreamble(sample_rate)
         tail = _np.zeros(int(TAIL_SECONDS * sample_rate), dtype=_np.float32)
         playback = _np.concatenate([preamble.render(), tail])
-        recording = self._playrec(playback, sample_rate, progress, cancel)
+        loopback_playback = (
+            self._loopback_playback(playback, preamble)
+            if self.project.audio.loopback_enabled
+            else None
+        )
+        main, loopback = self._playrec(
+            playback, sample_rate, progress, cancel, loopback_playback
+        )
+        latency, crosscheck, disagreement = self._resolve_latency(
+            main, loopback, preamble
+        )
         return RouteTestResult(
-            latency=_measure_delay(recording, preamble),
-            peak=float(_np.max(_np.abs(recording))),
+            latency=latency,
+            peak=float(_np.max(_np.abs(main))),
+            loopback_used=loopback is not None,
+            crosscheck=crosscheck,
+            loopback_disagreement=disagreement,
         )
 
     def capture_entry(
@@ -189,12 +273,27 @@ class CaptureSession:
         preamble = _BlipPreamble(sample_rate)
         tail = _np.zeros(int(TAIL_SECONDS * sample_rate), dtype=_np.float32)
         playback = _np.concatenate([preamble.render(), x, tail])
+        loopback_playback = (
+            self._loopback_playback(playback, preamble)
+            if self.project.audio.loopback_enabled
+            else None
+        )
 
-        recording = self._playrec(playback, sample_rate, progress, cancel)
+        main, loopback = self._playrec(
+            playback, sample_rate, progress, cancel, loopback_playback
+        )
 
-        latency = _measure_delay(recording, preamble)
-        y = recording[preamble.n_samples : preamble.n_samples + len(x)]
-        qa = self._qa(entry, y, latency)
+        latency, _crosscheck, loopback_disagreement = self._resolve_latency(
+            main, loopback, preamble
+        )
+        y = main[preamble.n_samples : preamble.n_samples + len(x)]
+        qa = self._qa(
+            entry,
+            y,
+            latency,
+            loopback_used=loopback is not None,
+            loopback_disagreement=loopback_disagreement,
+        )
 
         self._write_capture_wav(entry, y, sample_rate)
         _mark_captured(entry, delay=latency.delay, qa=qa)
@@ -247,6 +346,8 @@ class CaptureSession:
         entry: _CaptureEntryModel,
         y: _np.ndarray,
         latency: _LatencyResult,
+        loopback_used: bool = False,
+        loopback_disagreement: bool = False,
     ) -> _QAModel:
         messages: list[str] = []
 
@@ -293,11 +394,19 @@ class CaptureSession:
                 "connected and the device under test on?"
             )
 
+        if loopback_disagreement:
+            messages.append(
+                f"The loopback and amp-return timing blips disagree by more than "
+                f"{LOOPBACK_CROSSCHECK_SAMPLES} samples. Check the loopback patch and "
+                "that the buffer size has not changed."
+            )
+
         return _QAModel(
             peak=peak,
             clipping=clipping,
             impulse_detected=latency.detected,
             delay_disagreement=delay_disagreement,
+            loopback_disagreement=loopback_disagreement if loopback_used else None,
             messages=messages,
         )
 

@@ -22,25 +22,48 @@ class _FakeRecorder:
     """
     Pretends to be an amp on a loop with a fixed round-trip delay: attenuates the
     playback, shifts it, and adds a small noise floor.
+
+    When loopback channels are requested it also returns a clean (undistorted) copy of
+    the loopback playback shifted by ``loopback_delay`` (defaulting to the amp delay),
+    modelling the direct patch through the same interface.
     """
 
-    def __init__(self, delay: int, gain: float = 0.5, noise: float = 1e-5):
+    def __init__(
+        self,
+        delay: int,
+        gain: float = 0.5,
+        noise: float = 1e-5,
+        loopback_delay: int = None,
+    ):
         self.delay = delay
         self.gain = gain
         self.noise = noise
+        self.loopback_delay = delay if loopback_delay is None else loopback_delay
         self.calls: list[dict] = []
+
+    @staticmethod
+    def _shift(signal, delay, gain):
+        out = _np.zeros_like(signal)
+        out[delay:] = signal[: len(signal) - delay] * gain
+        return out
 
     def playrec(self, playback, sample_rate, **kwargs):
         self.calls.append(dict(kwargs, sample_rate=sample_rate))
         progress = kwargs.get("progress")
         if progress is not None:
             progress(1.0)
-        recording = _np.zeros_like(playback)
-        recording[self.delay :] = playback[: len(playback) - self.delay] * self.gain
         rng = _np.random.default_rng(0)
-        return recording + self.noise * rng.standard_normal(len(playback)).astype(
-            _np.float32
-        )
+        noise = self.noise * rng.standard_normal(len(playback)).astype(_np.float32)
+        recording = self._shift(playback, self.delay, self.gain) + noise
+        loopback = None
+        loopback_playback = kwargs.get("loopback_playback")
+        if (
+            kwargs.get("loopback_output_channel") is not None
+            and kwargs.get("loopback_input_channel") is not None
+            and loopback_playback is not None
+        ):
+            loopback = self._shift(loopback_playback, self.loopback_delay, 1.0) + noise
+        return recording, loopback
 
 
 def _make_project_dir(tmp_path: _Path, *, validation_rate: int = _RATE) -> _Path:
@@ -229,6 +252,64 @@ def test_route_test_measures_delay_without_saving_anything(tmp_path):
     assert result.latency.delay == true_delay - 1
     assert not (project_dir / "captures").exists()
     assert not (project_dir / "data.json").exists()
+
+
+def _enable_loopback(project, *, output_channel=2, input_channel=2):
+    project.audio.output_channel = 1
+    project.audio.input_channel = 1
+    project.audio.loopback_output_channel = output_channel
+    project.audio.loopback_input_channel = input_channel
+
+
+def test_capture_uses_loopback_delay_and_crosschecks_amp(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    # The distorted amp return lands a few samples later than the clean loopback; the
+    # loopback is the one that should be trusted, and the amp agrees within tolerance.
+    session = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(485, loopback_delay=480)
+    )
+    entry = project.pending_entries()[0]
+    qa = session.capture_entry(entry)
+
+    assert entry.delay == 480 - 1
+    assert qa.impulse_detected
+    assert qa.loopback_disagreement is False
+
+
+def test_capture_flags_loopback_disagreement(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    # Amp return and loopback disagree by far more than the cross-check tolerance
+    # (e.g. a mispatched loopback): the delay still comes from the loopback, but QA warns.
+    session = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(900, loopback_delay=480)
+    )
+    entry = project.pending_entries()[0]
+    qa = session.capture_entry(entry)
+
+    assert entry.delay == 480 - 1
+    assert qa.loopback_disagreement is True
+    assert any("loopback" in message for message in qa.messages)
+
+
+def test_route_test_reports_loopback(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(486, loopback_delay=480)
+    )
+
+    result = session.route_test()
+
+    assert result.ok
+    assert result.loopback_used
+    assert result.latency.delay == 480 - result.latency.safety_factor
+    assert result.crosscheck is not None
+    assert not result.loopback_disagreement
 
 
 def test_mismatched_input_rates_are_rejected(tmp_path):

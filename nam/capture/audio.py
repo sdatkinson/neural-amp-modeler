@@ -14,6 +14,7 @@ from dataclasses import dataclass as _dataclass
 from typing import Callable as _Callable
 from typing import Optional as _Optional
 from typing import Protocol as _Protocol
+from typing import Tuple as _Tuple
 
 import numpy as _np
 
@@ -263,14 +264,23 @@ class PlaybackRecorder(_Protocol):
         input_device: _Optional[int] = None,
         output_channel: int = 1,
         input_channel: int = 1,
+        loopback_output_channel: _Optional[int] = None,
+        loopback_input_channel: _Optional[int] = None,
+        loopback_playback: _Optional[_np.ndarray] = None,
         blocksize: int = 0,
         progress: _Optional[_Callable[[float], None]] = None,
         cancel: _Optional[_Callable[[], bool]] = None,
-    ) -> _np.ndarray:
+    ) -> _Tuple[_np.ndarray, _Optional[_np.ndarray]]:
         """
         Play ``playback`` (mono, float32 in [-1, 1]) on ``output_channel`` (1-based)
         of the output device while recording ``input_channel`` of the input device.
-        Returns a mono recording of the same length, time-aligned with the playback.
+
+        Returns ``(recording, loopback_recording)``, both mono and time-aligned with
+        the playback. When ``loopback_output_channel``/``loopback_input_channel`` are
+        given, ``loopback_playback`` (mono, same length as ``playback``) is played on
+        the loopback output channel and that input channel is returned as the second
+        element; otherwise ``loopback_recording`` is ``None``. The loopback channels
+        must differ from the primary channels and share the same devices.
 
         ``progress`` is called with a fraction in [0, 1]; ``cancel`` is polled and a
         truthy return aborts the stream by raising :class:`CaptureCancelled`.
@@ -301,15 +311,34 @@ class SounddeviceRecorder:
         input_device: _Optional[int] = None,
         output_channel: int = 1,
         input_channel: int = 1,
+        loopback_output_channel: _Optional[int] = None,
+        loopback_input_channel: _Optional[int] = None,
+        loopback_playback: _Optional[_np.ndarray] = None,
         blocksize: int = 0,
         progress: _Optional[_Callable[[float], None]] = None,
         cancel: _Optional[_Callable[[], bool]] = None,
-    ) -> _np.ndarray:
+    ) -> _Tuple[_np.ndarray, _Optional[_np.ndarray]]:
         import sounddevice as sd
 
         playback = _np.asarray(playback, dtype=_np.float32)
         if playback.ndim != 1:
             raise ValueError(f"Expected mono playback; got shape {playback.shape}")
+
+        use_loopback = (
+            loopback_output_channel is not None
+            and loopback_input_channel is not None
+        )
+        if use_loopback:
+            if loopback_playback is None:
+                raise ValueError(
+                    "loopback_playback is required when loopback channels are set."
+                )
+            loopback_playback = _np.asarray(loopback_playback, dtype=_np.float32)
+            if loopback_playback.shape != playback.shape:
+                raise ValueError(
+                    f"loopback_playback shape {loopback_playback.shape} must match the "
+                    f"playback shape {playback.shape}."
+                )
 
         # Open the device at its full channel width and place the signal on the exact
         # channel index, the way a DAW does. sounddevice's channel *mapping* would
@@ -329,11 +358,34 @@ class SounddeviceRecorder:
                 f"Input channel {input_channel} is out of range for a device with "
                 f"{input_channels} input channels."
             )
+        if use_loopback:
+            if not 1 <= loopback_output_channel <= output_channels:
+                raise AudioDeviceError(
+                    f"Loopback output channel {loopback_output_channel} is out of range "
+                    f"for a device with {output_channels} output channels."
+                )
+            if not 1 <= loopback_input_channel <= input_channels:
+                raise AudioDeviceError(
+                    f"Loopback input channel {loopback_input_channel} is out of range "
+                    f"for a device with {input_channels} input channels."
+                )
+            if loopback_output_channel == output_channel:
+                raise AudioDeviceError(
+                    "Loopback output channel must differ from the capture output "
+                    f"channel (both {output_channel})."
+                )
+            if loopback_input_channel == input_channel:
+                raise AudioDeviceError(
+                    "Loopback input channel must differ from the capture input "
+                    f"channel (both {input_channel})."
+                )
 
         playback_frame = _np.zeros(
             (len(playback), output_channels), dtype=_np.float32
         )
         playback_frame[:, output_channel - 1] = playback
+        if use_loopback:
+            playback_frame[:, loopback_output_channel - 1] = loopback_playback
 
         recording = sd.playrec(
             playback_frame,
@@ -361,4 +413,8 @@ class SounddeviceRecorder:
             raise
         if progress is not None:
             progress(1.0)
-        return recording[:, input_channel - 1].copy()
+        main = recording[:, input_channel - 1].copy()
+        loopback = (
+            recording[:, loopback_input_channel - 1].copy() if use_loopback else None
+        )
+        return main, loopback

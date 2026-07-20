@@ -111,9 +111,24 @@ class AudioSettingsModel(_BaseModel):
     input_device: _Optional[str] = None
     output_channel: int = 1
     input_channel: int = 1
+    # Optional second I/O pair (on the same devices) wired as a direct loopback: a
+    # clean copy of the timing blips is played on ``loopback_output_channel`` and
+    # patched straight back into ``loopback_input_channel``. That loopback carries the
+    # same interface round-trip latency as the amp path but stays undistorted no matter
+    # how hard the amp is driven, so the delay is measured from it instead of the
+    # (increasingly smeared) amp return. Both must be set to enable the loopback.
+    loopback_output_channel: _Optional[int] = None
+    loopback_input_channel: _Optional[int] = None
     # Device buffer/block size in frames passed to the audio stream. 0 lets
     # PortAudio pick an optimal block size.
     blocksize: int = 0
+
+    @property
+    def loopback_enabled(self) -> bool:
+        return (
+            self.loopback_output_channel is not None
+            and self.loopback_input_channel is not None
+        )
 
 
 class QAModel(_BaseModel):
@@ -121,6 +136,10 @@ class QAModel(_BaseModel):
     clipping: _Optional[bool] = None
     impulse_detected: _Optional[bool] = None
     delay_disagreement: _Optional[bool] = None
+    # The clean loopback and the amp return disagreed about the delay by more than the
+    # cross-check tolerance (a mispatched loopback or a routing change). ``None`` when
+    # no loopback was used for this capture.
+    loopback_disagreement: _Optional[bool] = None
     messages: list[str] = _Field(default_factory=list)
 
 
