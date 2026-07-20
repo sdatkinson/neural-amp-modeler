@@ -970,6 +970,40 @@ def _resolve_ensemble_parallel_plan(
     return worker_count, member_devices
 
 
+def _resolve_g_opt_parallel_plan(
+    num_items: int,
+    max_workers: int | None,
+) -> tuple[int, list[_torch.device]]:
+    """Decide how many g-opt work items (switch combo x restart) run concurrently and on
+    which devices.
+
+    Unlike :func:`_resolve_ensemble_parallel_plan`, g-opt is never allowed to
+    over-subscribe a device: each worker keeps its own frozen ensemble copy resident and
+    runs many small forward/backward steps per candidate, so two workers sharing one GPU
+    trade much more contention for much less benefit than ensemble training's coarser
+    per-member parallelism. Policy:
+      * ``max_workers`` given -> ``min(max_workers, gpu_count, num_items)`` workers, one
+        per GPU, but only on multi-GPU CUDA; a single GPU / MPS / CPU always stays serial
+        (1 worker) regardless of ``max_workers``, since there is no second device to
+        spread onto without over-subscribing.
+      * ``max_workers`` is None (default) -> serial (1 worker), unchanged from the
+        original single-device search.
+    """
+    if max_workers is not None and max_workers <= 0:
+        raise ValueError(f"max_workers must be positive when given; got {max_workers}")
+
+    base_device = _resolve_device()
+    if max_workers is None or base_device.type != "cuda":
+        return 1, [base_device]
+
+    gpu_count = _torch.cuda.device_count()
+    if gpu_count <= 1:
+        return 1, [base_device]
+
+    worker_count = min(max_workers, gpu_count, num_items)
+    return worker_count, [_torch.device(f"cuda:{i}") for i in range(worker_count)]
+
+
 def _coerce_parallel_dataloader_workers(learning_config: dict) -> dict:
     """Force dataloader ``num_workers`` to 0 for parallel training.
 
@@ -1110,57 +1144,94 @@ def train_ensemble(
     ]
 
 
-def find_disagreement_settings(
-    checkpoint_paths: _Sequence[_Path],
-    model_config: dict,
+def _g_opt_item_seed(seed: int, combo_idx: int, restart_idx: int | None) -> int:
+    """Deterministic per-(combo, restart) latent-init seed.
+
+    Each work item seeds its own generator instead of drawing from one generator shared
+    (and thus order-dependent) across every combo/restart -- that is what makes the search
+    embarrassingly parallel: a given ``seed`` produces the same candidates regardless of
+    ``max_workers`` or completion order.
+    """
+    restart_component = 0 if restart_idx is None else restart_idx + 1
+    return seed * 1_000_003 + combo_idx * 1009 + restart_component
+
+
+def _run_g_opt_item(
+    members: _Sequence[_torch.nn.Module],
+    g_opt_batches: _Sequence[_torch.Tensor],
+    mel_transforms,
+    specs: tuple[_ParamSpec, ...],
+    *,
+    switch_combo: tuple[int, ...],
+    n_cont: int,
+    restart_idx: int | None,
+    item_seed: int,
+    num_steps: int,
+    lr: float,
+    z_init_scale: float,
+    device: _torch.device,
+    progress_desc: str | None = None,
+) -> DisagreementCandidate:
+    if restart_idx is None:
+        # No continuous latents to ascend: the setting is fully determined by the switch
+        # combo, so every restart/step would reproduce the identical candidate. Evaluate
+        # once and move on.
+        final_raw_params = _assemble_raw_params(
+            _torch.zeros((0,), dtype=_torch.float32, device=device),
+            switch_combo,
+            specs,
+        )
+        return DisagreementCandidate(
+            raw_params=final_raw_params.detach().cpu(),
+            switch_combo=switch_combo,
+            score=_final_disagreement_score(
+                members, g_opt_batches, final_raw_params, mel_transforms
+            ),
+        )
+
+    item_generator = _torch.Generator()
+    item_generator.manual_seed(item_seed)
+    z = (
+        z_init_scale
+        * _torch.randn((n_cont,), generator=item_generator, dtype=_torch.float32)
+    ).to(device)
+    z.requires_grad_(True)
+    optimizer = _torch.optim.Adam([z], lr=lr)
+    steps = range(num_steps)
+    progress = _tqdm(steps, desc=progress_desc, leave=False) if progress_desc else steps
+    for step in progress:
+        batch = g_opt_batches[step % len(g_opt_batches)]
+        raw_params = _assemble_raw_params(z, switch_combo, specs)
+        score = _evaluate_disagreement(members, batch, raw_params, mel_transforms)
+        optimizer.zero_grad(set_to_none=True)
+        (-score).backward()
+        optimizer.step()
+        if progress_desc:
+            progress.set_postfix(disagreement=f"{float(score):.4e}")
+
+    final_raw_params = _assemble_raw_params(z, switch_combo, specs)
+    return DisagreementCandidate(
+        raw_params=final_raw_params.detach().cpu(),
+        switch_combo=switch_combo,
+        score=_final_disagreement_score(
+            members, g_opt_batches, final_raw_params, mel_transforms
+        ),
+    )
+
+
+def _load_g_opt_members_and_batches(
+    checkpoint_paths: tuple[_Path, ...],
+    g_opt_model_config: dict,
     *,
     g_opt_input_wav: str | _Path,
-    num_restarts: int = 8,
-    num_steps: int = 200,
-    g_opt_ny: int = 32768,
-    g_opt_batch_size: int = 16,
-    lr: float = 0.05,
-    z_init_scale: float = 3.0,
-    use_mel: bool = False,
-    seed: int = 0,
-) -> list[DisagreementCandidate]:
-    """
-    Find high-disagreement control settings with a PANAMA-style query-by-committee search.
-
-    ``z_init_scale`` is the std of the Gaussian latent inits: each restart draws
-    ``z ~ N(0, z_init_scale^2)`` and the continuous params are ``min + (max-min)*sigmoid(z)``
-    (see ``assemble_raw_params``). A larger scale biases inits toward the saturated
-    extremes of sigmoid (often the high-disagreement knob extremes) at the cost of more
-    restarts landing in vanishing-gradient regions; the default echoes PANAMA's spread.
-    """
-    checkpoint_paths = tuple(_Path(path) for path in checkpoint_paths)
-    _validate_g_opt_args(
-        checkpoint_paths=checkpoint_paths,
-        num_restarts=num_restarts,
-        num_steps=num_steps,
-        g_opt_ny=g_opt_ny,
-        g_opt_batch_size=g_opt_batch_size,
-        lr=lr,
-        z_init_scale=z_init_scale,
-    )
-    specs = _param_specs_from_model_config(model_config)
-    continuous_idx, _, _ = _split_param_indices(specs)
-
-    device = _resolve_device()
-    # train_truncate is a training-only BPTT setting. At g-opt time every frozen member runs
-    # a single full-sequence forward from its initial state, which is what eval() already does
-    # regardless of train_truncate -- so forcing it off does not change any disagreement score.
-    # It does let the members run in train() mode (identical forward), which is what re-enables
-    # cuDNN's RNN backward on cuda and avoids the slow native per-timestep unroll.
-    g_opt_model_config = _deepcopy(model_config)
-    _g_opt_net_config = g_opt_model_config.get("net")
-    if isinstance(_g_opt_net_config, dict) and isinstance(
-        _g_opt_net_config.get("config"), dict
-    ):
-        _g_opt_net_config["config"]["train_truncate"] = None
+    g_opt_ny: int,
+    g_opt_batch_size: int,
+    use_mel: bool,
+    device: _torch.device,
+):
     members = _load_disagreement_members(checkpoint_paths, g_opt_model_config, device)
     if len(members) == 0:
-        return []
+        return members, [], ()
 
     receptive_fields = {int(getattr(member, "receptive_field")) for member in members}
     if len(receptive_fields) != 1:
@@ -1176,14 +1247,260 @@ def find_disagreement_settings(
         device=device,
     )
     mel_transforms = _build_mel_transforms(
+        use_mel=use_mel, sample_rate=sample_rate, device=device
+    )
+    return members, g_opt_batches, mel_transforms
+
+
+def _run_g_opt_items(
+    items: _Sequence[tuple[int, int, tuple[int, ...], int | None, int]],
+    *,
+    checkpoint_paths: tuple[_Path, ...],
+    g_opt_model_config: dict,
+    g_opt_input_wav: str | _Path,
+    g_opt_ny: int,
+    g_opt_batch_size: int,
+    use_mel: bool,
+    num_steps: int,
+    lr: float,
+    z_init_scale: float,
+    specs: tuple[_ParamSpec, ...],
+    n_cont: int,
+    device: _torch.device,
+) -> list[tuple[int, DisagreementCandidate]]:
+    """Load one worker's own copy of the frozen ensemble on ``device`` and run its
+    assigned g-opt work items (``(global_idx, combo_idx, switch_combo, restart_idx,
+    item_seed)`` tuples). Module-level (not a closure) so it is picklable for spawn-based
+    parallel g-opt, mirroring ``_train_single_member``.
+    """
+    members, g_opt_batches, mel_transforms = _load_g_opt_members_and_batches(
+        checkpoint_paths,
+        g_opt_model_config,
+        g_opt_input_wav=g_opt_input_wav,
+        g_opt_ny=g_opt_ny,
+        g_opt_batch_size=g_opt_batch_size,
         use_mel=use_mel,
-        sample_rate=sample_rate,
         device=device,
     )
+    if len(members) == 0:
+        return []
 
-    generator = _torch.Generator()
-    generator.manual_seed(seed)
+    use_cuda_train_mode = device.type == "cuda" and _g_opt_cuda_train_mode_safe(
+        members, g_opt_model_config
+    )
+    if use_cuda_train_mode:
+        for member in members:
+            member.train()
+    cudnn_ctx = (
+        _torch.backends.cudnn.flags(enabled=False)
+        if device.type == "cuda" and not use_cuda_train_mode
+        else _contextlib.nullcontext()
+    )
+    try:
+        with cudnn_ctx:
+            return [
+                (
+                    global_idx,
+                    _run_g_opt_item(
+                        members,
+                        g_opt_batches,
+                        mel_transforms,
+                        specs,
+                        switch_combo=switch_combo,
+                        n_cont=n_cont,
+                        restart_idx=restart_idx,
+                        item_seed=item_seed,
+                        num_steps=num_steps,
+                        lr=lr,
+                        z_init_scale=z_init_scale,
+                        device=device,
+                    ),
+                )
+                for global_idx, _combo_idx, switch_combo, restart_idx, item_seed in items
+            ]
+    finally:
+        del mel_transforms
+        del g_opt_batches
+        del members
+        _gc.collect()
+        _clear_device_cache(device)
+
+
+def _find_disagreement_settings_parallel(
+    items: list[tuple[int, int, tuple[int, ...], int | None, int]],
+    *,
+    worker_count: int,
+    devices: list[_torch.device],
+    checkpoint_paths: tuple[_Path, ...],
+    g_opt_model_config: dict,
+    g_opt_input_wav: str | _Path,
+    g_opt_ny: int,
+    g_opt_batch_size: int,
+    use_mel: bool,
+    num_steps: int,
+    lr: float,
+    z_init_scale: float,
+    specs: tuple[_ParamSpec, ...],
+    n_cont: int,
+) -> list[DisagreementCandidate]:
+    context = _torch_mp.get_context("spawn")
+    items_by_worker: list[list[tuple]] = [[] for _ in range(worker_count)]
+    for position, item in enumerate(items):
+        items_by_worker[position % worker_count].append(item)
+
+    results: dict[int, DisagreementCandidate] = {}
+    with _ProcessPoolExecutor(max_workers=worker_count, mp_context=context) as executor:
+        futures = {
+            executor.submit(
+                _run_g_opt_items,
+                worker_items,
+                checkpoint_paths=checkpoint_paths,
+                g_opt_model_config=g_opt_model_config,
+                g_opt_input_wav=g_opt_input_wav,
+                g_opt_ny=g_opt_ny,
+                g_opt_batch_size=g_opt_batch_size,
+                use_mel=use_mel,
+                num_steps=num_steps,
+                lr=lr,
+                z_init_scale=z_init_scale,
+                specs=specs,
+                n_cont=n_cont,
+                device=devices[worker_idx],
+            ): worker_idx
+            for worker_idx, worker_items in enumerate(items_by_worker)
+            if worker_items
+        }
+        try:
+            for future in _as_completed(futures):
+                worker_idx = futures[future]
+                try:
+                    for global_idx, candidate in future.result():
+                        results[global_idx] = candidate
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"g-opt worker {worker_idx} failed during parallel search: {exc}"
+                    ) from exc
+        finally:
+            # A failed/interrupted worker should not leave siblings running.
+            for future in futures:
+                future.cancel()
+
+    return [results[global_idx] for global_idx, *_ in items]
+
+
+def find_disagreement_settings(
+    checkpoint_paths: _Sequence[_Path],
+    model_config: dict,
+    *,
+    g_opt_input_wav: str | _Path,
+    num_restarts: int = 8,
+    num_steps: int = 200,
+    g_opt_ny: int = 32768,
+    g_opt_batch_size: int = 16,
+    lr: float = 0.05,
+    z_init_scale: float = 3.0,
+    use_mel: bool = False,
+    seed: int = 0,
+    max_workers: int | None = None,
+) -> list[DisagreementCandidate]:
+    """
+    Find high-disagreement control settings with a PANAMA-style query-by-committee search.
+
+    ``z_init_scale`` is the std of the Gaussian latent inits: each restart draws
+    ``z ~ N(0, z_init_scale^2)`` and the continuous params are ``min + (max-min)*sigmoid(z)``
+    (see ``assemble_raw_params``). A larger scale biases inits toward the saturated
+    extremes of sigmoid (often the high-disagreement knob extremes) at the cost of more
+    restarts landing in vanishing-gradient regions; the default echoes PANAMA's spread.
+
+    ``max_workers`` parallelizes the search itself (independent of ensemble training):
+    each worker keeps its own copy of the frozen ensemble resident on its own GPU and works
+    through a share of the combo/restart items. Unlike :func:`train_ensemble`, g-opt is
+    always capped at one worker per GPU -- see :func:`_resolve_g_opt_parallel_plan`.
+    """
+    checkpoint_paths = tuple(_Path(path) for path in checkpoint_paths)
+    _validate_g_opt_args(
+        checkpoint_paths=checkpoint_paths,
+        num_restarts=num_restarts,
+        num_steps=num_steps,
+        g_opt_ny=g_opt_ny,
+        g_opt_batch_size=g_opt_batch_size,
+        lr=lr,
+        z_init_scale=z_init_scale,
+    )
+    specs = _param_specs_from_model_config(model_config)
+    continuous_idx, _, _ = _split_param_indices(specs)
     n_cont = len(continuous_idx)
+
+    # train_truncate is a training-only BPTT setting. At g-opt time every frozen member runs
+    # a single full-sequence forward from its initial state, which is what eval() already does
+    # regardless of train_truncate -- so forcing it off does not change any disagreement score.
+    # It does let the members run in train() mode (identical forward), which is what re-enables
+    # cuDNN's RNN backward on cuda and avoids the slow native per-timestep unroll.
+    g_opt_model_config = _deepcopy(model_config)
+    _g_opt_net_config = g_opt_model_config.get("net")
+    if isinstance(_g_opt_net_config, dict) and isinstance(
+        _g_opt_net_config.get("config"), dict
+    ):
+        _g_opt_net_config["config"]["train_truncate"] = None
+
+    switch_combos = list(_switch_combinations(specs))
+    num_combos = len(switch_combos)
+    items: list[tuple[int, int, tuple[int, ...], int | None, int]] = []
+    for combo_idx, switch_combo in enumerate(switch_combos):
+        if n_cont == 0:
+            items.append(
+                (len(items), combo_idx, switch_combo, None, _g_opt_item_seed(seed, combo_idx, None))
+            )
+        else:
+            for restart_idx in range(num_restarts):
+                items.append(
+                    (
+                        len(items),
+                        combo_idx,
+                        switch_combo,
+                        restart_idx,
+                        _g_opt_item_seed(seed, combo_idx, restart_idx),
+                    )
+                )
+
+    worker_count, devices = _resolve_g_opt_parallel_plan(len(items), max_workers)
+
+    if worker_count > 1:
+        print(
+            f"  g-opt: running {len(items)} work item(s) with {worker_count} parallel "
+            f"worker(s) across devices {sorted(str(d) for d in devices)}.",
+            flush=True,
+        )
+        return _find_disagreement_settings_parallel(
+            items,
+            worker_count=worker_count,
+            devices=devices,
+            checkpoint_paths=checkpoint_paths,
+            g_opt_model_config=g_opt_model_config,
+            g_opt_input_wav=g_opt_input_wav,
+            g_opt_ny=g_opt_ny,
+            g_opt_batch_size=g_opt_batch_size,
+            use_mel=use_mel,
+            num_steps=num_steps,
+            lr=lr,
+            z_init_scale=z_init_scale,
+            specs=specs,
+            n_cont=n_cont,
+        )
+
+    device = devices[0]
+    members, g_opt_batches, mel_transforms = _load_g_opt_members_and_batches(
+        checkpoint_paths,
+        g_opt_model_config,
+        g_opt_input_wav=g_opt_input_wav,
+        g_opt_ny=g_opt_ny,
+        g_opt_batch_size=g_opt_batch_size,
+        use_mel=use_mel,
+        device=device,
+    )
+    if len(members) == 0:
+        return []
+
     # On cuda, prefer the fast path: flip the (frozen) members to train() so cuDNN's RNN
     # backward runs with cuDNN enabled -- but only when that is provably equivalent to eval()
     # (see _g_opt_cuda_train_mode_safe). Otherwise fall back to eval() + cuDNN disabled, which
@@ -1210,74 +1527,41 @@ def find_disagreement_settings(
         if device.type == "cuda" and not use_cuda_train_mode
         else _contextlib.nullcontext()
     )
+
     candidates: list[DisagreementCandidate] = []
-    switch_combos = list(_switch_combinations(specs))
-    num_combos = len(switch_combos)
     try:
         with cudnn_ctx:
-            for combo_idx, switch_combo in enumerate(switch_combos, start=1):
-                print(
-                    f"  g-opt: switch combo {combo_idx}/{num_combos} "
-                    f"{switch_combo}",
-                    flush=True,
+            printed_combo_idx: int | None = None
+            for _global_idx, combo_idx, switch_combo, restart_idx, item_seed in items:
+                if combo_idx != printed_combo_idx:
+                    print(
+                        f"  g-opt: switch combo {combo_idx + 1}/{num_combos} {switch_combo}",
+                        flush=True,
+                    )
+                    printed_combo_idx = combo_idx
+                progress_desc = (
+                    f"  combo {combo_idx + 1}/{num_combos} restart "
+                    f"{restart_idx + 1}/{num_restarts}"
+                    if restart_idx is not None
+                    else None
                 )
-                if n_cont == 0:
-                    # No continuous latents to ascend: the setting is fully determined by
-                    # the switch combo, so every restart/step would reproduce the identical
-                    # candidate. Evaluate once and move on.
-                    final_raw_params = _assemble_raw_params(
-                        _torch.zeros((0,), dtype=_torch.float32, device=device),
-                        switch_combo,
+                candidates.append(
+                    _run_g_opt_item(
+                        members,
+                        g_opt_batches,
+                        mel_transforms,
                         specs,
+                        switch_combo=switch_combo,
+                        n_cont=n_cont,
+                        restart_idx=restart_idx,
+                        item_seed=item_seed,
+                        num_steps=num_steps,
+                        lr=lr,
+                        z_init_scale=z_init_scale,
+                        device=device,
+                        progress_desc=progress_desc,
                     )
-                    candidates.append(
-                        DisagreementCandidate(
-                            raw_params=final_raw_params.detach().cpu(),
-                            switch_combo=switch_combo,
-                            score=_final_disagreement_score(
-                                members, g_opt_batches, final_raw_params, mel_transforms
-                            ),
-                        )
-                    )
-                    continue
-                for restart_idx in range(num_restarts):
-                    z = (
-                        z_init_scale
-                        * _torch.randn(
-                            (n_cont,),
-                            generator=generator,
-                            dtype=_torch.float32,
-                        )
-                    ).to(device)
-                    z.requires_grad_(True)
-                    optimizer = _torch.optim.Adam([z], lr=lr)
-                    progress = _tqdm(
-                        range(num_steps),
-                        desc=f"  combo {combo_idx}/{num_combos} restart "
-                        f"{restart_idx + 1}/{num_restarts}",
-                        leave=False,
-                    )
-                    for step in progress:
-                        batch = g_opt_batches[step % len(g_opt_batches)]
-                        raw_params = _assemble_raw_params(z, switch_combo, specs)
-                        score = _evaluate_disagreement(
-                            members, batch, raw_params, mel_transforms
-                        )
-                        optimizer.zero_grad(set_to_none=True)
-                        (-score).backward()
-                        optimizer.step()
-                        progress.set_postfix(disagreement=f"{float(score):.4e}")
-
-                    final_raw_params = _assemble_raw_params(z, switch_combo, specs)
-                    candidates.append(
-                        DisagreementCandidate(
-                            raw_params=final_raw_params.detach().cpu(),
-                            switch_combo=switch_combo,
-                            score=_final_disagreement_score(
-                                members, g_opt_batches, final_raw_params, mel_transforms
-                            ),
-                        )
-                    )
+                )
     finally:
         del mel_transforms
         del g_opt_batches
@@ -1682,6 +1966,7 @@ def run_round(
         lr=g_opt_lr,
         use_mel=use_mel,
         seed=seed,
+        max_workers=max_workers,
     )
 
     print(

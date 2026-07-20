@@ -33,6 +33,10 @@ from nam.train.active_learning import train_ensemble as _train_ensemble
 from nam.train.active_learning import (
     _resolve_ensemble_parallel_plan as _resolve_ensemble_parallel_plan,
 )
+from nam.train.active_learning import (
+    _resolve_g_opt_parallel_plan as _resolve_g_opt_parallel_plan,
+)
+from nam.train.active_learning import _g_opt_item_seed as _g_opt_item_seed
 from nam.train.active_learning import _resolve_member_batching as _resolve_member_batching
 from nam.train.active_learning import _g_opt_cuda_train_mode_safe as _g_opt_cuda_train_mode_safe
 from nam.train.active_learning import (
@@ -926,6 +930,161 @@ def test_resolve_ensemble_parallel_plan_rejects_nonpositive_max_workers(monkeypa
     )
     with _pytest.raises(ValueError):
         _resolve_ensemble_parallel_plan(4, 0)
+
+
+def test_resolve_g_opt_parallel_plan_defaults_to_serial(monkeypatch):
+    monkeypatch.setattr(
+        "nam.train.active_learning._resolve_device",
+        lambda: _torch.device("cpu"),
+    )
+    workers, devices = _resolve_g_opt_parallel_plan(10, None)
+    assert workers == 1
+    assert devices == [_torch.device("cpu")]
+
+
+def test_resolve_g_opt_parallel_plan_single_gpu_stays_serial_even_with_max_workers(
+    monkeypatch,
+):
+    # Unlike ensemble training, g-opt never over-subscribes a device -- a single GPU
+    # always stays serial regardless of --max-workers.
+    monkeypatch.setattr(
+        "nam.train.active_learning._resolve_device",
+        lambda: _torch.device("cuda"),
+    )
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 1)
+    workers, devices = _resolve_g_opt_parallel_plan(10, 4)
+    assert workers == 1
+    assert devices == [_torch.device("cuda")]
+
+
+def test_resolve_g_opt_parallel_plan_multi_gpu_caps_at_one_per_gpu(monkeypatch):
+    monkeypatch.setattr(
+        "nam.train.active_learning._resolve_device",
+        lambda: _torch.device("cuda"),
+    )
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 2)
+    workers, devices = _resolve_g_opt_parallel_plan(10, 4)
+    assert workers == 2
+    assert devices == [_torch.device("cuda:0"), _torch.device("cuda:1")]
+
+
+def test_resolve_g_opt_parallel_plan_caps_at_num_items(monkeypatch):
+    monkeypatch.setattr(
+        "nam.train.active_learning._resolve_device",
+        lambda: _torch.device("cuda"),
+    )
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 4)
+    workers, _ = _resolve_g_opt_parallel_plan(2, 4)
+    assert workers == 2
+
+
+def test_resolve_g_opt_parallel_plan_rejects_nonpositive_max_workers(monkeypatch):
+    monkeypatch.setattr(
+        "nam.train.active_learning._resolve_device",
+        lambda: _torch.device("cpu"),
+    )
+    with _pytest.raises(ValueError):
+        _resolve_g_opt_parallel_plan(10, 0)
+
+
+def test_g_opt_item_seed_is_deterministic_and_distinct():
+    assert _g_opt_item_seed(11, 0, 0) == _g_opt_item_seed(11, 0, 0)
+    assert _g_opt_item_seed(11, 0, 0) != _g_opt_item_seed(11, 0, 1)
+    assert _g_opt_item_seed(11, 0, 0) != _g_opt_item_seed(11, 1, 0)
+    assert _g_opt_item_seed(11, 0, None) != _g_opt_item_seed(11, 0, 0)
+
+
+def test_find_disagreement_settings_parallel_matches_serial(tmp_path, monkeypatch):
+    # Per-item seeding (nam.train.active_learning._g_opt_item_seed) depends only on
+    # (seed, combo_idx, restart_idx), not on worker count or completion order, so a
+    # forced-parallel run must reproduce the serial candidates exactly.
+    monkeypatch.setattr(
+        "nam.train.active_learning._resolve_device",
+        lambda: _torch.device("cpu"),
+    )
+    model_config = _concat_lstm_model_config()
+    checkpoint_paths = _train_ensemble(
+        _build_data_config(tmp_path),
+        model_config,
+        _learning_config(),
+        tmp_path / "run",
+        ensemble_size=2,
+        base_seed=7,
+    )
+    common_kwargs = dict(
+        checkpoint_paths=checkpoint_paths,
+        model_config=model_config,
+        g_opt_input_wav=tmp_path / "input.wav",
+        num_restarts=2,
+        num_steps=3,
+        g_opt_ny=32,
+        g_opt_batch_size=2,
+        seed=11,
+    )
+
+    serial = _find_disagreement_settings(**common_kwargs)
+
+    import nam.train.active_learning as al
+
+    monkeypatch.setattr(
+        al,
+        "_resolve_g_opt_parallel_plan",
+        lambda num_items, max_workers: (
+            2,
+            [_torch.device("cpu"), _torch.device("cpu")],
+        ),
+    )
+    parallel = _find_disagreement_settings(max_workers=2, **common_kwargs)
+
+    key = lambda c: (c.switch_combo, c.raw_params.tolist())
+    serial_sorted = sorted(serial, key=key)
+    parallel_sorted = sorted(parallel, key=key)
+    assert len(serial_sorted) == len(parallel_sorted)
+    for s, p in zip(serial_sorted, parallel_sorted):
+        assert s.switch_combo == p.switch_combo
+        assert _torch.allclose(s.raw_params, p.raw_params, atol=1e-5)
+        assert s.score == _pytest.approx(p.score, abs=1e-5)
+
+
+def test_find_disagreement_settings_parallel_propagates_worker_failure(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "nam.train.active_learning._resolve_device",
+        lambda: _torch.device("cpu"),
+    )
+    model_config = _concat_lstm_model_config()
+    checkpoint_paths = _train_ensemble(
+        _build_data_config(tmp_path),
+        model_config,
+        _learning_config(),
+        tmp_path / "run",
+        ensemble_size=2,
+        base_seed=7,
+    )
+
+    import nam.train.active_learning as al
+
+    monkeypatch.setattr(
+        al,
+        "_resolve_g_opt_parallel_plan",
+        lambda num_items, max_workers: (
+            2,
+            [_torch.device("cpu"), _torch.device("cpu")],
+        ),
+    )
+    with _pytest.raises(RuntimeError, match="failed during parallel search"):
+        _find_disagreement_settings(
+            [tmp_path / "does_not_exist.ckpt", checkpoint_paths[0]],
+            model_config,
+            g_opt_input_wav=tmp_path / "input.wav",
+            num_restarts=2,
+            num_steps=3,
+            g_opt_ny=32,
+            g_opt_batch_size=2,
+            seed=11,
+            max_workers=2,
+        )
 
 
 def test_resolve_member_batching_uses_assigned_gpu_memory(monkeypatch):

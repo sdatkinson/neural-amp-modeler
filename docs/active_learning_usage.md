@@ -170,6 +170,22 @@ python scripts/active_learn.py \
 Lower `--max-workers` or set a smaller explicit batch if an over-subscribed run hits OOM. Without
 NVIDIA MPS (e.g. on Colab), same-GPU members time-slice rather than running truly simultaneously.
 
+### Parallel g-optimization
+
+`--max-workers` also parallelizes the disagreement search (step 2), independent of ensemble
+training above. Each worker keeps its own copy of the frozen ensemble resident on its own GPU and
+works through a share of the switch-combo/restart candidates:
+
+- **Unset (default), or on a single GPU / MPS / CPU.** Serial, regardless of `--max-workers` —
+  g-opt is never over-subscribed onto a shared device, unlike ensemble training. There is no
+  opt-in here: the search runs many small forward/backward steps per candidate, so contention
+  from sharing a GPU would cost more than the parallelism buys back.
+- **`--max-workers N` on a multi-GPU CUDA box.** `min(N, gpu_count)` workers, one per GPU.
+
+Each candidate's latent init is seeded from `(--seed, switch combo, restart index)` independently
+of every other candidate, so results are identical regardless of `--max-workers` or completion
+order — the search is reproducible whether it runs serially or split across GPUs.
+
 ### Step 3 — Train the production model
 
 Once you have grown the capture set, train the shipped **HyperWaveNet** on the aggregated `data.json`

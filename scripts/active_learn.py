@@ -135,11 +135,14 @@ def _parse_args() -> argparse.Namespace:
         type=_positive_int,
         default=None,
         help=(
-            "Number of ensemble members to train concurrently. Default (unset) trains "
-            "serially on one device, or one member per GPU on a multi-GPU CUDA box. Pass "
-            "an explicit count to over-subscribe a single GPU (e.g. --max-workers 4 on a "
-            "large-VRAM card with a small batch size); the memory headroom is yours to "
-            "ensure."
+            "Also controls how many ensemble members train concurrently, and how many "
+            "g-opt (disagreement search) workers run concurrently. Default (unset) is "
+            "serial on one device, or one member/worker per GPU on a multi-GPU CUDA box. "
+            "For ensemble training, an explicit count may over-subscribe a single GPU "
+            "(e.g. --max-workers 4 on a large-VRAM card with a small batch size); the "
+            "memory headroom is yours to ensure. g-opt is never over-subscribed: it always "
+            "caps at one worker per GPU, staying serial on a single GPU/MPS/CPU regardless "
+            "of this value."
         ),
     )
     parser.add_argument(
