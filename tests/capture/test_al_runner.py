@@ -100,7 +100,10 @@ def test_build_al_model_config_shape_and_params_keep_step_and_avoid_zero():
     assert net_config["num_layers"] == 3
     assert net_config["train_burn_in"] == 8192
     assert net_config["train_truncate"] is None
-    assert config["loss"] == {"mel_weight": _pytest.approx(6.2e-05)}
+    assert config["loss"] == {
+        "val_loss": "esr",
+        "mel_weight": _pytest.approx(6.2e-05),
+    }
     assert "gradient_reject_norm" not in config["optimizer"]
 
 

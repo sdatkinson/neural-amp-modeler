@@ -15,6 +15,7 @@ from nam.models._from_nam import init_from_nam as _init_from_nam
 from nam.models.wavenet import WaveNet as _WaveNet
 from nam.train.core import _ValidationStopping as _ValidationStopping
 from nam.train.parametric import _CaptureBatchSampler as _CaptureBatchSampler
+from nam.train.parametric import _EpochMetrics as _EpochMetrics
 from nam.train.parametric import _ParametricLightningModule as _ParametricLightningModule
 from nam.train.parametric import _ParametricLossConfig as _ParametricLossConfig
 from nam.train.parametric import _TRAIN_BUCKET as _TRAIN_BUCKET
@@ -550,3 +551,230 @@ def test_make_parametric_dataloader_can_opt_out_of_capture_grouping():
         dataset, {"batch_size": 2, "shuffle": False, "capture_grouped_batches": False}
     )
     assert not isinstance(ungrouped.batch_sampler, _CaptureBatchSampler)
+
+
+def test_capture_batch_sampler_exposes_capture_for_each_batch_including_when_shuffled():
+    capture_lengths = [4, 4]
+    ranges = [range(0, 4), range(4, 8)]
+    sampler = _CaptureBatchSampler(
+        capture_lengths, batch_size=2, shuffle=True, drop_last=False
+    )
+
+    _torch.manual_seed(0)
+    batches = list(sampler)
+
+    assert len(sampler.last_batch_captures) == len(batches)
+    for batch_idx, batch in enumerate(batches):
+        owners = {next(i for i, r in enumerate(ranges) if idx in r) for idx in batch}
+        assert owners == {sampler.capture_for_batch(batch_idx)}
+
+    # A fresh iteration (a new epoch) reshuffles the rows/batches but must keep the
+    # capture-of-batch mapping self-consistent with the newly yielded order.
+    batches_epoch2 = list(sampler)
+    for batch_idx, batch in enumerate(batches_epoch2):
+        owners = {next(i for i, r in enumerate(ranges) if idx in r) for idx in batch}
+        assert owners == {sampler.capture_for_batch(batch_idx)}
+
+
+# --- _EpochMetrics two-level (per-capture) reduction -----------------------------------
+
+
+def test_epoch_metrics_multi_batch_capture_sums_energies_before_dividing():
+    """A capture spanning several batches must have its error/target energies summed
+    across all of its batches before the ratio is taken -- NOT have its batches' own
+    ESRs averaged, which is a different (wrong) number.
+    """
+    metrics = _EpochMetrics()
+    # Capture 0, batch 0: err=100/elem, tgt=100/elem over 6 elements -> batch ratio 1.0.
+    metrics.update(
+        _torch.zeros(2, 3), _torch.full((2, 3), 10.0), {}, capture_index=0
+    )
+    # Capture 0, batch 1 (same capture, second batch): batch ratio 75/300 = 0.25.
+    metrics.update(
+        _torch.full((1, 3), 5.0), _torch.full((1, 3), 10.0), {}, capture_index=0
+    )
+    computed = metrics.compute()
+
+    # Correct: sum energies first (600+75)/(600+300) = 675/900 = 0.75.
+    # Wrong (per-batch average): (1.0 + 0.25) / 2 = 0.625.
+    assert computed["ESR"] == _pytest.approx(0.75)
+
+
+def test_epoch_metrics_two_level_reduction_equal_weights_unequal_capture_lengths():
+    """Captures are averaged one-per-capture, not weighted by how many rows they have."""
+    metrics = _EpochMetrics()
+    # Capture 0: 10 rows, perfect fit (ESR 0).
+    metrics.update(
+        _torch.zeros(10, 3), _torch.zeros(10, 3), {}, capture_index=0
+    )
+    # avoid the 0/0 -> inf branch: give capture 0 a tiny bit of real (matched) energy too.
+    metrics.update(
+        _torch.full((10, 3), 2.0), _torch.full((10, 3), 2.0), {}, capture_index=0
+    )
+    # Capture 1: 2 rows, bad fit (diff 0.2 vs target 0.1 -> ESR (0.2^2)/(0.1^2) = 4.0).
+    metrics.update(
+        _torch.full((2, 3), 0.3), _torch.full((2, 3), 0.1), {}, capture_index=1
+    )
+    computed = metrics.compute()
+
+    # Equal-weight mean of the two captures' own ESRs: (0.0 + 4.0) / 2 = 2.0.
+    # A row-weighted mean would be swamped by capture 0's 20 rows and land near 0.
+    assert computed["ESR"] == _pytest.approx(2.0)
+
+
+def test_epoch_metrics_near_silent_capture_counts_equally_not_swamped():
+    """A quiet capture with a genuinely bad ESR must move the epoch metric by a full
+    equal share, not be almost invisible the way energy-pooling across captures makes it
+    (the real-world case: a capture at ~1% of another's energy is ~0.6% of the pooled
+    denominator, so its own poor fit barely registers).
+    """
+    metrics = _EpochMetrics()
+    # Loud capture: consistent, good fit (ESR 1.0 on energies of order 900).
+    metrics.update(
+        _torch.zeros(2, 3), _torch.full((2, 3), 10.0), {}, capture_index=0
+    )
+    metrics.update(
+        _torch.full((1, 3), 5.0), _torch.full((1, 3), 10.0), {}, capture_index=0
+    )
+    # Quiet capture: tiny energy (tgt_sq = 0.03 vs capture 0's 900) but a bad own-ESR (4.0).
+    metrics.update(
+        _torch.full((1, 3), 0.3), _torch.full((1, 3), 0.1), {}, capture_index=1
+    )
+    computed = metrics.compute()
+
+    naive_pooled = (600.0 + 75.0 + 0.12) / (600.0 + 300.0 + 0.03)
+    # The naive pool barely moves off capture 0's own ratio (0.75) -- the defect.
+    assert naive_pooled == _pytest.approx(0.7501, abs=1e-3)
+    # The fix: equal-weight mean of the two captures' own ESRs (0.75 and 4.0).
+    assert computed["ESR"] == _pytest.approx(2.375)
+    assert computed["ESR"] != _pytest.approx(naive_pooled, rel=1e-2)
+
+
+def test_epoch_metrics_two_level_reduces_mse_and_mrstft_per_capture_then_averages():
+    metrics = _EpochMetrics()
+    metrics.update(
+        _torch.zeros(2, 3),
+        _torch.full((2, 3), 10.0),
+        {"MSE": _torch.tensor(1.0), "MRSTFT": _torch.tensor(2.0)},
+        capture_index=0,
+    )
+    metrics.update(
+        _torch.zeros(2, 3),
+        _torch.full((2, 3), 10.0),
+        {"MSE": _torch.tensor(3.0), "MRSTFT": _torch.tensor(6.0)},
+        capture_index=1,
+    )
+    computed = metrics.compute()
+
+    # Each capture's own row-weighted mean equals its single value here (uniform rows
+    # per update), so the cross-capture equal-weight mean is just their plain average.
+    assert computed["MSE"] == _pytest.approx(2.0)
+    assert computed["MRSTFT"] == _pytest.approx(4.0)
+
+
+def test_epoch_metrics_falls_back_to_single_level_pooling_without_capture_index():
+    """No capture_index anywhere in the epoch (e.g. capture_grouped_batches=False)
+    -> identical to the pre-two-level behavior: one global energy pool.
+    """
+    metrics = _EpochMetrics()
+    metrics.update(_torch.zeros(2, 3), _torch.full((2, 3), 10.0), {})
+    metrics.update(_torch.full((1, 3), 0.3), _torch.full((1, 3), 0.1), {})
+    computed = metrics.compute()
+
+    expected = (600.0 + 0.12) / (600.0 + 0.03)
+    assert computed["ESR"] == _pytest.approx(expected)
+
+
+def test_epoch_metrics_rejects_mixed_capture_and_ungrouped_updates():
+    metrics = _EpochMetrics()
+    metrics.update(_torch.zeros(1, 3), _torch.ones(1, 3), {}, capture_index=0)
+    with _pytest.raises(RuntimeError):
+        metrics.update(_torch.zeros(1, 3), _torch.ones(1, 3), {})
+
+
+# --- End-to-end wiring: _CaptureBatchSampler -> _ParametricLightningModule -------------
+
+
+def test_parametric_lightning_validation_two_level_reduction_via_capture_batch_sampler(
+    monkeypatch,
+):
+    """Exercises the full mechanism the module uses to find a batch's capture: a real
+    `_CaptureBatchSampler` covering a multi-batch capture and an unequal-length second
+    (quiet) capture, wired in via `set_capture_batch_samplers`.
+    """
+    module = _ParametricLightningModule(_MockBaseNet(1.0))
+    captured: dict[str, _Any] = {}
+    monkeypatch.setattr(module, "log_dict", lambda d, **k: captured.update(d))
+
+    # capture 0 has 3 rows -> batch_size 2 splits it into 2 batches (multi-batch capture);
+    # capture 1 has 1 row -> a single batch. Unequal capture lengths (3 vs 1) too.
+    sampler = _CaptureBatchSampler([3, 1], batch_size=2, shuffle=False, drop_last=False)
+    list(sampler)  # populate last_batch_captures for this "epoch", as the loader would
+    module.set_capture_batch_samplers(val_sampler=sampler)
+
+    module.on_validation_epoch_start()
+    # capture 0, batch 0 (2 rows)
+    module.validation_step((_torch.zeros(2, 3), _torch.full((2, 3), 10.0)), 0)
+    # capture 0, batch 1 (1 row, same capture)
+    module.validation_step((_torch.full((1, 3), 5.0), _torch.full((1, 3), 10.0)), 1)
+    # capture 1, batch 0 (quiet capture, bad own-ESR)
+    module.validation_step((_torch.full((1, 3), 0.3), _torch.full((1, 3), 0.1)), 2)
+    module.on_validation_epoch_end()
+
+    esr_key = f"ESR/{_VALIDATION_BUCKET}"
+    naive_pooled = (600.0 + 75.0 + 0.12) / (600.0 + 300.0 + 0.03)
+    assert captured[esr_key] == _pytest.approx(2.375)
+    assert captured[esr_key] != _pytest.approx(naive_pooled, rel=1e-2)
+    assert captured["ESR"] == _pytest.approx(2.375)
+
+
+def test_parametric_lightning_training_two_level_reduction_via_capture_batch_sampler(
+    monkeypatch,
+):
+    """Same mechanism applies on the train split when a capture-grouped sampler is
+    wired in -- the train bucket is not left on single-level pooling.
+    """
+    module = _ParametricLightningModule(_MockBaseNet(1.0))
+    captured: dict[str, _Any] = {}
+    monkeypatch.setattr(module, "log_dict", lambda d, **k: captured.update(d))
+
+    sampler = _CaptureBatchSampler([3, 1], batch_size=2, shuffle=False, drop_last=False)
+    list(sampler)
+    module.set_capture_batch_samplers(train_sampler=sampler)
+
+    module.on_train_epoch_start()
+    module.training_step((_torch.zeros(2, 3), _torch.full((2, 3), 10.0)), 0)
+    module.training_step((_torch.full((1, 3), 5.0), _torch.full((1, 3), 10.0)), 1)
+    module.training_step((_torch.full((1, 3), 0.3), _torch.full((1, 3), 0.1)), 2)
+    module.on_train_epoch_end()
+
+    esr_key = f"ESR/{_TRAIN_BUCKET}"
+    assert captured[esr_key] == _pytest.approx(2.375)
+
+
+def test_parametric_lightning_validation_capture_grouped_false_falls_back_to_pooled_esr(
+    monkeypatch,
+):
+    """With `capture_grouped_batches: False`, the dataloader's batch_sampler is a plain
+    (non-`_CaptureBatchSampler`) sampler, so the module must fall back to the old
+    single-level pooling rather than guessing at capture identity.
+    """
+    module = _ParametricLightningModule(_MockBaseNet(1.0))
+    captured: dict[str, _Any] = {}
+    monkeypatch.setattr(module, "log_dict", lambda d, **k: captured.update(d))
+
+    loader = _make_parametric_dataloader(
+        list(range(3)),
+        {"batch_size": 2, "shuffle": False, "capture_grouped_batches": False},
+    )
+    assert not isinstance(loader.batch_sampler, _CaptureBatchSampler)
+    module.set_capture_batch_samplers(val_sampler=loader.batch_sampler)
+
+    module.on_validation_epoch_start()
+    module.validation_step((_torch.zeros(2, 3), _torch.full((2, 3), 10.0)), 0)
+    module.validation_step((_torch.full((1, 3), 0.3), _torch.full((1, 3), 0.1)), 1)
+    module.on_validation_epoch_end()
+
+    esr_key = f"ESR/{_VALIDATION_BUCKET}"
+    expected = (600.0 + 0.12) / (600.0 + 0.03)
+    assert captured[esr_key] == _pytest.approx(expected)

@@ -134,6 +134,13 @@ class _CaptureBatchSampler(_Sampler):
     Trade-off vs. global shuffling: rows are shuffled *within* a capture and the batch order
     is shuffled across captures, but a batch never mixes captures. Uses the global torch RNG
     (seeded once by ``nam.train.full``) so the order is reproducible yet varies per epoch.
+
+    Since every batch is capture-pure, each ``__iter__`` call also records which capture
+    every yielded batch belongs to (``last_batch_captures``), so a caller holding a reference
+    to this sampler can recover a batch's capture from its ``batch_idx`` -- including across
+    epochs, where ``shuffle=True`` reorders both the rows and the batch list on every call.
+    This is how ``_EpochMetrics`` groups batches by capture without re-deriving the mapping
+    itself (see ``_ParametricLightningModule._capture_index``).
     """
 
     def __init__(
@@ -149,6 +156,9 @@ class _CaptureBatchSampler(_Sampler):
         self._batch_size = int(batch_size)
         self._shuffle = bool(shuffle)
         self._drop_last = bool(drop_last)
+        # Populated by __iter__; index i is the capture index of the i-th batch of the most
+        # recently started iteration (epoch).
+        self.last_batch_captures: tuple[int, ...] = ()
 
     def _capture_offsets(self) -> tuple[int, ...]:
         offsets = []
@@ -160,7 +170,10 @@ class _CaptureBatchSampler(_Sampler):
 
     def __iter__(self):
         batches: list[list[int]] = []
-        for offset, length in zip(self._capture_offsets(), self._capture_lengths):
+        batch_captures: list[int] = []
+        for capture_idx, (offset, length) in enumerate(
+            zip(self._capture_offsets(), self._capture_lengths)
+        ):
             if length == 0:
                 continue
             if self._shuffle:
@@ -172,8 +185,14 @@ class _CaptureBatchSampler(_Sampler):
                 if self._drop_last and len(batch) < self._batch_size:
                     continue
                 batches.append(batch)
+                batch_captures.append(capture_idx)
         if self._shuffle:
-            batches = [batches[i] for i in _torch.randperm(len(batches)).tolist()]
+            permutation = _torch.randperm(len(batches)).tolist()
+            batches = [batches[i] for i in permutation]
+            batch_captures = [batch_captures[i] for i in permutation]
+        # Set before yielding the first batch: everything above runs eagerly on the first
+        # `next()` call, since it all precedes the `yield from` below.
+        self.last_batch_captures = tuple(batch_captures)
         yield from batches
 
     def __len__(self) -> int:
@@ -184,6 +203,10 @@ class _CaptureBatchSampler(_Sampler):
             else:
                 total += (length + self._batch_size - 1) // self._batch_size
         return total
+
+    def capture_for_batch(self, batch_idx: int) -> int:
+        """Which capture the ``batch_idx``-th batch of the current iteration came from."""
+        return self.last_batch_captures[batch_idx]
 
 
 def _capture_lengths(dataset) -> tuple[int, ...]:
@@ -222,20 +245,24 @@ def _get_parametric_net(model: _LightningModule) -> _ParametricNet:
     return net
 
 
-class _EpochMetrics:
-    """Accumulate per-batch metrics across an epoch and reduce them once at the end.
+class _EnergyAccumulator:
+    """Pool metrics over a set of batches by summing energies, exactly as
+    ``_EpochMetrics`` used to do over an entire split.
 
     ESR is summed as energies -- the squared error and squared target are summed
     separately and divided only at the end -- so a near-silent batch cannot divide
-    by ~zero and poison the whole epoch the way a per-batch ESR average does. MSE
-    and MRSTFT are reduced as sample-weighted means over the same batches.
+    by ~zero and poison the pool the way a per-batch ESR average does. MSE and
+    MRSTFT/Mel are reduced as sample-weighted means over the same batches. This is
+    the correct reduction *within* one capture (every window shares one control
+    setting, so there is no cross-capture level mismatch to worry about); see
+    ``_EpochMetrics`` for why pooling energies *across* captures is a defect.
     """
 
     def __init__(self) -> None:
         self._err_sq: _Optional[_torch.Tensor] = None
         self._tgt_sq: _Optional[_torch.Tensor] = None
         self._weighted: dict[str, _torch.Tensor] = {}
-        self._rows = 0
+        self.rows = 0
 
     def update(
         self,
@@ -250,24 +277,94 @@ class _EpochMetrics:
         self._err_sq = err_sq if self._err_sq is None else self._err_sq + err_sq
         self._tgt_sq = tgt_sq if self._tgt_sq is None else self._tgt_sq + tgt_sq
         rows = targets.shape[0]
-        self._rows += rows
+        self.rows += rows
         for key, value in means.items():
             # Equal-length windows make a row-count weighting exact for per-element
-            # means like MSE and consistent for MRSTFT.
+            # means like MSE and consistent for MRSTFT/Mel.
             contrib = value.detach() * rows
             self._weighted[key] = (
                 contrib if key not in self._weighted else self._weighted[key] + contrib
             )
 
     def compute(self) -> dict[str, float]:
-        if self._rows == 0:
+        if self.rows == 0:
             return {}
         tgt_sq = float(self._tgt_sq)
         out: dict[str, float] = {
             "ESR": float(self._err_sq) / tgt_sq if tgt_sq > 0.0 else float("inf")
         }
         for key, total in self._weighted.items():
-            out[key] = float(total) / self._rows
+            out[key] = float(total) / self.rows
+        return out
+
+
+class _EpochMetrics:
+    """Accumulate per-batch metrics across an epoch and reduce them once at the end,
+    using a two-level reduction across captures.
+
+    A parametric split lays out several captures (one control setting each) back to
+    back, and their output levels can differ by many dB. Pooling energies (or taking a
+    sample-weighted mean) directly across ALL windows of ALL captures -- what this class
+    used to do -- lets the loud captures swamp the denominator, so a quiet capture's own
+    ESR barely moves the reported number even though it can be terrible. The fix keeps
+    the original pooling *within* a capture (see ``_EnergyAccumulator``) -- that part was
+    never wrong, a near-silent capture still can't divide by ~zero -- and then takes an
+    equal-weight mean of the per-capture results, so every capture counts the same
+    regardless of how loud it is.
+
+    This requires knowing which capture each batch belongs to. Callers that can supply a
+    ``capture_index`` to ``update`` get the two-level treatment. Callers that cannot (no
+    ``_CaptureBatchSampler`` behind the dataloader -- see
+    ``_ParametricLightningModule._capture_index``) fall back to the single-level pooling
+    over the whole epoch, matching the old behavior exactly rather than silently mixing
+    the two reductions.
+    """
+
+    def __init__(self) -> None:
+        self._captures: dict[int, _EnergyAccumulator] = {}
+        # Fallback accumulator, used only when capture identity is unavailable.
+        self._ungrouped = _EnergyAccumulator()
+        self._capture_grouped: _Optional[bool] = None
+
+    def update(
+        self,
+        preds: _torch.Tensor,
+        targets: _torch.Tensor,
+        means: dict[str, _torch.Tensor],
+        capture_index: _Optional[int] = None,
+    ) -> None:
+        grouped = capture_index is not None
+        if self._capture_grouped is None:
+            self._capture_grouped = grouped
+        elif self._capture_grouped != grouped:
+            raise RuntimeError(
+                "_EpochMetrics received a capture_index on some updates but not others "
+                "within the same epoch; capture identity must be available for either "
+                "every batch or none of them"
+            )
+        if grouped:
+            accumulator = self._captures.setdefault(capture_index, _EnergyAccumulator())
+        else:
+            accumulator = self._ungrouped
+        accumulator.update(preds, targets, means)
+
+    def compute(self) -> dict[str, float]:
+        if not self._capture_grouped:
+            return self._ungrouped.compute()
+        per_capture = [
+            accumulator.compute()
+            for accumulator in self._captures.values()
+            if accumulator.rows > 0
+        ]
+        if not per_capture:
+            return {}
+        keys: dict[str, None] = {}
+        for metrics in per_capture:
+            keys.update(dict.fromkeys(metrics))
+        out: dict[str, float] = {}
+        for key in keys:
+            values = [metrics[key] for metrics in per_capture if key in metrics]
+            out[key] = sum(values) / len(values)
         return out
 
 
@@ -307,6 +404,11 @@ class _ParametricLightningModule(_LightningModule):
             ),
         )
         self._mel_mrstft = None
+        # Set via `set_capture_batch_samplers` once the dataloaders exist (see `main`).
+        # `None` means "capture identity unavailable" -- `_EpochMetrics` then falls back
+        # to single-level pooling over the whole split instead of a wrong two-level split.
+        self._train_capture_sampler: _Optional[_CaptureBatchSampler] = None
+        self._val_capture_sampler: _Optional[_CaptureBatchSampler] = None
 
     @classmethod
     def parse_config(cls, config):
@@ -315,6 +417,28 @@ class _ParametricLightningModule(_LightningModule):
             config.get("loss", {})
         )
         return parsed
+
+    def set_capture_batch_samplers(
+        self,
+        train_sampler: _Optional[_Sampler] = None,
+        val_sampler: _Optional[_Sampler] = None,
+    ) -> None:
+        """Give the module a reference to the (possibly capture-grouped) batch
+        samplers backing its dataloaders, so `_EpochMetrics` can pool ESR/MSE/MRSTFT
+        per capture rather than over the whole split. Only a `_CaptureBatchSampler`
+        (`capture_grouped_batches` not disabled) actually enables the two-level
+        reduction; anything else is treated the same as passing `None`.
+        """
+        self._train_capture_sampler = train_sampler
+        self._val_capture_sampler = val_sampler
+
+    @staticmethod
+    def _capture_index(
+        sampler: _Optional[_Sampler], batch_idx: int
+    ) -> _Optional[int]:
+        if isinstance(sampler, _CaptureBatchSampler):
+            return sampler.capture_for_batch(batch_idx)
+        return None
 
     def _get_loss_dict(self, preds, targets):
         loss_dict = super()._get_loss_dict(preds, targets)
@@ -418,7 +542,8 @@ class _ParametricLightningModule(_LightningModule):
                 if v.value is None:
                     raise RuntimeError("Weighted training losses must define a tensor value")
                 loss = loss + v.weight * v.value
-        self._train_metrics.update(preds, targets, _bucket_means(loss_dict))
+        capture_index = self._capture_index(self._train_capture_sampler, batch_idx)
+        self._train_metrics.update(preds, targets, _bucket_means(loss_dict), capture_index)
         return loss
 
     def on_train_epoch_end(self):
@@ -429,7 +554,8 @@ class _ParametricLightningModule(_LightningModule):
 
     def validation_step(self, batch, batch_idx):
         preds, targets, loss_dict = self._shared_step(batch)
-        self._val_metrics.update(preds, targets, _bucket_means(loss_dict))
+        capture_index = self._capture_index(self._val_capture_sampler, batch_idx)
+        self._val_metrics.update(preds, targets, _bucket_means(loss_dict), capture_index)
         # Reduction happens once in on_validation_epoch_end; nothing to return.
 
     def on_validation_epoch_end(self):
@@ -592,6 +718,12 @@ def main(
     )
     val_dataloader = _make_parametric_dataloader(
         dataset_validation, learning_config["val_dataloader"]
+    )
+    # Lets _EpochMetrics pool ESR/MSE/MRSTFT per capture instead of over the whole split;
+    # a no-op (single-level fallback) if capture_grouped_batches was turned off for a loader.
+    model.set_capture_batch_samplers(
+        train_sampler=train_dataloader.batch_sampler,
+        val_sampler=val_dataloader.batch_sampler,
     )
     callbacks = _create_parametric_callbacks(learning_config)
     trainer = _pl.Trainer(

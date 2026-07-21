@@ -231,6 +231,7 @@ def build_al_model_config(
             },
         },
         "loss": {
+            "val_loss": "esr",
             "mel_weight": AL_MEL_WEIGHT,
         },
         "optimizer": {
