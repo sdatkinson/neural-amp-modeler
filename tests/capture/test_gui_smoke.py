@@ -1,4 +1,5 @@
 import os as _os
+import wave as _wave
 
 import pytest as _pytest
 
@@ -306,6 +307,93 @@ def test_new_project_gets_a_session_and_keeps_audio_settings_through_generate_pl
     window._on_generate_plan()
     assert window.project.audio.blocksize == 256
     assert _load_project(tmp_path).audio.blocksize == 256
+    window.close()
+
+
+def test_reopening_project_does_not_recompute_train_captures_from_corner_entries(
+    _qapp, tmp_path, monkeypatch
+):
+    # Corners are appended as train-split entries, so recomputing "train captures"
+    # from entries_for_split("train") on reopen would inflate it past the originally
+    # planned LHS count. The count -- and the checkbox that produced the corners --
+    # must instead survive the round-trip unchanged.
+    monkeypatch.setattr(_MainWindow_module._QMessageBox, "information", lambda *a, **k: None)
+    window = _MainWindow()
+    window.project_dir = tmp_path
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(4)
+    window.n_validation_spin.setValue(2)
+    window.include_corners_check.setChecked(True)
+    window._on_generate_plan()
+    assert len([e for e in window.project.entries if "/corner_" in e.y_path]) == 8
+
+    monkeypatch.setattr(
+        _MainWindow_module._QFileDialog,
+        "getExistingDirectory",
+        lambda *a, **k: str(tmp_path),
+    )
+    reloaded = _MainWindow()
+    reloaded._on_open_project()
+
+    assert reloaded.n_train_spin.value() == 4
+    assert reloaded.include_corners_check.isChecked() is True
+    window.close()
+    reloaded.close()
+
+
+def test_regenerate_plan_reimports_matching_captures_immediately(
+    _qapp, tmp_path, monkeypatch
+):
+    # Regenerating a plan with the same seed reproduces the same y_paths. If a WAV
+    # for one of them is already on disk and recorded in data.json, it must be
+    # re-imported as part of regeneration itself -- not only after a close/reopen.
+    monkeypatch.setattr(_MainWindow_module._QMessageBox, "information", lambda *a, **k: None)
+    monkeypatch.setattr(
+        _MainWindow_module._QMessageBox,
+        "question",
+        lambda *a, **k: _MainWindow_module._QMessageBox.StandardButton.Yes,
+    )
+    window = _MainWindow()
+    window.project_dir = tmp_path
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(4)
+    window.n_validation_spin.setValue(2)
+    window.seed_spin.setValue(7)
+    window.include_corners_check.setChecked(False)
+    window._on_generate_plan()
+
+    entry = window.project.entries[0]
+    wav_path = tmp_path / entry.y_path
+    wav_path.parent.mkdir(parents=True, exist_ok=True)
+    with _wave.open(str(wav_path), "wb") as fp:
+        fp.setnchannels(1)
+        fp.setsampwidth(2)
+        fp.setframerate(48000)
+        fp.writeframes(b"\x00\x00" * 100)
+    from nam.capture.project import atomic_write_json as _atomic_write_json
+
+    _atomic_write_json(
+        tmp_path / "data.json",
+        {
+            "type": "parametric",
+            "common": {"delay": 0},
+            "train": [
+                {
+                    "x_path": "input.wav",
+                    "y_path": entry.y_path,
+                    "delay": 12,
+                    "params": {},
+                }
+            ],
+            "validation": [],
+        },
+    )
+
+    window._on_generate_plan()
+
+    reimported = next(e for e in window.project.entries if e.y_path == entry.y_path)
+    assert reimported.status == "captured"
+    assert reimported.delay == 12
     window.close()
 
 

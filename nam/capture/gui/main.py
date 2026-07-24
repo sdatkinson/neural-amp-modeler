@@ -387,7 +387,7 @@ class MainWindow(_QMainWindow):
         self.seed_spin = _QSpinBox()
         self.seed_spin.setRange(0, 2**31 - 1)
         self.seed_spin.setValue(0)
-        form.addRow("Train captures", self.n_train_spin)
+        form.addRow("Initial LHS random training captures", self.n_train_spin)
         form.addRow("Validation captures", self.n_validation_spin)
         form.addRow("Seed", self.seed_spin)
         layout.addLayout(form)
@@ -748,11 +748,7 @@ class MainWindow(_QMainWindow):
             f"Project: {project.name or project_dir.name} ({project_dir})"
         )
         self._load_knobs_into_ui()
-        # Offer recovery before reconciling: recovered entries become captured, so
-        # reconcile won't then warn that capturing would overwrite their files.
-        recover_notes = self._maybe_recover_from_disk()
-        notes = recover_notes + _reconcile_with_disk(project, project_dir)
-        _save_project(project, project_dir)
+        notes = self._recover_and_reconcile()
         if notes:
             self.project_log.appendPlainText("\n".join(notes))
             _QMessageBox.information(self, "Project reconciled", "\n".join(notes))
@@ -810,6 +806,20 @@ class MainWindow(_QMainWindow):
             return ["Left existing capture files unmarked; they can be recaptured."]
         return self.session.recover_captured_from_disk(recoverable)
 
+    def _recover_and_reconcile(self) -> list[str]:
+        """
+        Offer recovery before reconciling: recovered entries become captured, so
+        reconcile won't then warn that capturing would overwrite their files. Shared by
+        opening a project and regenerating its plan, so both land in the same state
+        without requiring a close/reopen round-trip.
+        """
+        if self.project is None or self.project_dir is None:
+            return []
+        recover_notes = self._maybe_recover_from_disk()
+        notes = recover_notes + _reconcile_with_disk(self.project, self.project_dir)
+        _save_project(self.project, self.project_dir)
+        return notes
+
     def _load_knobs_into_ui(self) -> None:
         if self.project is None:
             return
@@ -818,9 +828,14 @@ class MainWindow(_QMainWindow):
             self._add_knob_row(
                 knob.name, knob.min, knob.max, knob.step, knob.avoid_zero, knob.is_gain
             )
-        self.n_train_spin.setValue(len(self.project.entries_for_split("train")) or 1)
+        self.n_train_spin.setValue(
+            self.project.n_train_lhs
+            or len(self.project.entries_for_split("train"))
+            or 1
+        )
         self.n_validation_spin.setValue(len(self.project.entries_for_split("validation")))
         self.seed_spin.setValue(self.project.seed)
+        self.include_corners_check.setChecked(self.project.include_initial_corners)
 
     # -- knobs / plan --------------------------------------------------
 
@@ -912,8 +927,10 @@ class MainWindow(_QMainWindow):
             confirm = _QMessageBox.question(
                 self,
                 "Discard captures?",
-                "Regenerating the plan discards all existing capture progress. "
-                "Continue?",
+                "Regenerating the plan discards all existing capture progress. If a "
+                "previously recorded capture matches an entry in the new plan (same "
+                "WAV file on disk, recorded in data.json), it will automatically be "
+                "re-imported.\n\nContinue?",
             )
             if confirm != _QMessageBox.StandardButton.Yes:
                 return
@@ -935,6 +952,7 @@ class MainWindow(_QMainWindow):
         if self.project is not None:
             project.audio = self.project.audio
 
+        project.include_initial_corners = self.include_corners_check.isChecked()
         corner_note = ""
         corner_skipped = 0
         if self.include_corners_check.isChecked():
@@ -961,6 +979,13 @@ class MainWindow(_QMainWindow):
                 f"{corner_skipped} corner setting(s) were already among the LHS points, "
                 "so they were not added again (you are not missing captures).",
             )
+        # Re-import captures already on disk that match the freshly regenerated plan
+        # (e.g. a plan regenerated with the same seed) immediately, rather than making
+        # the user close and reopen the project to trigger recovery.
+        notes = self._recover_and_reconcile()
+        if notes:
+            self.project_log.appendPlainText("\n".join(notes))
+            _QMessageBox.information(self, "Project reconciled", "\n".join(notes))
         self._load_audio_settings_into_ui()
         self._refresh_all()
 

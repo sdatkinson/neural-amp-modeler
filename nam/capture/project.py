@@ -173,6 +173,12 @@ class CaptureProject(_BaseModel):
     )
     audio: AudioSettingsModel = _Field(default_factory=AudioSettingsModel)
     entries: list[CaptureEntryModel] = _Field(default_factory=list)
+    # The number of LHS training points requested at plan-generation time. Recorded
+    # explicitly rather than derived from ``entries_for_split("train")`` because that
+    # count grows when corner captures are added, which would otherwise make the
+    # planned LHS size drift every time the project is reopened.
+    n_train_lhs: int = 0
+    include_initial_corners: bool = False
 
     def knob_specs(self) -> tuple[KnobSpec, ...]:
         return tuple(knob.to_knob_spec() for knob in self.knobs)
@@ -228,6 +234,7 @@ def new_project(
         train_input=train_input,
         validation_input=validation_input,
         entries=entries,
+        n_train_lhs=n_train,
     )
 
 
