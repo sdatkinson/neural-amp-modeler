@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication as _QApplication
 
 from nam.capture.audio import DeviceInfo as _DeviceInfo
 from nam.capture.gui import main as _MainWindow_module
+from nam.capture.gui.main import InputWavDialog as _InputWavDialog
 from nam.capture.gui.main import MainWindow as _MainWindow
 from nam.capture.gui.main import duplex_devices as _duplex_devices
 from nam.capture.gui.main import format_device_label as _format_device_label
@@ -18,6 +19,7 @@ from nam.capture.gui.main import format_params as _format_params
 from nam.capture.gui.main import format_qa_summary as _format_qa_summary
 from nam.capture.gui.main import knob_rows_to_specs as _knob_rows_to_specs
 from nam.capture.project import CaptureEntryModel as _CaptureEntryModel
+from nam.capture.project import load_project as _load_project
 from nam.capture.project import QAModel as _QAModel
 
 
@@ -149,6 +151,14 @@ def test_main_window_builds_with_no_project(_qapp):
     window.close()
 
 
+def test_loopback_defaults_to_enabled(_qapp):
+    window = _MainWindow()
+    assert window.loopback_check.isChecked()
+    assert window.loopback_output_channel_spin.value() == 2
+    assert window.loopback_input_channel_spin.value() == 2
+    window.close()
+
+
 def test_main_window_add_remove_knob_rows(_qapp):
     window = _MainWindow()
     window._on_add_knob_row()
@@ -206,6 +216,96 @@ def test_generate_plan_includes_corners_when_checked(_qapp, tmp_path, monkeypatc
     lhs_entries = [e for e in window.project.entries if "/lhs_" in e.y_path]
     assert len(corner_entries) == 8  # 3 knobs, one gain -> 8 corners
     assert len(lhs_entries) == 4
+    window.close()
+
+
+def test_initial_device_gets_correct_channel_ranges_without_reselecting(
+    _qapp, monkeypatch
+):
+    # The channel spinboxes start locked to (1, 1) until _update_channel_ranges runs
+    # for the selected device; it used to only run on a manual device change or once
+    # a project existed, so the device the combo box defaults to on startup never got
+    # its real channel range applied.
+    devices = [
+        _DeviceInfo(
+            index=0,
+            name="Duplex Interface",
+            host_api="Core Audio",
+            max_input_channels=6,
+            max_output_channels=2,
+            default_samplerate=48000.0,
+        ),
+    ]
+    monkeypatch.setattr(
+        _MainWindow_module, "_list_devices", lambda refresh=False: devices
+    )
+    window = _MainWindow()
+    assert window.output_channel_spin.maximum() == 2
+    assert window.input_channel_spin.maximum() == 6
+    window.close()
+
+
+def test_route_test_session_available_without_a_project(_qapp, monkeypatch):
+    # A route test only exercises device routing, not any project file, so it must
+    # not require a project to be open first.
+    devices = [
+        _DeviceInfo(
+            index=0,
+            name="Duplex Interface",
+            host_api="Core Audio",
+            max_input_channels=4,
+            max_output_channels=4,
+            default_samplerate=48000.0,
+        ),
+    ]
+    monkeypatch.setattr(
+        _MainWindow_module, "_list_devices", lambda refresh=False: devices
+    )
+    window = _MainWindow()
+    assert window.project is None
+    assert window.session is None
+
+    session, sample_rate = window._route_test_session_and_rate()
+    assert session is not None
+    # With no project (and so no captured sample rate or input WAV to read one
+    # from), the route test falls back to the device's own current rate.
+    assert sample_rate == 48000
+    window.close()
+
+
+def test_new_project_gets_a_session_and_keeps_audio_settings_through_generate_plan(
+    _qapp, tmp_path, monkeypatch
+):
+    # A route test needs a session; new projects used to leave window.session as
+    # None until a plan was generated, blocking the route test until then.
+    monkeypatch.setattr(
+        _MainWindow_module._QFileDialog,
+        "getExistingDirectory",
+        lambda *a, **k: str(tmp_path),
+    )
+    monkeypatch.setattr(
+        _InputWavDialog, "exec", lambda self: _MainWindow_module._QDialog.DialogCode.Rejected
+    )
+    window = _MainWindow()
+    window._on_new_project()
+
+    assert window.project is not None
+    assert window.session is not None
+
+    # Adjusting audio settings before any plan exists must persist to disk, not
+    # get silently dropped because there was nowhere to save them.
+    index = window.buffer_size_combo.findData(256)
+    window.buffer_size_combo.setCurrentIndex(index)
+    assert window.project.audio.blocksize == 256
+    assert _load_project(tmp_path).audio.blocksize == 256
+
+    # Generating the plan must not reset the audio settings chosen beforehand.
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(2)
+    window.n_validation_spin.setValue(1)
+    window._on_generate_plan()
+    assert window.project.audio.blocksize == 256
+    assert _load_project(tmp_path).audio.blocksize == 256
     window.close()
 
 

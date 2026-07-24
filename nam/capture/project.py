@@ -120,8 +120,10 @@ class AudioSettingsModel(_BaseModel):
     # same interface round-trip latency as the amp path but stays undistorted no matter
     # how hard the amp is driven, so the delay is measured from it instead of the
     # (increasingly smeared) amp return. Both must be set to enable the loopback.
-    loopback_output_channel: _Optional[int] = None
-    loopback_input_channel: _Optional[int] = None
+    # Defaults to channel 2 (on both directions) so a fresh setup starts with the
+    # loopback enabled without colliding with the channel-1 default of the main path.
+    loopback_output_channel: _Optional[int] = 2
+    loopback_input_channel: _Optional[int] = 2
     # Device buffer/block size in frames passed to the audio stream. 0 lets
     # PortAudio pick an optimal block size.
     blocksize: int = 0

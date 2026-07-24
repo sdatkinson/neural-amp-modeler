@@ -52,6 +52,7 @@ from ..export import write_training_configs as _write_training_configs
 from ..params import KnobSpec as _KnobSpec
 from ..params import validate_knobs as _validate_knobs
 from ..project import add_corner_captures as _add_corner_captures
+from ..project import AudioSettingsModel as _AudioSettingsModel
 from ..project import CaptureEntryModel as _CaptureEntryModel
 from ..project import CaptureProject as _CaptureProject
 from ..project import find_recoverable_entries as _find_recoverable_entries
@@ -277,6 +278,12 @@ class MainWindow(_QMainWindow):
         self.project: _Optional[_CaptureProject] = None
         self.project_dir: _Optional[_Path] = None
         self.session: _Optional[_CaptureSession] = None
+        # Audio routing is independent of any project: it lives here until a project
+        # exists to own it, so the Audio I/O tab and route test work before a project
+        # is opened or created. Creating a project seeds its audio from this; opening
+        # one replaces this with the project's own saved settings (see
+        # ``_current_audio_settings``).
+        self._audio_settings: _AudioSettingsModel = _AudioSettingsModel()
         # Project-relative filenames of the input WAVs, carried into the plan when
         # it is generated. Files copied in from outside use the canonical names;
         # files already inside the project folder keep their own name.
@@ -664,9 +671,20 @@ class MainWindow(_QMainWindow):
                 _QMessageBox.critical(self, "Copy failed", str(exc))
                 return
 
-        self.project = None
+        # A project (and its audio-routing settings) exists independently of the
+        # plan, so it -- and the session that lets the Audio I/O tab run a route
+        # test -- are created here rather than deferred to "Generate plan". Carry
+        # over whatever audio settings were already configured before this project
+        # existed, rather than reverting to defaults.
+        self.project = _CaptureProject(
+            name=project_dir.name,
+            knobs=[],
+            train_input=train_name,
+            validation_input=validation_name,
+            audio=self._audio_settings.model_copy(deep=True),
+        )
         self.project_dir = project_dir
-        self.session = None
+        self.session = _CaptureSession(self.project, self.project_dir)
         self._train_input_name = train_name
         self._validation_input_name = validation_name
         self.project_label.setText(
@@ -682,6 +700,7 @@ class MainWindow(_QMainWindow):
                 "No input WAVs set yet -- add them to the project folder before "
                 "capturing."
             )
+        self._refresh_devices()
         self._refresh_all()
 
     def _resolve_input(
@@ -1029,10 +1048,15 @@ class MainWindow(_QMainWindow):
                 combo.setCurrentIndex(index)
                 return
 
+    def _current_audio_settings(self) -> _AudioSettingsModel:
+        """
+        The audio settings backing the Audio I/O tab: the open project's, or the
+        standalone settings used before any project exists.
+        """
+        return self.project.audio if self.project is not None else self._audio_settings
+
     def _load_audio_settings_into_ui(self) -> None:
-        if self.project is None:
-            return
-        audio = self.project.audio
+        audio = self._current_audio_settings()
         self._select_combo_by_name(
             self.device_combo, audio.output_device or audio.input_device
         )
@@ -1131,28 +1155,26 @@ class MainWindow(_QMainWindow):
         self.loopback_input_channel_spin.setRange(1, max_input)
 
     def _save_audio_settings(self) -> None:
-        if self.project is None or self.project_dir is None:
-            return
         # One duplex device drives both playback and recording, so the same device
-        # (and its host API) is stored for the output and input directions.
+        # (and its host API) is stored for the output and input directions. Written
+        # into the open project's settings, or the standalone settings when there is
+        # no project yet -- see ``_current_audio_settings``.
+        audio = self._current_audio_settings()
         device = self.device_combo.currentData()
-        self.project.audio.output_device = device.name if device else None
-        self.project.audio.input_device = device.name if device else None
-        self.project.audio.host_api = device.host_api if device else None
-        self.project.audio.output_channel = self.output_channel_spin.value()
-        self.project.audio.input_channel = self.input_channel_spin.value()
+        audio.output_device = device.name if device else None
+        audio.input_device = device.name if device else None
+        audio.host_api = device.host_api if device else None
+        audio.output_channel = self.output_channel_spin.value()
+        audio.input_channel = self.input_channel_spin.value()
         if self.loopback_check.isChecked():
-            self.project.audio.loopback_output_channel = (
-                self.loopback_output_channel_spin.value()
-            )
-            self.project.audio.loopback_input_channel = (
-                self.loopback_input_channel_spin.value()
-            )
+            audio.loopback_output_channel = self.loopback_output_channel_spin.value()
+            audio.loopback_input_channel = self.loopback_input_channel_spin.value()
         else:
-            self.project.audio.loopback_output_channel = None
-            self.project.audio.loopback_input_channel = None
-        self.project.audio.blocksize = int(self.buffer_size_combo.currentData())
-        _save_project(self.project, self.project_dir)
+            audio.loopback_output_channel = None
+            audio.loopback_input_channel = None
+        audio.blocksize = int(self.buffer_size_combo.currentData())
+        if self.project is not None and self.project_dir is not None:
+            _save_project(self.project, self.project_dir)
 
     def _on_loopback_toggled(self) -> None:
         self._update_loopback_enabled_state()
@@ -1163,16 +1185,44 @@ class MainWindow(_QMainWindow):
         self.loopback_output_channel_spin.setEnabled(enabled)
         self.loopback_input_channel_spin.setEnabled(enabled)
 
+    def _route_test_session_and_rate(
+        self,
+    ) -> tuple[_Optional[_CaptureSession], _Optional[int]]:
+        """
+        The session to route-test against, and an explicit sample rate to pass it.
+
+        With a project open, use its session and let it infer the rate from the
+        project (its recorded sample rate, or the input WAVs) as before. With no
+        project, a route test still needs to work -- it only exercises the device
+        routing, not the input files -- so build a throwaway session around the
+        standalone audio settings and pin the rate to the device's current one
+        (there is no project sample rate or input WAV to infer it from).
+        """
+        if self.session is not None:
+            return self.session, None
+        device = self.device_combo.currentData()
+        if device is None:
+            return None, None
+        self._update_live_device_rates()
+        rate = self._device_rate(device, self._live_device_rates)
+        project = _CaptureProject(knobs=[], audio=self._audio_settings)
+        session = _CaptureSession(project, self.project_dir or _Path("."))
+        return session, rate
+
     def _on_route_test(self) -> None:
-        if self.session is None:
-            _QMessageBox.warning(self, "No project", "Open or create a project first.")
-            return
         self._save_audio_settings()
+        session, sample_rate = self._route_test_session_and_rate()
+        if session is None:
+            _QMessageBox.warning(
+                self, "No audio device", "Select an audio device first."
+            )
+            return
         self.route_test_progress.setValue(0)
         self.route_test_result_label.setText("Running route test...")
-        session = self.session
         self._run_worker(
-            lambda progress, cancel: session.route_test(progress=progress, cancel=cancel),
+            lambda progress, cancel: session.route_test(
+                sample_rate=sample_rate, progress=progress, cancel=cancel
+            ),
             on_progress=lambda fraction: self.route_test_progress.setValue(
                 int(fraction * 100)
             ),
