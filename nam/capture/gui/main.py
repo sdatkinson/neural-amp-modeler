@@ -377,6 +377,13 @@ class MainWindow(_QMainWindow):
         row_buttons.addWidget(remove_button)
         layout.addLayout(row_buttons)
 
+        self._on_add_knob_row()
+        return widget
+
+    def _build_plan_tab(self) -> _QWidget:
+        widget = _QWidget()
+        layout = _QVBoxLayout(widget)
+
         form = _QFormLayout()
         self.n_train_spin = _QSpinBox()
         self.n_train_spin.setRange(1, 100_000)
@@ -413,12 +420,6 @@ class MainWindow(_QMainWindow):
         self.add_corners_button.clicked.connect(self._on_add_corner_captures)
         layout.addWidget(self.add_corners_button)
 
-        self._on_add_knob_row()
-        return widget
-
-    def _build_plan_tab(self) -> _QWidget:
-        widget = _QWidget()
-        layout = _QVBoxLayout(widget)
         self.plan_table = self._make_entry_table()
         layout.addWidget(self.plan_table)
         return widget
