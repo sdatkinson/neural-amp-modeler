@@ -87,12 +87,11 @@ def test_al_process_args_reflects_settings_spinboxes(_qapp, tmp_path: _Path):
     window.al_max_per_round_spin.setValue(5)
     window.al_ensemble_size_spin.setValue(2)
     window.al_num_restarts_spin.setValue(3)
-    window.al_num_steps_spin.setValue(50)
     args = window._al_process_args()
     assert args[args.index("--max-per-round") + 1] == "5"
     assert args[args.index("--ensemble-size") + 1] == "2"
     assert args[args.index("--num-restarts") + 1] == "3"
-    assert args[args.index("--num-steps") + 1] == "50"
+    assert "--num-steps" not in args
     window.close()
 
 

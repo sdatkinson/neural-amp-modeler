@@ -572,9 +572,6 @@ class MainWindow(_QMainWindow):
         self.al_num_restarts_spin = _QSpinBox()
         self.al_num_restarts_spin.setRange(1, 1000)
         self.al_num_restarts_spin.setValue(_al_runner.AL_NUM_RESTARTS_DEFAULT)
-        self.al_num_steps_spin = _QSpinBox()
-        self.al_num_steps_spin.setRange(1, 100_000)
-        self.al_num_steps_spin.setValue(_al_runner.AL_NUM_STEPS_DEFAULT)
         self.al_max_workers_spin = _QSpinBox()
         self.al_max_workers_spin.setRange(0, 64)
         self.al_max_workers_spin.setValue(0)
@@ -582,7 +579,6 @@ class MainWindow(_QMainWindow):
         form.addRow("Proposals per round", self.al_max_per_round_spin)
         form.addRow("Ensemble size", self.al_ensemble_size_spin)
         form.addRow("Restarts", self.al_num_restarts_spin)
-        form.addRow("Steps", self.al_num_steps_spin)
         form.addRow("Max workers", self.al_max_workers_spin)
         layout.addLayout(form)
 
@@ -1403,8 +1399,6 @@ class MainWindow(_QMainWindow):
             str(self.al_ensemble_size_spin.value()),
             "--num-restarts",
             str(self.al_num_restarts_spin.value()),
-            "--num-steps",
-            str(self.al_num_steps_spin.value()),
         ]
         max_workers = self.al_max_workers_spin.value()
         if max_workers > 0:
@@ -1594,7 +1588,6 @@ class MainWindow(_QMainWindow):
             max_per_round=self.al_max_per_round_spin.value(),
             ensemble_size=self.al_ensemble_size_spin.value(),
             num_restarts=self.al_num_restarts_spin.value(),
-            num_steps=self.al_num_steps_spin.value(),
             max_workers=max_workers if max_workers > 0 else None,
         )
         message = "\n".join(str(path) for path in paths)
