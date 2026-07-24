@@ -351,6 +351,7 @@ def test_parametric_plot_label_uses_output_filename():
         nx=1,
         ny=None,
         y_path="/tmp/held_out_capture.wav",
+        require_input_pre_silence=None,
     )
     ds = _ParametricDataset(dataset, _torch.tensor([1.0]))
 
@@ -358,7 +359,9 @@ def test_parametric_plot_label_uses_output_filename():
 
 
 def test_parametric_plot_label_falls_back_to_params():
-    dataset = _Dataset(x=_torch.zeros(3), y=_torch.zeros(3), nx=1, ny=None)
+    dataset = _Dataset(
+        x=_torch.zeros(3), y=_torch.zeros(3), nx=1, ny=None, require_input_pre_silence=None
+    )
     ds = _ParametricDataset(dataset, _torch.tensor([3.0, -3.0]))
 
     assert _parametric_plot_label(ds) == "params=[3, -3]"

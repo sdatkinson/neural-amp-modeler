@@ -1079,10 +1079,36 @@ class MainWindow(_QMainWindow):
 
     def _load_audio_settings_into_ui(self) -> None:
         audio = self._current_audio_settings()
+        # No device has actually been chosen yet (fresh app, no project): the combo
+        # box still auto-selects whatever device sorts first, so its channel count is
+        # arbitrary and shouldn't be allowed to clamp away the stored/default channel
+        # numbers before the user has picked a real device.
+        had_explicit_device = audio.output_device is not None
         self._select_combo_by_name(
             self.device_combo, audio.output_device or audio.input_device
         )
         self._update_channel_ranges()
+        if not had_explicit_device:
+            self.output_channel_spin.setRange(
+                1, max(self.output_channel_spin.maximum(), audio.output_channel)
+            )
+            self.input_channel_spin.setRange(
+                1, max(self.input_channel_spin.maximum(), audio.input_channel)
+            )
+            self.loopback_output_channel_spin.setRange(
+                1,
+                max(
+                    self.loopback_output_channel_spin.maximum(),
+                    audio.loopback_output_channel or 1,
+                ),
+            )
+            self.loopback_input_channel_spin.setRange(
+                1,
+                max(
+                    self.loopback_input_channel_spin.maximum(),
+                    audio.loopback_input_channel or 1,
+                ),
+            )
         self.output_channel_spin.blockSignals(True)
         self.output_channel_spin.setValue(audio.output_channel)
         self.output_channel_spin.blockSignals(False)
