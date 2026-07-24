@@ -42,6 +42,13 @@ class HyperWaveNet(_ParametricNet):
         self._validate_supported_template(template)
         self._template = template
         self._hypernet = hypernet
+        # `named_parameters()` walks the whole module tree; the weight dict is rebuilt on every
+        # step, so hold the mapping instead. Safe to cache: `.to()`, `load_state_dict()` and
+        # `import_weights()` all write through the same Parameter objects.
+        self._template_parameters = dict(template.named_parameters())
+        self._uniform_batch_params = False
+        self._uniform_batch_params_checked = False
+        self._compiled_conditioned_forward = None
 
     @classmethod
     def parse_config(cls, config: dict[str, _Any]) -> dict[str, _Any]:
@@ -116,17 +123,85 @@ class HyperWaveNet(_ParametricNet):
         with context:
             return super()._forward_mps_safe(x, **kwargs)
 
+    def set_uniform_batch_params(self, uniform: bool) -> None:
+        """
+        Promise that a batched ``params`` tensor holds one setting repeated down the batch.
+
+        That is what ``_CaptureBatchSampler`` already guarantees during parametric training
+        (every batch is drawn from a single capture). Without the promise, ``_run_conditioned``
+        has to *discover* the grouping from the data -- ``torch.unique`` on a device tensor,
+        then boolean masking -- and each of those reads a GPU-computed value back to the host.
+        Those syncs stop the CPU from queuing work ahead of the GPU, which is exactly what
+        hides per-op launch latency on a model this small. Given the promise we can take
+        ``p[0]`` and run the batch under one weight set with no host round-trip at all.
+
+        The promise is verified against the first batched call, so a wrong one fails loudly
+        rather than silently training every row at the wrong setting.
+        """
+        self._uniform_batch_params = bool(uniform)
+        self._uniform_batch_params_checked = False
+
+    def set_compiled(self, enabled: bool, **compile_kwargs: _Any) -> None:
+        """
+        Route the single-setting step through ``torch.compile``.
+
+        The step spends most of its wall clock issuing very small kernels -- the generated
+        deltas are ~100 tensors of a few dozen elements each -- so fusing them is worth more
+        here than the arithmetic it saves. Only the conditioned forward is wrapped, not the
+        module: ``self.net`` stays a plain ``HyperWaveNet`` so export, checkpointing and
+        ``state_dict`` keys are untouched, and turning this off restores the eager path
+        exactly.
+
+        Off by default, and only ever used on grad-enabled steps -- see `_run_one_setting`.
+        Inductor also needs a warmup compile per input shape it sees, so short runs can come
+        out behind; the batched-group path above is the unconditional win.
+        """
+        if not enabled:
+            self._compiled_conditioned_forward = None
+            return
+        self._compiled_conditioned_forward = _torch.compile(
+            self._conditioned_forward, **compile_kwargs
+        )
+
+    def _check_uniform_batch_params(self, p: _torch.Tensor) -> None:
+        if self._uniform_batch_params_checked:
+            return
+        # One host sync, on the first batched call only.
+        self._uniform_batch_params_checked = True
+        if not bool(_torch.equal(p, p[:1].expand_as(p))):
+            raise RuntimeError(
+                "set_uniform_batch_params(True) promises every row of a batched params "
+                "tensor is the same control setting, but this batch mixed settings. Turn "
+                "off capture-grouped batching's uniform fast path (or fix the sampler) "
+                "before training."
+            )
+
+    def _conditioned_forward(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
+        """One setting (1-D ``p``) applied to the whole of ``x``."""
+        return self._apply_conditioned_weights(x, self._conditioned_weight_dict(p))
+
+    def _run_one_setting(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
+        forward = self._compiled_conditioned_forward
+        # Inductor fails to lower the template's dilated convs when grad is off
+        # ("LoweringException: NotImplementedError: View"), which is how Lightning runs
+        # validation. Training steps are the hot path and compile cleanly, so take the
+        # compiled route only there and leave inference on the eager one.
+        if forward is None or not _torch.is_grad_enabled():
+            return self._conditioned_forward(x, p)
+        return forward(x, p)
+
     def _run_conditioned(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
         if p.ndim == 1:
-            return self._apply_conditioned_weights(
-                x,
-                self._assemble_weight_dict(self._hypernet.generate(p)),
-            )
+            return self._run_one_setting(x, p)
 
         if x.shape[0] != p.shape[0]:
             raise ValueError(
                 f"Input batch size {x.shape[0]} must match encoded params batch size {p.shape[0]}"
             )
+
+        if self._uniform_batch_params:
+            self._check_uniform_batch_params(p)
+            return self._run_one_setting(x, p[0])
 
         # Batched parametric training often repeats the same control setting across many
         # windows from one capture. Group those rows so each unique setting runs one
@@ -152,10 +227,32 @@ class HyperWaveNet(_ParametricNet):
     def _assemble_weight_dict(
         self, deltas: _Mapping[str, _torch.Tensor]
     ) -> dict[str, _torch.Tensor]:
-        weight_dict = {}
-        for name, parameter in self._template.named_parameters():
-            delta = deltas.get(name)
-            weight_dict[name] = parameter if delta is None else parameter + delta
+        weight_dict = dict(self._template_parameters)
+        for name, delta in deltas.items():
+            weight_dict[name] = weight_dict[name] + delta
+        return weight_dict
+
+    def _conditioned_weight_dict(self, p: _torch.Tensor) -> dict[str, _torch.Tensor]:
+        """
+        ``_assemble_weight_dict(hypernet.generate(p))`` for a single (1-D) setting, done a
+        shape-group at a time: one stack + one add per group rather than one add per target.
+        """
+        if p.ndim != 1:
+            raise ValueError(
+                f"Expected a single encoded setting of shape (E,); got {tuple(p.shape)}"
+            )
+        parameters = self._template_parameters
+        weight_dict = dict(parameters)
+        for group, stacked in self._hypernet.generate_groups(p):
+            names = group.names
+            if len(names) == 1:
+                weight_dict[names[0]] = parameters[names[0]] + stacked.squeeze(
+                    group.stack_dim
+                )
+                continue
+            conditioned = _torch.stack([parameters[name] for name in names]) + stacked
+            for name, weight in zip(names, conditioned.unbind(group.stack_dim)):
+                weight_dict[name] = weight
         return weight_dict
 
     def _apply_conditioned_weights(

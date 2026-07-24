@@ -15,13 +15,25 @@ from nam.models._from_nam import init_from_nam as _init_from_nam
 from nam.models.wavenet import WaveNet as _WaveNet
 from nam.train.core import _ValidationStopping as _ValidationStopping
 from nam.train.parametric import _CaptureBatchSampler as _CaptureBatchSampler
+from nam.train.parametric import (
+    _enable_training_fast_paths as _enable_training_fast_paths,
+)
+from nam.train.parametric import (
+    _release_training_fast_paths as _release_training_fast_paths,
+)
 from nam.train.parametric import _EpochMetrics as _EpochMetrics
-from nam.train.parametric import _ParametricLightningModule as _ParametricLightningModule
+from nam.train.parametric import (
+    _ParametricLightningModule as _ParametricLightningModule,
+)
 from nam.train.parametric import _ParametricLossConfig as _ParametricLossConfig
 from nam.train.parametric import _TRAIN_BUCKET as _TRAIN_BUCKET
 from nam.train.parametric import _VALIDATION_BUCKET as _VALIDATION_BUCKET
-from nam.train.parametric import _create_parametric_callbacks as _create_parametric_callbacks
-from nam.train.parametric import _make_parametric_dataloader as _make_parametric_dataloader
+from nam.train.parametric import (
+    _create_parametric_callbacks as _create_parametric_callbacks,
+)
+from nam.train.parametric import (
+    _make_parametric_dataloader as _make_parametric_dataloader,
+)
 from nam.train.parametric import _parametric_plot_label as _parametric_plot_label
 from nam.train.parametric import main as _main
 from tests.test_nam.test_models.test_base import MockBaseNet as _MockBaseNet
@@ -781,3 +793,108 @@ def test_parametric_lightning_validation_capture_grouped_false_falls_back_to_poo
     esr_key = f"ESR/{_VALIDATION_BUCKET}"
     expected = (600.0 + 0.12) / (600.0 + 0.03)
     assert captured[esr_key] == _pytest.approx(expected)
+
+
+def _hyperwavenet_for_fast_paths():
+    from nam.models.parametric import HyperWaveNet as _HyperWaveNet
+    from nam.models.wavenet._wavenet import WaveNet as _InnerWaveNet
+
+    template = _InnerWaveNet.init_from_config(
+        {
+            "layers_configs": [
+                {
+                    "input_size": 1,
+                    "condition_size": 1,
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+        }
+    )
+    config = template.export_config()
+    config["params"] = [
+        {"name": "gain", "min": 0.0, "max": 10.0, "default": 5.0, "type": "continuous"}
+    ]
+    return _HyperWaveNet.init_from_config(config)
+
+
+class _FakeLoader:
+    def __init__(self, batch_sampler):
+        self.batch_sampler = batch_sampler
+
+
+def _capture_grouped_loader() -> _FakeLoader:
+    return _FakeLoader(
+        _CaptureBatchSampler([4], batch_size=2, shuffle=False, drop_last=False)
+    )
+
+
+def test_fast_paths_follow_capture_grouped_batching():
+    net = _hyperwavenet_for_fast_paths()
+
+    _enable_training_fast_paths(
+        net, (_capture_grouped_loader(), _capture_grouped_loader()), {}
+    )
+    assert net._uniform_batch_params
+    assert net._compiled_conditioned_forward is None
+
+    _release_training_fast_paths(net)
+    assert not net._uniform_batch_params
+
+
+def test_fast_paths_stay_off_when_a_loader_is_not_capture_grouped():
+    net = _hyperwavenet_for_fast_paths()
+
+    _enable_training_fast_paths(net, (_capture_grouped_loader(), _FakeLoader(None)), {})
+
+    assert not net._uniform_batch_params
+
+
+def test_torch_compile_is_opt_in_and_forwards_its_kwargs():
+    net = _hyperwavenet_for_fast_paths()
+
+    _enable_training_fast_paths(
+        net,
+        (_capture_grouped_loader(), _capture_grouped_loader()),
+        {"enabled": True, "backend": "eager"},
+    )
+    assert net._compiled_conditioned_forward is not None
+
+    _release_training_fast_paths(net)
+    assert net._compiled_conditioned_forward is None
+
+
+def test_fast_paths_ignore_nets_without_the_hooks():
+    # ConcatWaveNet has no per-setting weight generation, so there is nothing to enable.
+    from nam.models.parametric import ConcatWaveNet as _ConcatWaveNet
+
+    net = _ConcatWaveNet.init_from_config(
+        {
+            "layers": [
+                {
+                    "head": {"out_channels": 1, "kernel_size": 1, "bias": True},
+                    "channels": 2,
+                    "kernel_size": 2,
+                    "dilations": [1],
+                    "activation": "Tanh",
+                }
+            ],
+            "head_scale": 1.0,
+            "params": [
+                {
+                    "name": "gain",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "default": 5.0,
+                    "type": "continuous",
+                }
+            ],
+        }
+    )
+
+    _enable_training_fast_paths(net, (_capture_grouped_loader(),), {"enabled": True})
+    _release_training_fast_paths(net)

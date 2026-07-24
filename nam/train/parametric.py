@@ -10,7 +10,9 @@ import librosa as _librosa
 import matplotlib.pyplot as _plt
 import pytorch_lightning as _pl
 import torch as _torch
-from lightning_fabric.utilities.warnings import PossibleUserWarning as _PossibleUserWarning
+from lightning_fabric.utilities.warnings import (
+    PossibleUserWarning as _PossibleUserWarning,
+)
 from pytorch_lightning.callbacks import ModelCheckpoint as _ModelCheckpoint
 from torch.utils.data import DataLoader as _DataLoader
 from torch.utils.data import Sampler as _Sampler
@@ -27,7 +29,9 @@ from nam.models.parametric import ParametricNet as _ParametricNet
 from nam.models.parametric import bake as _bake
 from nam.models.parametric import data_config_from_model as _data_config_from_model
 from nam.models.parametric import export_parametric as _export_parametric
-from nam.models.parametric import output_scale_from_datasets as _output_scale_from_datasets
+from nam.models.parametric import (
+    output_scale_from_datasets as _output_scale_from_datasets,
+)
 from nam.train.core import _ValidationStopping
 from nam.train.full import _create_callbacks
 from nam.train.full import _handshake_datasets
@@ -233,6 +237,37 @@ def _make_parametric_dataloader(dataset, loader_config: dict) -> _DataLoader:
         drop_last=drop_last,
     )
     return _DataLoader(dataset, batch_sampler=batch_sampler, **loader_config)
+
+
+def _enable_training_fast_paths(
+    net: _ParametricNet,
+    dataloaders: _Sequence[_DataLoader],
+    compile_config: dict,
+) -> None:
+    """
+    Turn on the HyperWaveNet step optimizations that are only valid during `fit`.
+
+    Capture-grouped batching makes every batch one control setting, which lets the model skip
+    the host syncs it would otherwise need to discover that grouping from the data. The
+    promise only holds for these dataloaders, so `_release_training_fast_paths` takes it back
+    once fitting is over and later calls (bake, export checks) go through the general path.
+    """
+    if not isinstance(net, _HyperWaveNet):
+        return
+    net.set_uniform_batch_params(
+        all(
+            isinstance(dataloader.batch_sampler, _CaptureBatchSampler)
+            for dataloader in dataloaders
+        )
+    )
+    compile_config = dict(compile_config)
+    net.set_compiled(bool(compile_config.pop("enabled", False)), **compile_config)
+
+
+def _release_training_fast_paths(net: _ParametricNet) -> None:
+    if isinstance(net, _HyperWaveNet):
+        net.set_uniform_batch_params(False)
+        net.set_compiled(False)
 
 
 def _get_parametric_net(model: _LightningModule) -> _ParametricNet:
@@ -725,6 +760,11 @@ def main(
         train_sampler=train_dataloader.batch_sampler,
         val_sampler=val_dataloader.batch_sampler,
     )
+    _enable_training_fast_paths(
+        net,
+        (train_dataloader, val_dataloader),
+        learning_config.get("torch_compile", {}),
+    )
     callbacks = _create_parametric_callbacks(learning_config)
     trainer = _pl.Trainer(
         callbacks=callbacks,
@@ -743,6 +783,8 @@ def main(
                 )
         except KeyboardInterrupt:
             print("\nTraining interrupted by user.")
+        finally:
+            _release_training_fast_paths(net)
         # Reached on normal completion or a user interrupt; in both cases we still want to
         # export the best model. A hard training error instead propagates past this block
         # (skipping export so a secondary bake/export failure can't mask the real error)

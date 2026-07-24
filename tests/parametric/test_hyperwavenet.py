@@ -364,10 +364,98 @@ def test_export_weights_round_trip_restores_base_and_hypernetwork():
     end = second.import_weights(first_weights)
 
     assert end == len(first_weights)
-    assert _np.allclose(second._template.export_weights(), first._template.export_weights())
+    assert _np.allclose(
+        second._template.export_weights(), first._template.export_weights()
+    )
     for (first_name, first_tensor), (second_name, second_tensor) in zip(
         first._hypernet.state_dict().items(),
         second._hypernet.state_dict().items(),
     ):
         assert first_name == second_name
         assert _torch.equal(first_tensor, second_tensor)
+
+
+def _hyperwavenet_with_nonzero_deltas() -> _HyperWaveNet:
+    # The readout is zero-initialized, so every delta starts at exactly zero and any two code
+    # paths would agree trivially. Push it off zero first.
+    model = _HyperWaveNet.init_from_config(_hyperwavenet_config())
+    with _torch.no_grad():
+        model._hypernet._final.weight.normal_(0.0, 0.05)
+        model._hypernet._final.bias.normal_(0.0, 0.05)
+    return model
+
+
+def _capture_pure_batch(model: _HyperWaveNet, batch_size: int):
+    x = _torch.randn(batch_size, model.receptive_field - 1 + 64)
+    params = _torch.tensor([[7.5, 2.0]]).expand(batch_size, -1).contiguous()
+    return x, params
+
+
+def test_uniform_batch_params_matches_the_general_grouping_path():
+    _torch.manual_seed(0)
+    model = _hyperwavenet_with_nonzero_deltas()
+    x, params = _capture_pure_batch(model, 4)
+
+    with _torch.no_grad():
+        model.set_uniform_batch_params(False)
+        general = model(x, params, pad_start=False)
+        model.set_uniform_batch_params(True)
+        uniform = model(x, params, pad_start=False)
+        single = model(x, params[0], pad_start=False)
+
+    assert _torch.equal(uniform, general)
+    assert _torch.equal(uniform, single)
+
+
+def test_uniform_batch_params_rejects_a_mixed_batch():
+    _torch.manual_seed(0)
+    model = _hyperwavenet_with_nonzero_deltas()
+    x, _ = _capture_pure_batch(model, 4)
+    mixed = _torch.tensor([[1.0, 0.0], [9.0, 2.0], [4.0, 1.0], [2.0, 0.0]])
+
+    model.set_uniform_batch_params(True)
+    with _pytest.raises(RuntimeError, match="mixed settings"):
+        with _torch.no_grad():
+            model(x, mixed, pad_start=False)
+
+
+def test_set_compiled_round_trips_to_the_eager_path():
+    _torch.manual_seed(0)
+    model = _hyperwavenet_with_nonzero_deltas()
+    x, params = _capture_pure_batch(model, 2)
+    model.set_uniform_batch_params(True)
+
+    eager = model(x, params, pad_start=False)
+    # backend="eager" exercises the routing without paying for an inductor compile.
+    model.set_compiled(True, backend="eager")
+    compiled = model(x, params, pad_start=False)
+    model.set_compiled(False)
+    restored = model(x, params, pad_start=False)
+
+    assert model._compiled_conditioned_forward is None
+    assert _torch.allclose(compiled, eager, atol=1e-6)
+    assert _torch.equal(restored, eager)
+
+
+def test_compiled_path_is_skipped_when_grad_is_disabled():
+    # Inductor cannot lower the template's convs with grad off, so validation must stay eager.
+    _torch.manual_seed(0)
+    model = _hyperwavenet_with_nonzero_deltas()
+    x, params = _capture_pure_batch(model, 2)
+    model.set_uniform_batch_params(True)
+    model.set_compiled(True, backend="eager")
+
+    calls = []
+    compiled = model._compiled_conditioned_forward
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return _cast(object, compiled)(*args, **kwargs)
+
+    model._compiled_conditioned_forward = _counting
+    with _torch.no_grad():
+        model(x, params, pad_start=False)
+    assert calls == []
+
+    model(x, params, pad_start=False)
+    assert calls == [1]

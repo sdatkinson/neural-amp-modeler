@@ -72,36 +72,6 @@ class _TargetLayout:
     out_features: _Optional[int] = None
     rest_features: _Optional[int] = None
 
-    def decode(
-        self, flat: _torch.Tensor, *, anchor: _Optional[_torch.Tensor] = None
-    ) -> _torch.Tensor:
-        leading_shape = tuple(flat.shape[:-1])
-        if self.mode == _FULL:
-            return flat.reshape(*leading_shape, *self.shape)
-
-        if self.rank is None or self.out_features is None or self.rest_features is None:
-            raise RuntimeError(
-                f"Low-rank target layout for {self.name!r} is incomplete"
-            )
-
-        u_width = self.out_features * self.rank
-        v_width = self.rank * self.rest_features
-        u_flat, v_flat = _torch.split(flat, [u_width, v_width], dim=-1)
-        u = u_flat.reshape(*leading_shape, self.out_features, self.rank)
-        v = v_flat.reshape(*leading_shape, self.rank, self.rest_features)
-        if anchor is not None:
-            if tuple(anchor.shape) != (self.output_width,):
-                raise RuntimeError(
-                    f"Low-rank anchor for {self.name!r} has shape {tuple(anchor.shape)}; "
-                    f"expected {(self.output_width,)!r}"
-                )
-            anchor_u_flat, anchor_v_flat = _torch.split(
-                anchor, [u_width, v_width], dim=-1
-            )
-            u = u + anchor_u_flat.reshape(self.out_features, self.rank)
-            v = v + anchor_v_flat.reshape(self.rank, self.rest_features)
-        return _torch.matmul(u, v).reshape(*leading_shape, *self.shape)
-
     @property
     def is_low_rank(self) -> bool:
         return self.mode == _LOW_RANK
@@ -121,6 +91,51 @@ class _TargetLayout:
                 f"Low-rank target layout for {self.name!r} is incomplete"
             )
         return self.rank * self.rest_features
+
+
+@_dataclass(frozen=True)
+class _DecodeGroup:
+    """
+    A set of targets that share an identical decode layout, decoded together.
+
+    Every target used to be decoded on its own: slice it out of the readout output, reshape,
+    add its anchor, multiply its two low-rank factors. On a small net that is a few hundred
+    tiny CUDA kernels per step, each doing a handful of elements, and the launch cost swamps
+    the arithmetic. Targets with the same shape can share all of that work instead -- one
+    gather, one add, one batched matmul for the whole group -- which is what this describes.
+
+    ``index``/``v_index`` name int64 buffers holding the readout columns this group's members
+    occupy (``v_*`` is the low-rank V block; the plain fields are the U block, or the whole
+    slot for a full-mode group). They are ``None`` when the members already sit in one
+    contiguous run, in which case ``start``/``width`` name that run and a free view replaces
+    the gather.
+    """
+
+    names: tuple[str, ...]
+    shape: _torch.Size
+    is_low_rank: bool
+    index: _Optional[str]
+    start: int
+    width: int
+    rank: int = 0
+    out_features: int = 0
+    rest_features: int = 0
+    v_index: _Optional[str] = None
+    v_start: int = 0
+    v_width: int = 0
+
+    @property
+    def size(self) -> int:
+        return len(self.names)
+
+    @property
+    def stack_dim(self) -> int:
+        """Which dim of a decoded group tensor indexes its members."""
+        return -(len(self.shape) + 1)
+
+
+def _is_contiguous_run(starts: _Sequence[int], width: int) -> bool:
+    return all(start == starts[0] + i * width for i, start in enumerate(starts))
 
 
 class _ZeroLinear(_nn.Module):
@@ -393,6 +408,10 @@ class Hypernetwork(_nn.Module):
         # gradient from the upstream weight loss, becomes nonzero, and the trunk trains from
         # then on. This one-step warmup is expected -- do not "fix" it by dropping zero-init.
         self.register_buffer("_low_rank_anchor", self._build_low_rank_anchor())
+        # Purely a decode-order view of `_target_layouts`: same flat readout layout, same
+        # anchors, same math -- just evaluated a shape-group at a time. Built last because it
+        # registers index buffers and reads the layouts above.
+        self._decode_groups = self._build_decode_groups()
 
     @classmethod
     def from_config(
@@ -448,7 +467,102 @@ class Hypernetwork(_nn.Module):
             config["selector"] = _serialize_selector_config(selector_config)
         return config
 
-    def generate(self, p: _torch.Tensor) -> dict[str, _torch.Tensor]:
+    def _build_decode_groups(self) -> tuple[_DecodeGroup, ...]:
+        offsets = []
+        offset = 0
+        for layout in self._target_layouts:
+            offsets.append(offset)
+            offset += layout.output_width
+
+        # dict preserves insertion order, so group order (and therefore buffer naming) is a
+        # deterministic function of the target order.
+        members: dict[_Any, list[int]] = {}
+        for i, layout in enumerate(self._target_layouts):
+            key = (
+                layout.mode,
+                tuple(layout.shape),
+                layout.rank,
+                layout.out_features,
+                layout.rest_features,
+            )
+            members.setdefault(key, []).append(i)
+
+        groups = []
+        for group_index, indices in enumerate(members.values()):
+            first = self._target_layouts[indices[0]]
+            names = tuple(self._target_layouts[i].name for i in indices)
+
+            def _slot(
+                starts: list[int], width: int, suffix: str
+            ) -> tuple[_Optional[str], int, int]:
+                if _is_contiguous_run(starts, width):
+                    return None, starts[0], width * len(starts)
+                buffer_name = f"_group{group_index}{suffix}_index"
+                self.register_buffer(
+                    buffer_name,
+                    _torch.cat(
+                        [
+                            _torch.arange(start, start + width, dtype=_torch.long)
+                            for start in starts
+                        ]
+                    ),
+                    # Derived from the layouts, so it must not ride along in checkpoints or
+                    # in the exported state (which stays parameters + anchor, unchanged).
+                    persistent=False,
+                )
+                return buffer_name, starts[0], width * len(starts)
+
+            if not first.is_low_rank:
+                index, start, width = _slot(
+                    [offsets[i] for i in indices], first.shape.numel(), ""
+                )
+                groups.append(
+                    _DecodeGroup(
+                        names=names,
+                        shape=first.shape,
+                        is_low_rank=False,
+                        index=index,
+                        start=start,
+                        width=width,
+                    )
+                )
+                continue
+
+            u_width, v_width = first.u_width, first.v_width
+            index, start, width = _slot([offsets[i] for i in indices], u_width, "u")
+            v_index, v_start, v_total = _slot(
+                [offsets[i] + u_width for i in indices], v_width, "v"
+            )
+            groups.append(
+                _DecodeGroup(
+                    names=names,
+                    shape=first.shape,
+                    is_low_rank=True,
+                    index=index,
+                    start=start,
+                    width=width,
+                    rank=_cast(int, first.rank),
+                    out_features=_cast(int, first.out_features),
+                    rest_features=_cast(int, first.rest_features),
+                    v_index=v_index,
+                    v_start=v_start,
+                    v_width=v_total,
+                )
+            )
+        return tuple(groups)
+
+    def _take(
+        self,
+        source: _torch.Tensor,
+        index: _Optional[str],
+        start: int,
+        width: int,
+    ) -> _torch.Tensor:
+        if index is None:
+            return source.narrow(-1, start, width)
+        return source.index_select(-1, _cast(_torch.Tensor, getattr(self, index)))
+
+    def _readout(self, p: _torch.Tensor) -> _torch.Tensor:
         reference = self._final.weight
         p = _torch.as_tensor(p, device=reference.device, dtype=reference.dtype)
         if p.ndim not in (1, 2):
@@ -459,24 +573,58 @@ class Hypernetwork(_nn.Module):
             raise ValueError(
                 f"Expected encoded params trailing dimension {self._input_dim}; got {p.shape[-1]}"
             )
+        return self._final(self._trunk(p))
 
-        flat = self._final(self._trunk(p))
-        # final_output_dim > 0 always: __init__ requires >=1 target and every parameter
-        # tensor has numel >= 1, so the split below covers exactly `flat`.
-        chunks = _torch.split(
-            flat,
-            [layout.output_width for layout in self._target_layouts],
-            dim=-1,
-        )
-        anchors = _torch.split(
-            _cast(_torch.Tensor, self._low_rank_anchor),
-            [layout.output_width for layout in self._target_layouts],
-            dim=-1,
-        )
-        return {
-            layout.name: layout.decode(chunk, anchor=anchor)
-            for layout, chunk, anchor in zip(self._target_layouts, chunks, anchors)
-        }
+    def generate_groups(
+        self, p: _torch.Tensor
+    ) -> list[tuple[_DecodeGroup, _torch.Tensor]]:
+        """
+        Deltas decoded a shape-group at a time.
+
+        Each entry is a group paired with its members' deltas stacked along
+        ``group.stack_dim``, i.e. shape ``(*leading, group.size, *group.shape)``. Callers that
+        can consume the stacked form (see ``HyperWaveNet``) keep the whole group on one add;
+        ``generate`` unbinds it back to one tensor per target.
+        """
+        flat = self._readout(p)
+        leading = tuple(flat.shape[:-1])
+        anchor = _cast(_torch.Tensor, self._low_rank_anchor)
+
+        generated = []
+        for group in self._decode_groups:
+            if not group.is_low_rank:
+                chunk = self._take(flat, group.index, group.start, group.width)
+                generated.append(
+                    (group, chunk.reshape(*leading, group.size, *group.shape))
+                )
+                continue
+
+            u_shape = (group.size, group.out_features, group.rank)
+            v_shape = (group.size, group.rank, group.rest_features)
+            # The anchor is gathered per call rather than cached in group form so that
+            # mutating `_low_rank_anchor` (import_state, tests) still takes effect.
+            u = self._take(flat, group.index, group.start, group.width).reshape(
+                *leading, *u_shape
+            ) + self._take(anchor, group.index, group.start, group.width).reshape(
+                *u_shape
+            )
+            v = self._take(flat, group.v_index, group.v_start, group.v_width).reshape(
+                *leading, *v_shape
+            ) + self._take(anchor, group.v_index, group.v_start, group.v_width).reshape(
+                *v_shape
+            )
+            generated.append(
+                (group, (u @ v).reshape(*leading, group.size, *group.shape))
+            )
+        return generated
+
+    def generate(self, p: _torch.Tensor) -> dict[str, _torch.Tensor]:
+        deltas = {}
+        for group, stacked in self.generate_groups(p):
+            for name, delta in zip(group.names, stacked.unbind(group.stack_dim)):
+                deltas[name] = delta
+        # Re-key in target order; grouping reorders the decode, not the public contract.
+        return {layout.name: deltas[layout.name] for layout in self._target_layouts}
 
     def export_target_metadata(self) -> list[dict[str, _Any]]:
         metadata = []

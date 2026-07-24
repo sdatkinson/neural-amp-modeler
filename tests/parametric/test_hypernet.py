@@ -505,3 +505,69 @@ def test_generate_rejects_bad_input_shape():
 
     with _pytest.raises(ValueError, match="shape \\(E,\\) or \\(B, E\\)"):
         hypernet.generate(_torch.zeros(1, 2, 4))
+
+
+def _grouped_hypernet() -> _Hypernetwork:
+    hypernet = _Hypernetwork.from_config(
+        input_dim=4,
+        named_shapes=_channels_8_named_shapes(),
+        config={
+            "hidden_sizes": [8],
+            "mode": "low_rank",
+            "rank": 2,
+            "selector": _CHEAP_SUBSET,
+        },
+    )
+    with _torch.no_grad():
+        hypernet._final.weight.normal_(0.0, 0.05)
+        hypernet._final.bias.normal_(0.0, 0.05)
+        _cast(_torch.Tensor, hypernet._low_rank_anchor).normal_(0.0, 0.05)
+    return hypernet
+
+
+def test_decode_groups_partition_the_targets_in_order():
+    hypernet = _grouped_hypernet()
+
+    grouped_names = [name for group in hypernet._decode_groups for name in group.names]
+    assert sorted(grouped_names) == sorted(hypernet.target_names)
+    assert len(grouped_names) == len(set(grouped_names))
+    # Grouping is what makes the decode cheap; if every target landed in its own group the
+    # batched ops would have degenerated back to per-target ones.
+    assert len(hypernet._decode_groups) < len(hypernet.target_names)
+
+
+def test_generate_groups_stack_matches_generate():
+    hypernet = _grouped_hypernet()
+
+    for params in (_torch.randn(4), _torch.randn(3, 4)):
+        deltas = hypernet.generate(params)
+        for group, stacked in hypernet.generate_groups(params):
+            assert stacked.shape[group.stack_dim] == group.size
+            for name, member in zip(group.names, stacked.unbind(group.stack_dim)):
+                assert _torch.equal(member, deltas[name])
+
+
+def test_decode_group_index_buffers_stay_out_of_the_serialized_state():
+    hypernet = _grouped_hypernet()
+
+    state_keys = set(hypernet.state_dict())
+    assert "_low_rank_anchor" in state_keys
+    assert not any(key.startswith("_group") for key in state_keys)
+    assert hypernet.state_count() == hypernet.export_state().numel()
+
+
+def test_mutating_the_anchor_still_changes_generated_deltas():
+    # The grouped decode gathers the anchor per call rather than caching it in group form.
+    hypernet = _grouped_hypernet()
+    params = _torch.randn(4)
+    before = hypernet.generate(params)
+
+    with _torch.no_grad():
+        _cast(_torch.Tensor, hypernet._low_rank_anchor).add_(0.125)
+    after = hypernet.generate(params)
+
+    low_rank = [
+        layout.name for layout in hypernet._target_layouts if layout.is_low_rank
+    ]
+    assert low_rank
+    assert all(not _torch.equal(before[name], after[name]) for name in low_rank)
