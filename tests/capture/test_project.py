@@ -6,6 +6,7 @@ import pytest as _pytest
 
 from nam.capture.params import KnobSpec as _KnobSpec
 from nam.capture.planner import CAPTURES_DIRNAME as _CAPTURES_DIRNAME
+from nam.capture.project import add_corner_captures as _add_corner_captures
 from nam.capture.project import CaptureProject as _CaptureProject
 from nam.capture.project import PROJECT_FILENAME as _PROJECT_FILENAME
 from nam.capture.project import QAModel as _QAModel
@@ -43,6 +44,65 @@ def test_new_project_plans_entries():
     knob_names = {knob.name for knob in project.knobs}
     for entry in project.entries:
         assert set(entry.params.keys()) == knob_names
+
+
+def _gain_knobs() -> list[_KnobSpec]:
+    return [
+        _KnobSpec(name="Gain", min=0.0, max=10.0, step=1.0, is_gain=True),
+        _KnobSpec(name="Tone", min=0.0, max=10.0, step=1.0),
+        _KnobSpec(name="Bass", min=0.0, max=10.0, step=1.0),
+    ]
+
+
+def test_add_corner_captures_appends_pending_train_entries():
+    project = _new_project(_gain_knobs(), n_train=4, n_validation=2, seed=0)
+    base = len(project.entries)
+    added, skipped = _add_corner_captures(project)
+
+    assert len(added) == 8  # 3 knobs with a gain marking -> 8 corners
+    assert len(project.entries) == base + 8
+    assert all(entry.split == "train" for entry in added)
+    assert all(entry.status == "pending" for entry in added)
+    assert all(
+        entry.y_path.startswith(f"{_CAPTURES_DIRNAME}/corner_") for entry in added
+    )
+
+    train_indices = [e.index for e in project.entries if e.split == "train"]
+    assert len(train_indices) == len(set(train_indices))
+    y_paths = [e.y_path for e in project.entries]
+    assert len(y_paths) == len(set(y_paths))
+
+
+def test_add_corner_captures_is_idempotent():
+    project = _new_project(_gain_knobs(), n_train=4, n_validation=2, seed=0)
+    first_added, first_skipped = _add_corner_captures(project)
+    assert first_skipped == 0
+    count_after_first = len(project.entries)
+
+    second_added, second_skipped = _add_corner_captures(project)
+    assert second_added == []
+    assert second_skipped == len(first_added)
+    assert len(project.entries) == count_after_first
+
+
+def test_add_corner_captures_skips_settings_already_in_lhs():
+    # A tiny grid forces the LHS points to land on some corner settings, which must then
+    # be skipped (and reported) rather than duplicated.
+    knobs = [_KnobSpec(name="Gain", min=0.0, max=1.0, step=1.0)]
+    project = _new_project(knobs, n_train=2, n_validation=0, seed=0)
+    added, skipped = _add_corner_captures(project)
+    # The only two settings (0 and 1) are both LHS points, so both corners are skipped.
+    assert added == []
+    assert skipped == 2
+
+
+def test_add_corner_captures_survives_save_load(tmp_path: _Path):
+    project = _new_project(_gain_knobs(), n_train=3, n_validation=1, seed=1)
+    _add_corner_captures(project)
+    _save_project(project, tmp_path)
+    reloaded = _load_project(tmp_path)
+    assert [e.y_path for e in reloaded.entries] == [e.y_path for e in project.entries]
+    assert reloaded.knobs[0].is_gain is True
 
 
 def test_save_and_load_project_round_trips(tmp_path: _Path):

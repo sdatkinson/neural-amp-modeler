@@ -9,6 +9,7 @@ _os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication as _QApplication
 
 from nam.capture.audio import DeviceInfo as _DeviceInfo
+from nam.capture.gui import main as _MainWindow_module
 from nam.capture.gui.main import MainWindow as _MainWindow
 from nam.capture.gui.main import duplex_devices as _duplex_devices
 from nam.capture.gui.main import format_device_label as _format_device_label
@@ -87,6 +88,17 @@ def test_knob_rows_to_specs_raises_on_bad_row():
         _knob_rows_to_specs([("Gain", "10", "0", "0.5", False)])
 
 
+def test_knob_rows_to_specs_reads_is_gain_and_defaults_it_off():
+    specs = _knob_rows_to_specs(
+        [
+            ("Gain", "0", "10", "0.5", False, True),
+            ("Tone", "0", "10", "1.0", False),  # 5-tuple -> is_gain defaults off
+        ]
+    )
+    assert specs[0].is_gain is True
+    assert specs[1].is_gain is False
+
+
 def test_duplex_devices_keeps_only_full_io_devices():
     devices = [
         _DeviceInfo(
@@ -152,4 +164,66 @@ def test_main_window_refresh_all_without_project_does_not_crash(_qapp):
     window._refresh_all()
     assert window.plan_table.rowCount() == 0
     assert window.next_entry_label.text() == "No project open."
+    window.close()
+
+
+def _fill_knob_rows(window, rows):
+    window.knob_table.setRowCount(0)
+    for name, minimum, maximum, step, avoid_zero, is_gain in rows:
+        window._add_knob_row(name, minimum, maximum, step, avoid_zero, is_gain)
+
+
+_GAIN_KNOB_ROWS = [
+    ("Gain", 0.0, 10.0, 1.0, False, True),
+    ("Tone", 0.0, 10.0, 1.0, False, False),
+    ("Bass", 0.0, 10.0, 1.0, False, False),
+]
+
+
+def test_gain_column_is_single_select(_qapp):
+    from PySide6.QtCore import Qt as _Qt
+
+    window = _MainWindow()
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    # Ticking a second knob's Gain/Drive box clears the first.
+    window.knob_table.item(1, 5).setCheckState(_Qt.CheckState.Checked)
+    assert window.knob_table.item(0, 5).checkState() == _Qt.CheckState.Unchecked
+    assert window.knob_table.item(1, 5).checkState() == _Qt.CheckState.Checked
+    window.close()
+
+
+def test_generate_plan_includes_corners_when_checked(_qapp, tmp_path, monkeypatch):
+    monkeypatch.setattr(_MainWindow_module._QMessageBox, "information", lambda *a, **k: None)
+    window = _MainWindow()
+    window.project_dir = tmp_path
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(4)
+    window.n_validation_spin.setValue(2)
+    window.include_corners_check.setChecked(True)
+    window._on_generate_plan()
+
+    corner_entries = [e for e in window.project.entries if "/corner_" in e.y_path]
+    lhs_entries = [e for e in window.project.entries if "/lhs_" in e.y_path]
+    assert len(corner_entries) == 8  # 3 knobs, one gain -> 8 corners
+    assert len(lhs_entries) == 4
+    window.close()
+
+
+def test_add_corner_captures_button_appends_without_regenerating(
+    _qapp, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(_MainWindow_module._QMessageBox, "information", lambda *a, **k: None)
+    window = _MainWindow()
+    window.project_dir = tmp_path
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(4)
+    window.n_validation_spin.setValue(2)
+    window.include_corners_check.setChecked(False)
+    window._on_generate_plan()
+    base = len(window.project.entries)
+
+    window._on_add_corner_captures()
+    corner_entries = [e for e in window.project.entries if "/corner_" in e.y_path]
+    assert len(corner_entries) == 8
+    assert len(window.project.entries) == base + 8
     window.close()

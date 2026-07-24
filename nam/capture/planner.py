@@ -31,6 +31,7 @@ from ..models.parametric import quantize_to_capture_grid as _quantize_to_capture
 from ..models.parametric import switch_combinations as _switch_combinations
 from ..models.parametric import ParamSpec as _ParamSpec
 from .params import DEFAULT_KNOB_STEP as _DEFAULT_KNOB_STEP
+from .params import gain_knob_index as _gain_knob_index
 from .params import KnobSpec as _KnobSpec
 from .params import validate_knobs as _validate_knobs
 
@@ -376,17 +377,30 @@ class PlannedCapture:
 
 
 def _planned_from_params(
+    prefix: str,
     split: _Literal["train", "validation"],
     specs: _Sequence[_ParamSpec],
     param_dicts: list[dict[str, _Any]],
+    *,
+    index_offset: int = 0,
+    filename_start: int = 0,
 ) -> list[PlannedCapture]:
+    """
+    Turn decoded param dicts into planned captures. ``prefix`` is the filename stem prefix
+    (``lhs``/``val_lhs``/``corner``); the filename counter starts at ``filename_start`` and
+    the model ``index`` starts at ``index_offset``. These are decoupled so appended corners
+    can continue the train index space (unique ``index``) while numbering their own files
+    from ``corner_000`` (see :func:`plan_corner_captures`).
+    """
     abbreviations = _abbreviate_param_names([spec.name for spec in specs])
     planned = []
-    for index, params in enumerate(param_dicts):
-        filename = _make_capture_y_path(f"{split}_{index:03d}_", params, abbreviations)
+    for offset, params in enumerate(param_dicts):
+        filename = _make_capture_y_path(
+            f"{prefix}_{filename_start + offset:03d}_", params, abbreviations
+        )
         planned.append(
             PlannedCapture(
-                index=index,
+                index=index_offset + offset,
                 split=split,
                 params=params,
                 y_path=f"{CAPTURES_DIRNAME}/{filename}",
@@ -422,6 +436,138 @@ def plan_captures(
         seed=seed,
         default_step=_DEFAULT_KNOB_STEP,
     )
-    train = _planned_from_params("train", specs, train_params)
-    validation = _planned_from_params("validation", specs, validation_params)
+    train = _planned_from_params("lhs", "train", specs, train_params)
+    validation = _planned_from_params("val_lhs", "validation", specs, validation_params)
     return train, validation
+
+
+def _corner_raw_vector(
+    specs: _Sequence[_ParamSpec], highs: _Sequence[bool]
+) -> _np.ndarray:
+    """
+    Raw (pre-quantization) param vector for one corner: each entry is the knob's max when
+    ``highs[i]`` else its min. Switches use their last index for ``max`` and 0 for ``min``
+    (the capture app only produces continuous knobs, but this keeps the vector decodable
+    for any spec set).
+    """
+    raw = _np.empty(len(specs), dtype=_np.float64)
+    for i, spec in enumerate(specs):
+        if spec.type == "switch":
+            raw[i] = float(spec.num_inputs - 1) if highs[i] else 0.0
+        else:
+            raw[i] = spec.max if highs[i] else spec.min
+    return raw
+
+
+def _corner_high_flag_sets(
+    n: int, gain_index: _Optional[int]
+) -> list[list[bool]]:
+    """
+    The per-corner max/min pattern (True = knob at max) before dedup. Without a gain knob:
+    all-min, all-max, and the two alternations. With a gain knob, the two alternations
+    become gain-min/gain-max variants over the *other* knobs, plus the two mixed corners
+    (gain min / others max, and gain max / others min). Duplicates that collapse for small
+    knob counts are removed later by :func:`corner_settings`.
+    """
+    all_min = [False] * n
+    all_max = [True] * n
+    flag_sets = [all_min, all_max]
+
+    if gain_index is None:
+        # Alternate across all knobs by position: knob 0 min/max, knob 1 the opposite, ...
+        flag_sets.append([bool(i % 2) for i in range(n)])
+        flag_sets.append([not bool(i % 2) for i in range(n)])
+        return flag_sets
+
+    others = [i for i in range(n) if i != gain_index]
+
+    def with_gain(gain_high: bool, other_high) -> list[bool]:
+        flags = [False] * n
+        flags[gain_index] = gain_high
+        for position, idx in enumerate(others):
+            flags[idx] = other_high(position)
+        return flags
+
+    alternate = lambda position: bool(position % 2)  # noqa: E731 - min/max over others
+    reverse = lambda position: not bool(position % 2)  # noqa: E731 - max/min over others
+    flag_sets.append(with_gain(False, alternate))  # C.1: gain min, min/max others
+    flag_sets.append(with_gain(False, reverse))  # C.2: gain min, max/min others
+    flag_sets.append(with_gain(True, alternate))  # D.1: gain max, min/max others
+    flag_sets.append(with_gain(True, reverse))  # D.2: gain max, max/min others
+    flag_sets.append(with_gain(False, lambda position: True))  # E: gain min, others max
+    flag_sets.append(with_gain(True, lambda position: False))  # F: gain max, others min
+    return flag_sets
+
+
+def corner_settings(
+    specs: _Sequence[_ParamSpec],
+    *,
+    gain_index: _Optional[int] = None,
+    default_step: float = _DEFAULT_KNOB_STEP,
+) -> list[dict[str, _Any]]:
+    """
+    Decoded param dicts for the initial "corner" captures: the knob-range extremes that
+    bound the amp's behavior for the first active-learning round (all-min, all-max, and
+    the alternating patterns; a marked gain/drive knob gets its own min/max sweep). Values
+    are quantized to the capture grid (honoring each knob's ``step`` and ``avoid_zero``, so
+    an avoid-zero gain knob's min corner nudges off zero), then deduplicated so the small
+    knob counts that collapse (a single knob yields only min/max) don't repeat a setting.
+    """
+    specs = tuple(specs)
+    seen: set[tuple[_Any, ...]] = set()
+    settings: list[dict[str, _Any]] = []
+    for highs in _corner_high_flag_sets(len(specs), gain_index):
+        raw = _corner_raw_vector(specs, highs)
+        quantized = _quantize_to_capture_grid(raw, specs, default_step=default_step)
+        params = _decode_named_params(quantized, specs)
+        key = _settings_key(params, specs)
+        if key in seen:
+            continue
+        seen.add(key)
+        settings.append(params)
+    return settings
+
+
+def plan_corner_captures(
+    knobs: _Sequence[_KnobSpec],
+    *,
+    exclude: _Optional[set[tuple[_Any, ...]]] = None,
+    index_offset: int = 0,
+    filename_start: int = 0,
+) -> tuple[list[PlannedCapture], int]:
+    """
+    Plan the corner captures for ``knobs`` as pending ``train`` captures, skipping any whose
+    setting already appears in ``exclude`` (the LHS points and any corners already planned).
+
+    Returns the planned corner captures and the number of distinct corners skipped because
+    they duplicate an existing setting, so the caller can tell the user (they still get a
+    useful boundary set; the overlap just means fewer *new* captures). ``index_offset`` and
+    ``filename_start`` continue the train index space and the ``corner_NNN`` file numbering
+    when appending to an existing plan.
+    """
+    knobs = _validate_knobs(knobs)
+    specs = tuple(knob.to_param_spec() for knob in knobs)
+    gain_index = _gain_knob_index(knobs)
+    excluded = set() if exclude is None else set(exclude)
+
+    unique: list[dict[str, _Any]] = []
+    skipped = 0
+    for params in corner_settings(
+        specs, gain_index=gain_index, default_step=_DEFAULT_KNOB_STEP
+    ):
+        key = _settings_key(params, specs)
+        if key in excluded:
+            skipped += 1
+            continue
+        excluded.add(key)
+        unique.append(params)
+
+    planned = _planned_from_params(
+        "corner",
+        "train",
+        specs,
+        unique,
+        index_offset=index_offset,
+        filename_start=filename_start,
+    )
+    return planned, skipped

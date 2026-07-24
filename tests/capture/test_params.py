@@ -1,5 +1,6 @@
 import pytest as _pytest
 
+from nam.capture.params import gain_knob_index as _gain_knob_index
 from nam.capture.params import KnobSpec as _KnobSpec
 from nam.capture.params import validate_knobs as _validate_knobs
 
@@ -73,3 +74,30 @@ def test_validate_knobs_rejects_empty():
 def test_from_dict_rejects_missing_fields():
     with _pytest.raises(ValueError):
         _KnobSpec.from_dict({"name": "Gain", "min": 0.0})
+
+
+def test_knob_is_gain_defaults_off_and_round_trips():
+    assert _KnobSpec(name="Gain", min=0.0, max=10.0).is_gain is False
+    knob = _KnobSpec(name="Gain", min=0.0, max=10.0, step=0.5, is_gain=True)
+    assert knob.is_gain is True
+    assert _KnobSpec.from_dict(knob.to_dict()) == knob
+    # is_gain is capture-only metadata and must not leak into the training ParamSpec.
+    assert not hasattr(knob.to_param_spec(), "is_gain")
+
+
+def test_gain_knob_index_finds_the_marked_knob():
+    knobs = [
+        _KnobSpec(name="Gain", min=0.0, max=10.0, is_gain=True),
+        _KnobSpec(name="Tone", min=0.0, max=10.0),
+    ]
+    assert _gain_knob_index(knobs) == 0
+    assert _gain_knob_index([_KnobSpec(name="Tone", min=0.0, max=10.0)]) is None
+
+
+def test_validate_knobs_rejects_two_gain_knobs():
+    knobs = [
+        _KnobSpec(name="Gain", min=0.0, max=10.0, is_gain=True),
+        _KnobSpec(name="Drive", min=0.0, max=10.0, is_gain=True),
+    ]
+    with _pytest.raises(ValueError):
+        _validate_knobs(knobs)

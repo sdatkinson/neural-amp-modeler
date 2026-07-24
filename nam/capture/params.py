@@ -43,6 +43,11 @@ class KnobSpec:
     :param avoid_zero: When true, no planned capture sets this knob to zero; a draw that
         would snap to zero uses the next reachable grid value instead. Use for gain/drive
         knobs that mute the rig at zero and can destabilize training.
+    :param is_gain: Marks this knob as the amp's gain/drive control. At most one knob may
+        be marked. It changes how the initial corner captures are generated (the gain knob
+        gets its own min/max sweep so the EQ params' corners are learned at both gain
+        extremes); it is capture-only metadata and does not affect the training-side
+        :class:`ParamSpec`.
     """
 
     name: str
@@ -51,6 +56,7 @@ class KnobSpec:
     step: float = DEFAULT_KNOB_STEP
     default: _Optional[float] = None
     avoid_zero: bool = False
+    is_gain: bool = False
 
     def __post_init__(self):
         if not str(self.name).strip():
@@ -95,6 +101,7 @@ class KnobSpec:
                 )
             object.__setattr__(self, "default", default)
         object.__setattr__(self, "avoid_zero", bool(self.avoid_zero))
+        object.__setattr__(self, "is_gain", bool(self.is_gain))
 
     def to_param_spec(self) -> _ParamSpec:
         return _ParamSpec(
@@ -115,6 +122,7 @@ class KnobSpec:
             "step": self.step,
             "default": self.default,
             "avoid_zero": self.avoid_zero,
+            "is_gain": self.is_gain,
         }
 
     @classmethod
@@ -132,6 +140,7 @@ class KnobSpec:
             step=config.get("step", DEFAULT_KNOB_STEP),
             default=config.get("default"),
             avoid_zero=config.get("avoid_zero", False),
+            is_gain=config.get("is_gain", False),
         )
 
 
@@ -153,4 +162,21 @@ def validate_knobs(knobs: _Sequence[KnobSpec]) -> tuple[KnobSpec, ...]:
                 f"Duplicate knob name: {knob.name!r} collides with {seen[key]!r}"
             )
         seen[key] = knob.name
+    gain_names = [knob.name for knob in knobs if knob.is_gain]
+    if len(gain_names) > 1:
+        raise ValueError(
+            "At most one knob may be marked Gain/Drive; "
+            f"got {', '.join(repr(name) for name in gain_names)}"
+        )
     return knobs
+
+
+def gain_knob_index(knobs: _Sequence[KnobSpec]) -> _Optional[int]:
+    """
+    Position of the knob marked Gain/Drive, or ``None`` if none is. Assumes the knob set
+    has passed :func:`validate_knobs` (at most one gain knob).
+    """
+    for index, knob in enumerate(knobs):
+        if knob.is_gain:
+            return index
+    return None

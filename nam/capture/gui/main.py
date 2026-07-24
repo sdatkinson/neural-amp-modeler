@@ -51,9 +51,11 @@ from ..audio import list_devices as _list_devices
 from ..export import write_training_configs as _write_training_configs
 from ..params import KnobSpec as _KnobSpec
 from ..params import validate_knobs as _validate_knobs
+from ..project import add_corner_captures as _add_corner_captures
 from ..project import CaptureEntryModel as _CaptureEntryModel
 from ..project import CaptureProject as _CaptureProject
 from ..project import find_recoverable_entries as _find_recoverable_entries
+from ..project import KnobModel as _KnobModel
 from ..project import load_project as _load_project
 from ..project import new_project as _new_project
 from ..project import PROJECT_FILENAME as _PROJECT_FILENAME
@@ -113,22 +115,28 @@ def format_entry_row(entry: _CaptureEntryModel) -> tuple:
 
 def knob_rows_to_specs(rows: _Sequence[tuple]) -> list[_KnobSpec]:
     """
-    Convert raw (name, min, max, step, avoid_zero) table rows into :class:`KnobSpec`\\ s.
+    Convert raw (name, min, max, step, avoid_zero[, is_gain]) table rows into
+    :class:`KnobSpec`\\ s. The trailing ``is_gain`` flag is optional and defaults to False.
 
     Values are passed through as-is; :class:`KnobSpec` parses and validates numeric
     fields itself and raises ``ValueError`` with a message fit to show the user.
     """
 
-    return [
-        _KnobSpec(
-            name=name,
-            min=min_value,
-            max=max_value,
-            step=step_value,
-            avoid_zero=avoid_zero,
+    specs = []
+    for row in rows:
+        name, min_value, max_value, step_value, avoid_zero = row[:5]
+        is_gain = row[5] if len(row) > 5 else False
+        specs.append(
+            _KnobSpec(
+                name=name,
+                min=min_value,
+                max=max_value,
+                step=step_value,
+                avoid_zero=avoid_zero,
+                is_gain=is_gain,
+            )
         )
-        for name, min_value, max_value, step_value, avoid_zero in rows
-    ]
+    return specs
 
 
 def format_device_label(device: _DeviceInfo) -> str:
@@ -340,14 +348,17 @@ class MainWindow(_QMainWindow):
         widget = _QWidget()
         layout = _QVBoxLayout(widget)
 
-        self.knob_table = _QTableWidget(0, 5)
+        self.knob_table = _QTableWidget(0, 6)
         self.knob_table.setHorizontalHeaderLabels(
-            ["Name", "Min", "Max", "Step", "Avoid zero"]
+            ["Name", "Min", "Max", "Step", "Avoid zero", "Gain/Drive"]
         )
         self.knob_table.setToolTip(
             'Tick "Avoid zero" for gain/drive knobs so no capture sets them to zero '
-            "(the nearest non-zero grid value is used instead)."
+            "(the nearest non-zero grid value is used instead). Tick \"Gain/Drive\" on "
+            "the one gain/drive knob (optional) so the initial corner captures sweep it "
+            "separately from the EQ knobs."
         )
+        self.knob_table.itemChanged.connect(self._on_knob_item_changed)
         layout.addWidget(self.knob_table)
 
         row_buttons = _QHBoxLayout()
@@ -374,9 +385,26 @@ class MainWindow(_QMainWindow):
         form.addRow("Seed", self.seed_spin)
         layout.addLayout(form)
 
+        self.include_corners_check = _QCheckBox("Include initial corners")
+        self.include_corners_check.setToolTip(
+            "Add a small set of knob-range corner captures (all-min, all-max, and "
+            "alternating extremes) on top of the LHS points, so the first active-learning "
+            "round has a boundary picture of the amp. Deduplicated against the LHS points."
+        )
+        layout.addWidget(self.include_corners_check)
+
         self.generate_plan_button = _QPushButton("Generate plan")
         self.generate_plan_button.clicked.connect(self._on_generate_plan)
         layout.addWidget(self.generate_plan_button)
+
+        self.add_corners_button = _QPushButton("Add corner captures to current plan")
+        self.add_corners_button.setToolTip(
+            "Append the corner captures to the existing plan without regenerating the "
+            "LHS points or discarding captured progress. Corners that duplicate a setting "
+            "already in the plan are skipped."
+        )
+        self.add_corners_button.clicked.connect(self._on_add_corner_captures)
+        layout.addWidget(self.add_corners_button)
 
         self._on_add_knob_row()
         return widget
@@ -769,7 +797,7 @@ class MainWindow(_QMainWindow):
         self.knob_table.setRowCount(0)
         for knob in self.project.knobs:
             self._add_knob_row(
-                knob.name, knob.min, knob.max, knob.step, knob.avoid_zero
+                knob.name, knob.min, knob.max, knob.step, knob.avoid_zero, knob.is_gain
             )
         self.n_train_spin.setValue(len(self.project.entries_for_split("train")) or 1)
         self.n_validation_spin.setValue(len(self.project.entries_for_split("validation")))
@@ -778,7 +806,7 @@ class MainWindow(_QMainWindow):
     # -- knobs / plan --------------------------------------------------
 
     def _on_add_knob_row(self) -> None:
-        self._add_knob_row("", 0.0, 10.0, 0.5, False)
+        self._add_knob_row("", 0.0, 10.0, 0.5, False, False)
 
     def _add_knob_row(
         self,
@@ -787,19 +815,44 @@ class MainWindow(_QMainWindow):
         maximum: _Any,
         step: _Any,
         avoid_zero: _Any = False,
+        is_gain: _Any = False,
     ) -> None:
-        row = self.knob_table.rowCount()
-        self.knob_table.insertRow(row)
-        for col, value in enumerate((name, minimum, maximum, step)):
-            self.knob_table.setItem(row, col, _QTableWidgetItem(str(value)))
-        avoid_item = _QTableWidgetItem()
-        avoid_item.setFlags(
-            _Qt.ItemFlag.ItemIsUserCheckable | _Qt.ItemFlag.ItemIsEnabled
+        # Filling checkbox cells fires itemChanged; block it so building a row never trips
+        # the single-gain enforcement mid-construction.
+        self.knob_table.blockSignals(True)
+        try:
+            row = self.knob_table.rowCount()
+            self.knob_table.insertRow(row)
+            for col, value in enumerate((name, minimum, maximum, step)):
+                self.knob_table.setItem(row, col, _QTableWidgetItem(str(value)))
+            self.knob_table.setItem(row, 4, self._make_check_item(avoid_zero))
+            self.knob_table.setItem(row, 5, self._make_check_item(is_gain))
+        finally:
+            self.knob_table.blockSignals(False)
+
+    @staticmethod
+    def _make_check_item(checked: _Any) -> _QTableWidgetItem:
+        item = _QTableWidgetItem()
+        item.setFlags(_Qt.ItemFlag.ItemIsUserCheckable | _Qt.ItemFlag.ItemIsEnabled)
+        item.setCheckState(
+            _Qt.CheckState.Checked if checked else _Qt.CheckState.Unchecked
         )
-        avoid_item.setCheckState(
-            _Qt.CheckState.Checked if avoid_zero else _Qt.CheckState.Unchecked
-        )
-        self.knob_table.setItem(row, 4, avoid_item)
+        return item
+
+    def _on_knob_item_changed(self, item: _QTableWidgetItem) -> None:
+        # At most one knob is Gain/Drive: ticking one clears the rest.
+        if item.column() != 5 or item.checkState() != _Qt.CheckState.Checked:
+            return
+        self.knob_table.blockSignals(True)
+        try:
+            for row in range(self.knob_table.rowCount()):
+                if row == item.row():
+                    continue
+                other = self.knob_table.item(row, 5)
+                if other is not None and other.checkState() == _Qt.CheckState.Checked:
+                    other.setCheckState(_Qt.CheckState.Unchecked)
+        finally:
+            self.knob_table.blockSignals(False)
 
     def _on_remove_knob_row(self) -> None:
         row = self.knob_table.currentRow()
@@ -813,11 +866,12 @@ class MainWindow(_QMainWindow):
             for col in range(4):
                 item = self.knob_table.item(row, col)
                 values.append(item.text() if item is not None else "")
-            avoid_item = self.knob_table.item(row, 4)
-            values.append(
-                avoid_item is not None
-                and avoid_item.checkState() == _Qt.CheckState.Checked
-            )
+            for col in (4, 5):
+                item = self.knob_table.item(row, col)
+                values.append(
+                    item is not None
+                    and item.checkState() == _Qt.CheckState.Checked
+                )
             rows.append(tuple(values))
         return rows
 
@@ -862,6 +916,12 @@ class MainWindow(_QMainWindow):
         if self.project is not None:
             project.audio = self.project.audio
 
+        corner_note = ""
+        corner_skipped = 0
+        if self.include_corners_check.isChecked():
+            added, corner_skipped = _add_corner_captures(project)
+            corner_note = self._corner_summary(len(added), corner_skipped)
+
         _save_project(project, self.project_dir)
         self.project = project
         self.session = _CaptureSession(self.project, self.project_dir)
@@ -871,9 +931,68 @@ class MainWindow(_QMainWindow):
         self.project_log.appendPlainText(
             f"Generated plan: {len(project.entries)} entries "
             f"({self.n_train_spin.value()} train / "
-            f"{self.n_validation_spin.value()} validation)."
+            f"{self.n_validation_spin.value()} validation"
+            + (f" + {corner_note}" if corner_note else "")
+            + ")."
         )
+        if corner_skipped:
+            _QMessageBox.information(
+                self,
+                "Some corners already covered",
+                f"{corner_skipped} corner setting(s) were already among the LHS points, "
+                "so they were not added again (you are not missing captures).",
+            )
         self._load_audio_settings_into_ui()
+        self._refresh_all()
+
+    @staticmethod
+    def _corner_summary(added: int, skipped: int) -> str:
+        summary = f"{added} corner capture(s)"
+        if skipped:
+            summary += (
+                f" ({skipped} corner setting(s) already in the plan were skipped)"
+            )
+        return summary
+
+    def _on_add_corner_captures(self) -> None:
+        if self.project is None or self.project_dir is None:
+            _QMessageBox.warning(
+                self, "No project", "Generate or open a plan before adding corners."
+            )
+            return
+        # The plan may predate the current Gain/Drive marking in the table; re-sync the
+        # project's knobs from the table so corners honor the latest gain choice without
+        # regenerating (and discarding) the LHS points. The knob *set* (names, in order)
+        # must still match the plan -- entry params are keyed by knob name -- so a genuinely
+        # different knob set is rejected rather than silently mismatched.
+        try:
+            specs = knob_rows_to_specs(self._knob_table_rows())
+            _validate_knobs(specs)
+        except ValueError as exc:
+            _QMessageBox.critical(self, "Invalid knob settings", str(exc))
+            return
+        if [spec.name for spec in specs] != [knob.name for knob in self.project.knobs]:
+            _QMessageBox.warning(
+                self,
+                "Knobs changed",
+                "The knobs in the table differ from the plan's knobs. Regenerate the "
+                "plan first (the corner captures must match the planned knob set).",
+            )
+            return
+        self.project.knobs = [_KnobModel.from_knob_spec(spec) for spec in specs]
+
+        added, skipped = _add_corner_captures(self.project)
+        _save_project(self.project, self.project_dir)
+        summary = self._corner_summary(len(added), skipped)
+        self.project_log.appendPlainText(f"Added {summary}.")
+        if not added and skipped:
+            _QMessageBox.information(
+                self,
+                "No new corners added",
+                "Every corner setting is already in the plan, so nothing was added.",
+            )
+        else:
+            _QMessageBox.information(self, "Corner captures added", f"Added {summary}.")
         self._refresh_all()
 
     # -- audio -----------------------------------------------------------
@@ -1245,6 +1364,7 @@ class MainWindow(_QMainWindow):
         self._al_cancel_requested = False
         self.al_start_button.setEnabled(False)
         self.generate_plan_button.setEnabled(False)
+        self.add_corners_button.setEnabled(False)
         self.al_cancel_button.setEnabled(True)
         self.al_log.appendPlainText("Starting active-learning round...")
 
@@ -1263,6 +1383,7 @@ class MainWindow(_QMainWindow):
         self._al_process = None
         self.al_start_button.setEnabled(not getattr(_sys, "frozen", False))
         self.generate_plan_button.setEnabled(True)
+        self.add_corners_button.setEnabled(True)
         self.al_cancel_button.setEnabled(False)
         if self._al_kill_timer is not None:
             self._al_kill_timer.stop()
