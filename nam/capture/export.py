@@ -47,10 +47,10 @@ from .project import atomic_write_json as _atomic_write_json
 # Backprop now runs through the whole undetached ~13.9k-sample chain per window instead of two
 # ~8192/5666 detached segments, so each step costs more, not less -- this is a fit-quality bet,
 # not a speed one. Physical batches are still fitted to each GPU at runtime and accumulated to
-# reach the effective batch (accumulation is 1 whenever 37 windows fit).
+# reach the effective batch (accumulation is 1 whenever 40 windows fit).
 AL_NY = 22050
 AL_MAX_BATCH_SIZE = 512
-AL_TARGET_EFFECTIVE_BATCH_SIZE = 37
+AL_TARGET_EFFECTIVE_BATCH_SIZE = 40
 AL_REFERENCE_BATCH_SIZE = AL_TARGET_EFFECTIVE_BATCH_SIZE
 AL_REFERENCE_LEARNING_RATE = 0.008
 AL_LSTM_NUM_LAYERS = 3
