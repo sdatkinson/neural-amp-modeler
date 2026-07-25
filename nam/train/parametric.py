@@ -247,19 +247,22 @@ def _enable_training_fast_paths(
     """
     Turn on the HyperWaveNet step optimizations that are only valid during `fit`.
 
-    Capture-grouped batching makes every batch one control setting, which lets the model skip
-    the host syncs it would otherwise need to discover that grouping from the data. The
-    promise only holds for these dataloaders, so `_release_training_fast_paths` takes it back
-    once fitting is over and later calls (bake, export checks) go through the general path.
+    `torch_compile` applies to any net that supports a compiled step (HyperWaveNet,
+    ConcatWaveNet); nets that do not just warn and stay eager.
+
+    The uniform-params promise is HyperWaveNet-only -- it is the one net that has to *find*
+    the batch's grouping, and capture-grouped batching makes every batch one control setting
+    so it can skip that search and the host syncs it costs. The promise only holds for these
+    dataloaders, so `_release_training_fast_paths` takes it back once fitting is over and
+    later calls (bake, export checks) go through the general path.
     """
-    if not isinstance(net, _HyperWaveNet):
-        return
-    net.set_uniform_batch_params(
-        all(
-            isinstance(dataloader.batch_sampler, _CaptureBatchSampler)
-            for dataloader in dataloaders
+    if isinstance(net, _HyperWaveNet):
+        net.set_uniform_batch_params(
+            all(
+                isinstance(dataloader.batch_sampler, _CaptureBatchSampler)
+                for dataloader in dataloaders
+            )
         )
-    )
     compile_config = dict(compile_config)
     net.set_compiled(bool(compile_config.pop("enabled", False)), **compile_config)
 
@@ -267,7 +270,7 @@ def _enable_training_fast_paths(
 def _release_training_fast_paths(net: _ParametricNet) -> None:
     if isinstance(net, _HyperWaveNet):
         net.set_uniform_batch_params(False)
-        net.set_compiled(False)
+    net.set_compiled(False)
 
 
 def _get_parametric_net(model: _LightningModule) -> _ParametricNet:

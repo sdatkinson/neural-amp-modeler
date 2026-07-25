@@ -9,6 +9,7 @@ from typing import Any as _Any
 from typing import Optional as _Optional
 from typing import Tuple as _Tuple
 from typing import cast as _cast
+from warnings import warn as _warn
 
 import numpy as _np
 import torch as _torch
@@ -17,6 +18,10 @@ import torch.nn.functional as _F
 from .._abc import ImportsWeights as _ImportsWeights
 from ..base import BaseNet as _BaseNet
 from ._spec import ParamSpec as _ParamSpec
+
+# Devices with no inductor backend. Compilation stays enabled and simply falls back, so one
+# learning config can be shared between a Mac and a CUDA training box.
+_UNCOMPILABLE_DEVICES = frozenset({"mps"})
 
 
 class ParametricNet(_BaseNet, _ImportsWeights):
@@ -50,6 +55,78 @@ class ParametricNet(_BaseNet, _ImportsWeights):
             _torch.tensor(
                 [spec.default for spec in self._param_specs], dtype=_torch.float32
             ),
+        )
+        self._compiled_step = None
+        self._warned_uncompilable_device = False
+
+    @property
+    def supports_compiled_step(self) -> bool:
+        """Whether ``set_compiled`` has an inner forward it can hand to ``torch.compile``.
+
+        Subclasses opt in by overriding this together with ``_compilable_step``. Nets whose
+        conditioned forward carries Python control flow that dynamo would only graph-break
+        on (``ConcatLSTM``'s truncated-BPTT block loop, say) should leave it False.
+        """
+        return False
+
+    def set_compiled(self, enabled: bool, **compile_kwargs: _Any) -> None:
+        """
+        Route this net's inner conditioned forward through ``torch.compile``.
+
+        These models issue many small kernels -- small enough that launching them costs the
+        CPU more than running them costs the GPU -- so fusing the step (and with
+        ``mode="reduce-overhead"``, replaying it as a CUDA graph) is worth more than the
+        arithmetic it saves.
+
+        Only the inner forward is wrapped, never the module, so export, checkpointing and
+        ``state_dict`` keys are untouched and disabling this restores the eager path exactly.
+        On by default in the example parametric learning config; the trainer applies it for
+        the duration of `fit` from the ``torch_compile`` block in learning.json.
+
+        Enabling this is always safe: a device inductor cannot serve (MPS) falls back to the
+        eager step at call time, so the same config runs on a Mac and on a CUDA box.
+        """
+        if not enabled:
+            self._compiled_step = None
+            return
+        if not self.supports_compiled_step:
+            _warn(
+                f"{type(self).__name__} does not support a compiled step; "
+                "ignoring the torch_compile setting."
+            )
+            self._compiled_step = None
+            return
+        self._compiled_step = _torch.compile(self._compilable_step, **compile_kwargs)
+
+    def _compilable_step(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
+        """The tensor work a compile-capable subclass wants fused."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not define a compilable step"
+        )
+
+    def _run_step(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
+        step = self._compiled_step
+        # Inductor fails to lower the WaveNet's dilated convs when grad is off
+        # ("LoweringException: NotImplementedError: View"), which is how Lightning runs
+        # validation. Training steps are the hot path and compile cleanly, so take the
+        # compiled route only there and leave inference on the eager one.
+        if step is None or not _torch.is_grad_enabled():
+            return self._compilable_step(x, p)
+        if x.device.type in _UNCOMPILABLE_DEVICES:
+            self._warn_uncompilable_device(x.device.type)
+            return self._compilable_step(x, p)
+        return step(x, p)
+
+    def _warn_uncompilable_device(self, device_type: str) -> None:
+        # Checked per call rather than in `set_compiled` because the trainer enables
+        # compilation before Lightning moves the model to its accelerator -- at that point
+        # every parameter is still on CPU and the real device is not yet knowable.
+        if self._warned_uncompilable_device:
+            return
+        self._warned_uncompilable_device = True
+        _warn(
+            f"torch.compile has no inductor backend for {device_type}; "
+            f"{type(self).__name__} is running the eager step instead."
         )
 
     @property

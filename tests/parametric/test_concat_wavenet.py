@@ -274,3 +274,81 @@ def test_export_parametric_scale_compensation(tmp_path):
     assert scaled["weights"][-1] == _pytest.approx(
         unscaled["weights"][-1] / output_scale
     )
+
+
+def test_set_compiled_round_trips_to_the_eager_path():
+    _torch.manual_seed(0)
+    model = _init(_concat_wavenet_config())
+    x = _torch.randn(3, model.receptive_field - 1 + 16)
+    params = _torch.tensor([[7.5, 2.0]]).expand(3, -1).contiguous()
+
+    assert model.supports_compiled_step
+    eager = model(x, params, pad_start=False)
+    # backend="eager" exercises the routing without paying for an inductor compile.
+    model.set_compiled(True, backend="eager")
+    compiled = model(x, params, pad_start=False)
+    model.set_compiled(False)
+    restored = model(x, params, pad_start=False)
+
+    assert model._compiled_step is None
+    assert _torch.allclose(compiled, eager, atol=1e-6)
+    assert _torch.equal(restored, eager)
+
+
+def test_compiled_path_is_skipped_when_grad_is_disabled():
+    # Inductor cannot lower the inner WaveNet's convs with grad off, so validation and
+    # inference must stay eager -- same guard HyperWaveNet relies on.
+    _torch.manual_seed(0)
+    model = _init(_concat_wavenet_config())
+    x = _torch.randn(2, model.receptive_field - 1 + 16)
+    params = _torch.tensor([[7.5, 2.0]]).expand(2, -1).contiguous()
+    model.set_compiled(True, backend="eager")
+
+    calls = []
+    compiled = model._compiled_step
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return _cast(object, compiled)(*args, **kwargs)
+
+    model._compiled_step = _counting
+    with _torch.no_grad():
+        model(x, params, pad_start=False)
+    assert calls == []
+
+    model(x, params, pad_start=False)
+    assert calls == [1]
+
+
+def test_scalar_params_still_broadcast_through_the_compiled_step():
+    _torch.manual_seed(0)
+    model = _init(_concat_wavenet_config())
+    x = _torch.randn(4, model.receptive_field - 1 + 16)
+    params = _torch.tensor([7.5, 2.0])
+
+    eager = model(x, params, pad_start=False)
+    model.set_compiled(True, backend="eager")
+    compiled = model(x, params, pad_start=False)
+
+    assert compiled.shape == (4, 16)
+    assert _torch.allclose(compiled, eager, atol=1e-6)
+
+
+@_pytest.mark.skipif(
+    not _torch.backends.mps.is_available(), reason="needs an MPS device"
+)
+def test_compiled_step_falls_back_to_eager_on_mps():
+    # Enabling torch_compile must stay safe on a Mac: inductor has no MPS backend, so the
+    # same learning config has to run there and on a CUDA box without edits.
+    _torch.manual_seed(0)
+    model = _init(_concat_wavenet_config()).to("mps")
+    x = _torch.randn(2, model.receptive_field - 1 + 16, device="mps")
+    params = _torch.tensor([[7.5, 2.0]], device="mps").expand(2, -1).contiguous()
+
+    eager = model(x, params, pad_start=False)
+    model.set_compiled(True)  # real inductor; would raise on MPS if it were used
+    with _pytest.warns(UserWarning, match="no inductor backend for mps"):
+        fell_back = model(x, params, pad_start=False)
+
+    assert model._compiled_step is not None  # still enabled, just unused here
+    assert _torch.equal(fell_back, eager)

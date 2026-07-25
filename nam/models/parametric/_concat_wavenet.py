@@ -120,6 +120,17 @@ class ConcatWaveNet(_ParametricNet):
     def receptive_field(self) -> int:
         return self._wavenet.receptive_field
 
+    @property
+    def supports_compiled_step(self) -> bool:
+        # The conditioning is a tile-and-concatenate, so the whole conditioned forward is
+        # straight-line tensor work with nothing for dynamo to graph-break on.
+        return True
+
+    def _compilable_step(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
+        """Tile the encoded params across time, concatenate, run the inner WaveNet."""
+        p_t = p[:, :, None].expand(-1, -1, x.shape[1])
+        return self._wavenet(_torch.cat([x[:, None, :], p_t], dim=1))
+
     def _run_conditioned(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
         if p.ndim == 1:
             p = p[None].expand(x.shape[0], -1)
@@ -127,8 +138,7 @@ class ConcatWaveNet(_ParametricNet):
             raise ValueError(
                 f"Input batch size {x.shape[0]} must match encoded params batch size {p.shape[0]}"
             )
-        p_t = p[:, :, None].expand(-1, -1, x.shape[1])
-        y = self._wavenet(_torch.cat([x[:, None, :], p_t], dim=1))
+        y = self._run_step(x, p)
         if y.shape[1] != 1:
             raise RuntimeError(
                 f"Expected inner WaveNet to return one channel; got shape {tuple(y.shape)}"

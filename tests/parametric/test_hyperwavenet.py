@@ -432,7 +432,7 @@ def test_set_compiled_round_trips_to_the_eager_path():
     model.set_compiled(False)
     restored = model(x, params, pad_start=False)
 
-    assert model._compiled_conditioned_forward is None
+    assert model._compiled_step is None
     assert _torch.allclose(compiled, eager, atol=1e-6)
     assert _torch.equal(restored, eager)
 
@@ -446,13 +446,13 @@ def test_compiled_path_is_skipped_when_grad_is_disabled():
     model.set_compiled(True, backend="eager")
 
     calls = []
-    compiled = model._compiled_conditioned_forward
+    compiled = model._compiled_step
 
     def _counting(*args, **kwargs):
         calls.append(1)
         return _cast(object, compiled)(*args, **kwargs)
 
-    model._compiled_conditioned_forward = _counting
+    model._compiled_step = _counting
     with _torch.no_grad():
         model(x, params, pad_start=False)
     assert calls == []

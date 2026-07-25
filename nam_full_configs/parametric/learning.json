@@ -7,8 +7,13 @@
         "num_workers is 0 on purpose: the dataset serves in-memory tensor slices, so worker processes add IPC overhead without a real prefetch win. Bump it only if you measure a data-loading stall.",
         "precision is 32-true (full fp32): this model is tiny (channels=8), so fp16 mixed precision gives little speedup and its narrow range overflowed to inf ESR. Stay on fp32 unless the net grows large enough to benefit from Tensor Cores.",
         "gradient_clip_val=1.0 caps the global grad norm so a single noisy capture can't spike the hypernetwork weights into divergence. This is what let batch_size=16 blow up to inf validation ESR mid-run while batch_size=32 stayed stable; clipping makes small batches safe.",
-        "Pair the learning rate with the batch size (linear-scaling rule): lr=0.002 for batch_size=16, lr=0.004 for batch_size=32. The 0.004 that was stable at 32 was too hot for the noisier 16-sample gradients."
+        "Pair the learning rate with the batch size (linear-scaling rule): lr=0.002 for batch_size=16, lr=0.004 for batch_size=32. The 0.004 that was stable at 32 was too hot for the noisier 16-sample gradients.",
+        "torch_compile is the single largest speedup available here. These nets are small enough that a kernel costs more CPU to launch than GPU to run (measured on a 4090: 5.8us mean kernel against ~7us per launch), so the step is launch-bound; mode=reduce-overhead replays it as a CUDA graph and takes that overhead away. HyperWaveNet went 10 -> 28 it/s. Requires a C compiler in the environment for Triton codegen (the pytorch *-runtime Docker images ship none: apt-get install build-essential). Falls back to the eager step on MPS and under no_grad, so leaving it on is safe everywhere; set enabled=false to profile against an uncompiled baseline."
     ],
+    "torch_compile": {
+        "enabled": true,
+        "mode": "reduce-overhead"
+    },
     "train_dataloader": {
         "batch_size": 16,
         "shuffle": true,

@@ -840,7 +840,7 @@ def test_fast_paths_follow_capture_grouped_batching():
         net, (_capture_grouped_loader(), _capture_grouped_loader()), {}
     )
     assert net._uniform_batch_params
-    assert net._compiled_conditioned_forward is None
+    assert net._compiled_step is None
 
     _release_training_fast_paths(net)
     assert not net._uniform_batch_params
@@ -862,17 +862,16 @@ def test_torch_compile_is_opt_in_and_forwards_its_kwargs():
         (_capture_grouped_loader(), _capture_grouped_loader()),
         {"enabled": True, "backend": "eager"},
     )
-    assert net._compiled_conditioned_forward is not None
+    assert net._compiled_step is not None
 
     _release_training_fast_paths(net)
-    assert net._compiled_conditioned_forward is None
+    assert net._compiled_step is None
 
 
-def test_fast_paths_ignore_nets_without_the_hooks():
-    # ConcatWaveNet has no per-setting weight generation, so there is nothing to enable.
+def _tiny_concat_wavenet():
     from nam.models.parametric import ConcatWaveNet as _ConcatWaveNet
 
-    net = _ConcatWaveNet.init_from_config(
+    return _ConcatWaveNet.init_from_config(
         {
             "layers": [
                 {
@@ -896,5 +895,49 @@ def test_fast_paths_ignore_nets_without_the_hooks():
         }
     )
 
-    _enable_training_fast_paths(net, (_capture_grouped_loader(),), {"enabled": True})
+
+def test_concat_wavenet_also_gets_compiled():
+    # It has no per-setting weight generation, so no uniform-params promise applies, but its
+    # conditioned forward is compilable and benefits from the same kernel fusion.
+    net = _tiny_concat_wavenet()
+
+    _enable_training_fast_paths(
+        net,
+        (_capture_grouped_loader(),),
+        {"enabled": True, "backend": "eager"},
+    )
+    assert net._compiled_step is not None
+    assert not hasattr(net, "_uniform_batch_params")
+
     _release_training_fast_paths(net)
+    assert net._compiled_step is None
+
+
+def test_compile_warns_and_stays_eager_on_a_net_that_cannot_support_it():
+    net = _tiny_concat_wavenet()
+    # ConcatLSTM's truncated-BPTT loop is the real case; simulate the capability being off.
+    type(net).supports_compiled_step = property(lambda self: False)
+    try:
+        with _pytest.warns(UserWarning, match="does not support a compiled step"):
+            net.set_compiled(True)
+        assert net._compiled_step is None
+    finally:
+        del type(net).supports_compiled_step
+
+
+def test_shipped_example_learning_config_enables_a_real_compiled_step():
+    # Guards the example config against drifting away from the code that reads it -- a
+    # renamed key or a kwarg torch.compile rejects would otherwise only surface on a GPU box.
+    example = _json.loads(
+        _Path("nam_full_configs/parametric/learning.json").read_text()
+    )
+    assert example["torch_compile"]["enabled"] is True
+
+    net = _hyperwavenet_for_fast_paths()
+    _enable_training_fast_paths(
+        net, (_capture_grouped_loader(),), example["torch_compile"]
+    )
+
+    assert net._compiled_step is not None
+    _release_training_fast_paths(net)
+    assert net._compiled_step is None

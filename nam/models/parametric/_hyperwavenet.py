@@ -48,7 +48,6 @@ class HyperWaveNet(_ParametricNet):
         self._template_parameters = dict(template.named_parameters())
         self._uniform_batch_params = False
         self._uniform_batch_params_checked = False
-        self._compiled_conditioned_forward = None
 
     @classmethod
     def parse_config(cls, config: dict[str, _Any]) -> dict[str, _Any]:
@@ -141,27 +140,12 @@ class HyperWaveNet(_ParametricNet):
         self._uniform_batch_params = bool(uniform)
         self._uniform_batch_params_checked = False
 
-    def set_compiled(self, enabled: bool, **compile_kwargs: _Any) -> None:
-        """
-        Route the single-setting step through ``torch.compile``.
-
-        The step spends most of its wall clock issuing very small kernels -- the generated
-        deltas are ~100 tensors of a few dozen elements each -- so fusing them is worth more
-        here than the arithmetic it saves. Only the conditioned forward is wrapped, not the
-        module: ``self.net`` stays a plain ``HyperWaveNet`` so export, checkpointing and
-        ``state_dict`` keys are untouched, and turning this off restores the eager path
-        exactly.
-
-        Off by default, and only ever used on grad-enabled steps -- see `_run_one_setting`.
-        Inductor also needs a warmup compile per input shape it sees, so short runs can come
-        out behind; the batched-group path above is the unconditional win.
-        """
-        if not enabled:
-            self._compiled_conditioned_forward = None
-            return
-        self._compiled_conditioned_forward = _torch.compile(
-            self._conditioned_forward, **compile_kwargs
-        )
+    @property
+    def supports_compiled_step(self) -> bool:
+        # Worth more here than anywhere else: the generated deltas are ~100 tensors of a few
+        # dozen elements each, so the step is dominated by launching kernels too small to pay
+        # for their own launch. See `ParametricNet.set_compiled`.
+        return True
 
     def _check_uniform_batch_params(self, p: _torch.Tensor) -> None:
         if self._uniform_batch_params_checked:
@@ -176,23 +160,13 @@ class HyperWaveNet(_ParametricNet):
                 "before training."
             )
 
-    def _conditioned_forward(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
+    def _compilable_step(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
         """One setting (1-D ``p``) applied to the whole of ``x``."""
         return self._apply_conditioned_weights(x, self._conditioned_weight_dict(p))
 
-    def _run_one_setting(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
-        forward = self._compiled_conditioned_forward
-        # Inductor fails to lower the template's dilated convs when grad is off
-        # ("LoweringException: NotImplementedError: View"), which is how Lightning runs
-        # validation. Training steps are the hot path and compile cleanly, so take the
-        # compiled route only there and leave inference on the eager one.
-        if forward is None or not _torch.is_grad_enabled():
-            return self._conditioned_forward(x, p)
-        return forward(x, p)
-
     def _run_conditioned(self, x: _torch.Tensor, p: _torch.Tensor) -> _torch.Tensor:
         if p.ndim == 1:
-            return self._run_one_setting(x, p)
+            return self._run_step(x, p)
 
         if x.shape[0] != p.shape[0]:
             raise ValueError(
@@ -201,7 +175,7 @@ class HyperWaveNet(_ParametricNet):
 
         if self._uniform_batch_params:
             self._check_uniform_batch_params(p)
-            return self._run_one_setting(x, p[0])
+            return self._run_step(x, p[0])
 
         # Batched parametric training often repeats the same control setting across many
         # windows from one capture. Group those rows so each unique setting runs one
