@@ -35,16 +35,16 @@ def test_format_params_formats_like_a_human_would_dial_it():
 
 
 def test_format_qa_summary_flags_problems():
-    qa = _QAModel(peak=0.5, clipping=False, impulse_detected=True, delay_disagreement=False)
-    assert _format_qa_summary(qa) == "peak=0.500"
+    qa = _QAModel(peak=-6.0, clipping=False, impulse_detected=True, delay_disagreement=False)
+    assert _format_qa_summary(qa) == "peak=-6.0 dBFS"
 
-    bad = _QAModel(peak=1.0, clipping=True, impulse_detected=False, delay_disagreement=True)
+    bad = _QAModel(peak=0.0, clipping=True, impulse_detected=False, delay_disagreement=True)
     summary = _format_qa_summary(bad)
     assert "CLIPPING" in summary
     assert "no impulse" in summary
     assert "delay disagreement" in summary
 
-    loopback = _QAModel(peak=0.5, impulse_detected=True, loopback_disagreement=True)
+    loopback = _QAModel(peak=-6.0, impulse_detected=True, loopback_disagreement=True)
     assert "loopback mismatch" in _format_qa_summary(loopback)
 
 
@@ -60,7 +60,7 @@ def test_format_entry_row_matches_plan_columns():
         y_path="captures/train_000_gain_3.5_tone_7.0.wav",
         status="captured",
         delay=183,
-        qa=_QAModel(peak=0.4),
+        qa=_QAModel(peak=-8.0),
     )
     row = _format_entry_row(entry)
     assert row == (
@@ -70,7 +70,7 @@ def test_format_entry_row_matches_plan_columns():
         "captures/train_000_gain_3.5_tone_7.0.wav",
         "captured",
         "183",
-        "peak=0.400",
+        "peak=-8.0 dBFS",
     )
 
 

@@ -58,6 +58,7 @@ from ..project import CaptureProject as _CaptureProject
 from ..project import find_recoverable_entries as _find_recoverable_entries
 from ..project import KnobModel as _KnobModel
 from ..project import load_project as _load_project
+from ..project import migrate_legacy_peak_values as _migrate_legacy_peak_values
 from ..project import new_project as _new_project
 from ..project import PROJECT_FILENAME as _PROJECT_FILENAME
 from ..project import reconcile_with_disk as _reconcile_with_disk
@@ -90,7 +91,7 @@ def format_params(params: dict) -> str:
 def format_qa_summary(qa: _Optional[_QAModel]) -> str:
     if qa is None:
         return ""
-    parts = [f"peak={qa.peak:.3f}" if qa.peak is not None else "peak=?"]
+    parts = [f"peak={qa.peak:.1f} dBFS" if qa.peak is not None else "peak=?"]
     if qa.clipping:
         parts.append("CLIPPING")
     if qa.impulse_detected is False:
@@ -813,7 +814,12 @@ class MainWindow(_QMainWindow):
         if self.project is None or self.project_dir is None:
             return []
         recover_notes = self._maybe_recover_from_disk()
-        notes = recover_notes + _reconcile_with_disk(self.project, self.project_dir)
+        peak_notes = _migrate_legacy_peak_values(self.project, self.project_dir)
+        notes = (
+            recover_notes
+            + peak_notes
+            + _reconcile_with_disk(self.project, self.project_dir)
+        )
         _save_project(self.project, self.project_dir)
         return notes
 
@@ -1290,7 +1296,7 @@ class MainWindow(_QMainWindow):
             source = "loopback" if result.loopback_used else "amp return"
             text = (
                 f"Route OK: delay={result.latency.delay} samples (from {source}), "
-                f"peak={result.peak:.3f}"
+                f"peak={result.peak:.1f} dBFS"
             )
             if result.loopback_used and result.crosscheck is not None:
                 amp_delay = result.crosscheck.delay
@@ -1305,7 +1311,7 @@ class MainWindow(_QMainWindow):
             self.route_test_result_label.setText(text)
         else:
             self.route_test_result_label.setText(
-                f"Route test did not detect the signal (peak={result.peak:.3f}). "
+                f"Route test did not detect the signal (peak={result.peak:.1f} dBFS). "
                 "Check routing and levels."
             )
 
@@ -1373,7 +1379,7 @@ class MainWindow(_QMainWindow):
         self.capture_log.appendPlainText(
             "Capture complete."
             if qa.peak is None
-            else f"Capture complete. peak={qa.peak:.3f}"
+            else f"Capture complete. peak={qa.peak:.1f} dBFS"
         )
         for message in qa.messages:
             self.capture_log.appendPlainText(f"QA: {message}")

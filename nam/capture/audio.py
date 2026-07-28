@@ -31,6 +31,22 @@ class AudioDeviceError(RuntimeError):
     pass
 
 
+# A dB value low enough to stand in for silence without producing -inf, which would
+# break JSON round-tripping and numeric formatting.
+DBFS_FLOOR = -120.0
+
+
+def peak_to_dbfs(peak: float) -> float:
+    """
+    Convert a linear peak amplitude (0-1 full scale) to dBFS, where 0 dBFS is full
+    scale and level drops negative from there. Floored at ``DBFS_FLOOR`` so silence
+    doesn't produce -inf.
+    """
+    if peak <= 0:
+        return DBFS_FLOOR
+    return max(20.0 * float(_np.log10(peak)), DBFS_FLOOR)
+
+
 @_dataclass(frozen=True)
 class DeviceInfo:
     index: int

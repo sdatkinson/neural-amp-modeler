@@ -21,6 +21,7 @@ from typing import Sequence as _Sequence
 import numpy as _np
 
 from .audio import PlaybackRecorder as _PlaybackRecorder
+from .audio import peak_to_dbfs as _peak_to_dbfs
 from .export import update_data_json as _update_data_json
 from .latency import BlipPreamble as _BlipPreamble
 from .latency import LatencyResult as _LatencyResult
@@ -58,7 +59,7 @@ class RouteTestResult:
     # configured, otherwise the amp return). ``crosscheck`` is the amp-return
     # measurement when a loopback was used, kept so the UI can show both.
     latency: _LatencyResult
-    peak: float
+    peak: float  # dBFS, not linear amplitude
     loopback_used: bool = False
     crosscheck: _Optional[_LatencyResult] = None
     loopback_disagreement: bool = False
@@ -252,7 +253,7 @@ class CaptureSession:
         )
         return RouteTestResult(
             latency=latency,
-            peak=float(_np.max(_np.abs(main))),
+            peak=_peak_to_dbfs(float(_np.max(_np.abs(main)))),
             loopback_used=loopback is not None,
             crosscheck=crosscheck,
             loopback_disagreement=disagreement,
@@ -352,11 +353,12 @@ class CaptureSession:
         messages: list[str] = []
 
         peak = float(_np.max(_np.abs(y))) if len(y) else 0.0
+        peak_dbfs = _peak_to_dbfs(peak)
         clipping = peak >= CLIPPING_THRESHOLD
         if clipping:
             messages.append(
-                f"Clipping: peak {peak:.3f}. Training rejects clipped captures — "
-                "lower the level and recapture."
+                f"Clipping: peak {peak_dbfs:.1f} dBFS. Training rejects clipped "
+                "captures — lower the level and recapture."
             )
 
         if not latency.detected:
@@ -390,8 +392,8 @@ class CaptureSession:
 
         if peak < 1e-4:
             messages.append(
-                f"Capture is near-silent (peak {peak:.6f}). Is the return input "
-                "connected and the device under test on?"
+                f"Capture is near-silent (peak {peak_dbfs:.1f} dBFS). Is the return "
+                "input connected and the device under test on?"
             )
 
         if loopback_disagreement:
@@ -402,7 +404,7 @@ class CaptureSession:
             )
 
         return _QAModel(
-            peak=peak,
+            peak=peak_dbfs,
             clipping=clipping,
             impulse_detected=latency.detected,
             delay_disagreement=delay_disagreement,

@@ -20,6 +20,7 @@ from typing import Literal as _Literal
 from typing import Optional as _Optional
 from typing import Sequence as _Sequence
 
+import numpy as _np
 from pydantic import BaseModel as _BaseModel
 from pydantic import Field as _Field
 
@@ -137,6 +138,8 @@ class AudioSettingsModel(_BaseModel):
 
 
 class QAModel(_BaseModel):
+    # dBFS (0 = full scale, negative below). Projects saved before this was tracked in
+    # dB store a linear 0-1 amplitude here instead; see migrate_legacy_peak_values.
     peak: _Optional[float] = None
     clipping: _Optional[bool] = None
     impulse_detected: _Optional[bool] = None
@@ -341,6 +344,41 @@ def reconcile_with_disk(project: CaptureProject, project_dir: _Path) -> list[str
             relative = str(wav_path.relative_to(project_dir))
             if relative not in known:
                 notes.append(f"{relative}: not part of this project's plan.")
+    return notes
+
+
+def migrate_legacy_peak_values(project: CaptureProject, project_dir: _Path) -> list[str]:
+    """
+    Recompute ``qa.peak`` in dBFS for captures saved back when it was a linear 0-1
+    amplitude. dBFS is never positive, so a stored value greater than 0 is
+    unambiguously the old format; those entries' capture WAVs are re-read from disk
+    and the peak is recalculated (rather than just converting the stored number, in
+    case the on-disk audio has since changed). Does not save; the caller saves.
+    Returns a note per entry that was migrated.
+    """
+    from ..data import wav_to_np
+    from .audio import peak_to_dbfs
+    from .session import CLIPPING_THRESHOLD
+
+    project_dir = _Path(project_dir)
+    notes: list[str] = []
+    for entry in project.entries:
+        if entry.status != "captured" or entry.qa is None or entry.qa.peak is None:
+            continue
+        if entry.qa.peak <= 0:
+            continue
+        path = project_dir / entry.y_path
+        try:
+            y = _np.asarray(wav_to_np(path), dtype=_np.float32).squeeze()
+        except Exception as exc:
+            notes.append(
+                f"{entry.y_path}: could not recompute peak from WAV ({exc})."
+            )
+            continue
+        peak = float(_np.max(_np.abs(y))) if len(y) else 0.0
+        entry.qa.peak = peak_to_dbfs(peak)
+        entry.qa.clipping = peak >= CLIPPING_THRESHOLD
+        notes.append(f"{entry.y_path}: peak migrated to {entry.qa.peak:.1f} dBFS.")
     return notes
 
 
