@@ -240,7 +240,6 @@ def run_training_with_interrupt(
     interrupt_after_training_starts: bool = True,
     interrupt_delay: float = 2.0,
     timeout: float = 120.0,
-    conda_env: Optional[str] = None,
 ) -> Tuple[int, bool, list]:
     """
     Run nam-full training and send SIGINT after training starts.
@@ -250,36 +249,17 @@ def run_training_with_interrupt(
     :param interrupt_delay: Seconds to wait after training starts (or after
         process start if interrupt_after_training_starts is False)
     :param timeout: Maximum time to wait for process to complete
-    :param conda_env: Name of conda environment to use
     :return: (exit_code, graceful_shutdown_detected, nam_files_found)
     """
-    # Build command
-    if conda_env:
-        # Use conda run to execute in the environment
-        cmd = [
-            "conda",
-            "run",
-            "-n",
-            conda_env,
-            "--no-capture-output",
-            "nam-full",
-            str(data_config_path),
-            str(model_config_path),
-            str(learning_config_path),
-            str(output_path),
-            "--no-show",
-            "--no-plots",
-        ]
-    else:
-        cmd = [
-            "nam-full",
-            str(data_config_path),
-            str(model_config_path),
-            str(learning_config_path),
-            str(output_path),
-            "--no-show",
-            "--no-plots",
-        ]
+    cmd = [
+        "nam-full",
+        str(data_config_path),
+        str(model_config_path),
+        str(learning_config_path),
+        str(output_path),
+        "--no-show",
+        "--no-plots",
+    ]
 
     print(f"Starting training with command: {' '.join(cmd)}")
 
@@ -389,7 +369,7 @@ def run_training_with_interrupt(
     return exit_code, graceful_shutdown_detected, nam_files
 
 
-def test_graceful_shutdown(conda_env: Optional[str] = None) -> bool:
+def test_graceful_shutdown():
     """
     Test that graceful shutdown generates a model file.
 
@@ -424,7 +404,6 @@ def test_graceful_shutdown(conda_env: Optional[str] = None) -> bool:
             interrupt_after_training_starts=True,
             interrupt_delay=2.0,  # Wait 2s after training starts
             timeout=120.0,
-            conda_env=conda_env,
         )
 
         print("\n" + "=" * 60)
@@ -446,10 +425,8 @@ def test_graceful_shutdown(conda_env: Optional[str] = None) -> bool:
         # Test passes if we found at least one .nam file
         if nam_files:
             print("TEST PASSED: Model file was generated on graceful shutdown")
-            return True
         else:
             print("TEST FAILED: No model file was generated on graceful shutdown")
-            return False
 
 
 class TestGracefulShutdown:
@@ -493,7 +470,6 @@ class TestGracefulShutdown:
                 interrupt_after_training_starts=True,
                 interrupt_delay=2.0,  # Wait 2s after training starts
                 timeout=120.0,
-                conda_env=None,  # Use current environment in pytest
             )
 
             # Assert that a .nam file was created
@@ -562,20 +538,7 @@ class TestExportFallbackOnBadCheckpoint:
 
 def main():
     """Run the graceful shutdown test."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Test graceful shutdown model generation"
-    )
-    parser.add_argument(
-        "--conda-env",
-        type=str,
-        default=None,
-        help="Conda environment to use for running nam-full",
-    )
-    args = parser.parse_args()
-
-    success = test_graceful_shutdown(conda_env=args.conda_env)
+    success = test_graceful_shutdown()
     sys.exit(0 if success else 1)
 
 
