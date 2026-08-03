@@ -117,10 +117,14 @@ class AudioSettingsModel(_BaseModel):
     input_channel: int = 1
     # Optional second I/O pair (on the same devices) wired as a direct loopback: a
     # clean copy of the timing blips is played on ``loopback_output_channel`` and
-    # patched straight back into ``loopback_input_channel``. That loopback carries the
-    # same interface round-trip latency as the amp path but stays undistorted no matter
-    # how hard the amp is driven, so the delay is measured from it instead of the
-    # (increasingly smeared) amp return. Both must be set to enable the loopback.
+    # patched straight back into ``loopback_input_channel``. It stays undistorted no
+    # matter how hard the amp is driven, so the delay is measured from it instead of the
+    # (increasingly smeared) amp return. It only stands in for the amp path where it
+    # shares that path's conversion chain: it tracks latency on the route it actually
+    # travels, so anything the capture route crosses that the loopback does not -- an
+    # ADAT/optical link to a second interface above all -- is invisible here, and can
+    # move the capture by several samples whenever that link re-locks while this
+    # measurement does not budge. Both must be set to enable the loopback.
     # Defaults to channel 2 (on both directions) so a fresh setup starts with the
     # loopback enabled without colliding with the channel-1 default of the main path.
     loopback_output_channel: _Optional[int] = 2

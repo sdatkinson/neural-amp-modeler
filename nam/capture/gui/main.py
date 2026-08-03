@@ -465,6 +465,19 @@ class MainWindow(_QMainWindow):
         form.addRow("Buffer size", self.buffer_size_combo)
         layout.addLayout(form)
 
+        self.routing_note_label = _QLabel(
+            "The loopback only tracks latency on the path it actually travels. "
+            "Anything the capture route crosses that the loopback does not — above all "
+            "an ADAT/optical link to a second interface — stays invisible to it, and can "
+            "jump by several samples whenever that link re-locks; a sample-rate change or "
+            "a power cycle is enough. Run both routes through the same device chain: if "
+            "the capture route leaves over ADAT to a second device, the loopback must "
+            "leave and return through those same devices."
+        )
+        self.routing_note_label.setWordWrap(True)
+        self.routing_note_label.setStyleSheet("color: #6b6b6b;")
+        layout.addWidget(self.routing_note_label)
+
         self.sample_rate_warning_label = _QLabel("")
         self.sample_rate_warning_label.setWordWrap(True)
         self.sample_rate_warning_label.setStyleSheet("color: #b36b00;")

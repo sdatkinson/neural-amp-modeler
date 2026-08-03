@@ -38,12 +38,12 @@ from .project import save_project as _save_project
 # flag means "re-record at a lower level", not just "sounds bad".
 CLIPPING_THRESHOLD = 0.999
 # Matches the ensemble-disagreement threshold inside the wrapped NAM calibration.
-DELAY_DISAGREEMENT_SAMPLES = 20
+DELAY_DISAGREEMENT_SAMPLES = 10
 # When a clean loopback is used to measure the delay, the amp-return blip is still
 # detected as a cross-check. The two share the interface round-trip, so their measured
 # delays should agree to within a handful of samples; a larger gap means a mispatched
 # loopback or a genuine routing problem worth flagging.
-LOOPBACK_CROSSCHECK_SAMPLES = 10
+LOOPBACK_CROSSCHECK_SAMPLES = 3
 # Extra playback beyond the input audio so the delayed response tail is still inside
 # the stream when the recording stops.
 TAIL_SECONDS = 0.5
