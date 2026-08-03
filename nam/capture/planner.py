@@ -459,43 +459,58 @@ def _corner_raw_vector(
     return raw
 
 
+# Below this many knobs the even-parity half fraction stops being a usable design. Its
+# defining relation is the product of every factor, so K factors give resolution K: at K=3
+# main effects alias two-factor interactions, and at K<=2 they alias each other. The full
+# factorial is at most 8 vertices there, so it is cheap enough to take outright.
+_MIN_HALF_FRACTION_KNOBS = 4
+
+
+def _corner_vertices(n: int) -> list[tuple[bool, ...]]:
+    """
+    The min/max patterns (True = knob at max) to place corners on, over ``n`` knobs.
+
+    For four or more knobs this is the even-parity half fraction -- every pattern with an
+    even number of maxes, 2**(n-1) of them. That is the standard 2**(n-1) fractional
+    factorial, and it keeps all n knobs mutually orthogonal, so the corner set can tell
+    each knob's extreme apart from every other knob's. Ordered all-min first, all-max
+    second, so the two "everything at one end" corners are captured first.
+    """
+    if n < _MIN_HALF_FRACTION_KNOBS:
+        vertices = list(_itertools.product((False, True), repeat=n))
+    else:
+        vertices = [
+            combination
+            for combination in _itertools.product((False, True), repeat=n)
+            if sum(combination) % 2 == 0
+        ]
+    all_min = (False,) * n
+    all_max = (True,) * n
+    leading = [v for v in (all_min, all_max) if v in vertices]
+    return leading + [v for v in vertices if v not in leading]
+
+
 def _corner_high_flag_sets(
     n: int, gain_index: _Optional[int]
 ) -> list[list[bool]]:
     """
-    The per-corner max/min pattern (True = knob at max) before dedup. Without a gain knob:
-    all-min, all-max, and the two alternations. With a gain knob, the two alternations
-    become gain-min/gain-max variants over the *other* knobs, plus the two mixed corners
-    (gain min / others max, and gain max / others min). Duplicates that collapse for small
-    knob counts are removed later by :func:`corner_settings`.
+    The per-corner max/min pattern (True = knob at max) before dedup: the vertex set from
+    :func:`_corner_vertices`, crossed with the gain knob's min and max when one is marked
+    so every tone-stack extreme is seen at both ends of the drive range. Duplicates that
+    collapse for small knob counts are removed later by :func:`corner_settings`.
     """
-    all_min = [False] * n
-    all_max = [True] * n
-    flag_sets = [all_min, all_max]
-
     if gain_index is None:
-        # Alternate across all knobs by position: knob 0 min/max, knob 1 the opposite, ...
-        flag_sets.append([bool(i % 2) for i in range(n)])
-        flag_sets.append([not bool(i % 2) for i in range(n)])
-        return flag_sets
+        return [list(vertex) for vertex in _corner_vertices(n)]
 
     others = [i for i in range(n) if i != gain_index]
-
-    def with_gain(gain_high: bool, other_high) -> list[bool]:
-        flags = [False] * n
-        flags[gain_index] = gain_high
-        for position, idx in enumerate(others):
-            flags[idx] = other_high(position)
-        return flags
-
-    alternate = lambda position: bool(position % 2)  # noqa: E731 - min/max over others
-    reverse = lambda position: not bool(position % 2)  # noqa: E731 - max/min over others
-    flag_sets.append(with_gain(False, alternate))  # C.1: gain min, min/max others
-    flag_sets.append(with_gain(False, reverse))  # C.2: gain min, max/min others
-    flag_sets.append(with_gain(True, alternate))  # D.1: gain max, min/max others
-    flag_sets.append(with_gain(True, reverse))  # D.2: gain max, max/min others
-    flag_sets.append(with_gain(False, lambda position: True))  # E: gain min, others max
-    flag_sets.append(with_gain(True, lambda position: False))  # F: gain max, others min
+    flag_sets: list[list[bool]] = []
+    for vertex in _corner_vertices(len(others)):
+        for gain_high in (False, True):
+            flags = [False] * n
+            flags[gain_index] = gain_high
+            for position, index in enumerate(others):
+                flags[index] = vertex[position]
+            flag_sets.append(flags)
     return flag_sets
 
 
@@ -507,11 +522,12 @@ def corner_settings(
 ) -> list[dict[str, _Any]]:
     """
     Decoded param dicts for the initial "corner" captures: the knob-range extremes that
-    bound the amp's behavior for the first active-learning round (all-min, all-max, and
-    the alternating patterns; a marked gain/drive knob gets its own min/max sweep). Values
-    are quantized to the capture grid (honoring each knob's ``step`` and ``avoid_zero``, so
-    an avoid-zero gain knob's min corner nudges off zero), then deduplicated so the small
-    knob counts that collapse (a single knob yields only min/max) don't repeat a setting.
+    bound the amp's behavior (see :func:`_corner_vertices` for the pattern, and
+    :func:`_corner_high_flag_sets` for how a marked gain/drive knob is crossed with it).
+    Values are quantized to the capture grid (honoring each knob's ``step`` and
+    ``avoid_zero``, so an avoid-zero gain knob's min corner nudges off zero), then
+    deduplicated so the small knob counts that collapse (a single knob yields only
+    min/max) don't repeat a setting.
     """
     specs = tuple(specs)
     seen: set[tuple[_Any, ...]] = set()
@@ -526,6 +542,19 @@ def corner_settings(
         seen.add(key)
         settings.append(params)
     return settings
+
+
+def corner_capture_count(
+    knobs: _Sequence[_KnobSpec], *, default_step: float = _DEFAULT_KNOB_STEP
+) -> int:
+    """How many distinct corner captures ``knobs`` will produce."""
+    knobs = _validate_knobs(knobs)
+    specs = tuple(knob.to_param_spec() for knob in knobs)
+    return len(
+        corner_settings(
+            specs, gain_index=_gain_knob_index(knobs), default_step=default_step
+        )
+    )
 
 
 def plan_corner_captures(

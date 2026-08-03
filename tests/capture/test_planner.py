@@ -1,6 +1,7 @@
 import pytest as _pytest
 
 from nam.capture.params import KnobSpec as _KnobSpec
+from nam.capture.planner import corner_capture_count as _corner_capture_count
 from nam.capture.planner import corner_settings as _corner_settings
 from nam.capture.planner import plan_captures as _plan_captures
 from nam.capture.planner import plan_corner_captures as _plan_corner_captures
@@ -141,11 +142,13 @@ def test_corner_settings_two_knobs_is_four_regardless_of_gain():
     assert len(_corner_settings(_specs(knobs), gain_index=0)) == 4
 
 
-def test_corner_settings_three_knobs_without_gain_is_four():
+def test_corner_settings_three_knobs_without_gain_is_the_full_factorial():
+    # Three knobs is below the half-fraction threshold, so every vertex is captured.
     settings = _corner_settings(_specs(_three()))
-    assert len(settings) == 4
+    assert len(settings) == 8
     assert {"Gain": 0.0, "Tone": 0.0, "Bass": 0.0} in settings
     assert {"Gain": 10.0, "Tone": 10.0, "Bass": 10.0} in settings
+    assert {"Gain": 0.0, "Tone": 0.0, "Bass": 10.0} in settings
 
 
 def test_corner_settings_three_knobs_with_gain_is_eight_distinct():
@@ -155,6 +158,46 @@ def test_corner_settings_three_knobs_with_gain_is_eight_distinct():
     # E: gain min / others max, and F: gain max / others min.
     assert {"Gain": 0.0, "Tone": 10.0, "Bass": 10.0} in settings
     assert {"Gain": 10.0, "Tone": 0.0, "Bass": 0.0} in settings
+
+
+def _five_knobs():
+    return [
+        _KnobSpec(name="Gain", min=0.0, max=10.0, step=0.5, is_gain=True),
+        _KnobSpec(name="Low", min=0.0, max=10.0, step=0.5),
+        _KnobSpec(name="Mid", min=0.0, max=10.0, step=0.5),
+        _KnobSpec(name="High", min=0.0, max=10.0, step=0.5),
+        _KnobSpec(name="Presence", min=0.0, max=10.0, step=0.5),
+    ]
+
+
+def test_corner_settings_four_non_gain_knobs_is_the_even_parity_half_fraction():
+    eq = ["Low", "Mid", "High", "Presence"]
+    settings = _corner_settings(_specs(_five_knobs()), gain_index=0)
+    # 2**(4-1) tone-stack vertices, each at the gain knob's min and max.
+    assert len(settings) == 16
+    vertices = {tuple(int(s[name] >= 5.0) for name in eq) for s in settings}
+    assert len(vertices) == 8
+    assert all(sum(vertex) % 2 == 0 for vertex in vertices)
+    assert {s["Gain"] for s in settings} == {0.0, 10.0}
+
+
+def test_corner_settings_keeps_non_gain_knobs_orthogonal_at_the_extremes():
+    # The failure this guards against: a corner set where two knobs sit at the same
+    # extreme in every capture carries no information about telling them apart there.
+    eq = ["Low", "Mid", "High", "Presence"]
+    settings = _corner_settings(_specs(_five_knobs()), gain_index=0)
+    coded = [[1 if s[name] >= 5.0 else -1 for name in eq] for s in settings]
+    for i in range(len(eq)):
+        for j in range(i + 1, len(eq)):
+            dot = sum(row[i] * row[j] for row in coded)
+            assert dot == 0, f"{eq[i]} and {eq[j]} are confounded across the corners"
+
+
+def test_corner_capture_count_matches_corner_settings():
+    knobs = _five_knobs()
+    assert _corner_capture_count(knobs) == len(
+        _corner_settings(_specs(knobs), gain_index=0)
+    )
 
 
 def test_corner_settings_respects_avoid_zero_on_gain_min():
@@ -172,7 +215,7 @@ def test_plan_corner_captures_names_and_indexes():
     knobs = _three()
     planned, skipped = _plan_corner_captures(knobs)
     assert skipped == 0
-    assert len(planned) == 4
+    assert len(planned) == len(_corner_settings(_specs(knobs)))
     for offset, capture in enumerate(planned):
         assert capture.split == "train"
         assert capture.index == offset

@@ -51,6 +51,7 @@ from ..audio import list_devices as _list_devices
 from ..export import write_training_configs as _write_training_configs
 from ..params import KnobSpec as _KnobSpec
 from ..params import validate_knobs as _validate_knobs
+from ..planner import corner_capture_count as _corner_capture_count
 from ..project import add_corner_captures as _add_corner_captures
 from ..project import AudioSettingsModel as _AudioSettingsModel
 from ..project import CaptureEntryModel as _CaptureEntryModel
@@ -74,6 +75,11 @@ _PLAN_COLUMNS = ("Split", "Index", "Params", "Filename", "Status", "Delay", "QA"
 
 # Selectable audio device buffer sizes in frames; 0 lets PortAudio choose.
 _BUFFER_SIZE_CHOICES = (0, 32, 64, 128, 256, 512, 1024, 2048, 4096)
+
+# Past this many corner captures the plan is worth a second look before recording it: the
+# corner set doubles with every knob added, so a knob or two more than expected turns into
+# an unexpectedly long session.
+_CORNER_COUNT_ADVISORY = 32
 
 
 def format_number(value: float) -> str:
@@ -403,11 +409,20 @@ class MainWindow(_QMainWindow):
 
         self.include_corners_check = _QCheckBox("Include initial corners")
         self.include_corners_check.setToolTip(
-            "Add a small set of knob-range corner captures (all-min, all-max, and "
-            "alternating extremes) on top of the LHS points, so the first active-learning "
-            "round has a boundary picture of the amp. Deduplicated against the LHS points."
+            "Add knob-range corner captures on top of the LHS points, so the plan has a "
+            "boundary picture of the amp. The corners are a 2**(n-1) fractional factorial "
+            "over the non-gain knobs (every pattern with an even number of maxed knobs), "
+            "crossed with the gain knob's min and max. That keeps the knobs mutually "
+            "orthogonal at the extremes, so no two of them are stuck at the same value in "
+            "every corner. LHS cannot stand in for these: it covers each knob's range "
+            "well on its own but almost never lands on a corner of the joint space. "
+            "Deduplicated against the LHS points and any corners already planned."
         )
         layout.addWidget(self.include_corners_check)
+
+        self.corner_count_label = _QLabel("")
+        self.corner_count_label.setWordWrap(True)
+        layout.addWidget(self.corner_count_label)
 
         self.generate_plan_button = _QPushButton("Generate plan")
         self.generate_plan_button.clicked.connect(self._on_generate_plan)
@@ -424,6 +439,7 @@ class MainWindow(_QMainWindow):
 
         self.plan_table = self._make_entry_table()
         layout.addWidget(self.plan_table)
+        self._refresh_corner_count()
         return widget
 
     def _build_audio_tab(self) -> _QWidget:
@@ -853,11 +869,13 @@ class MainWindow(_QMainWindow):
         self.n_validation_spin.setValue(len(self.project.entries_for_split("validation")))
         self.seed_spin.setValue(self.project.seed)
         self.include_corners_check.setChecked(self.project.include_initial_corners)
+        self._refresh_corner_count()
 
     # -- knobs / plan --------------------------------------------------
 
     def _on_add_knob_row(self) -> None:
         self._add_knob_row("", 0.0, 10.0, 0.5, False, False)
+        self._refresh_corner_count()
 
     def _add_knob_row(
         self,
@@ -892,23 +910,46 @@ class MainWindow(_QMainWindow):
 
     def _on_knob_item_changed(self, item: _QTableWidgetItem) -> None:
         # At most one knob is Gain/Drive: ticking one clears the rest.
-        if item.column() != 5 or item.checkState() != _Qt.CheckState.Checked:
-            return
-        self.knob_table.blockSignals(True)
-        try:
-            for row in range(self.knob_table.rowCount()):
-                if row == item.row():
-                    continue
-                other = self.knob_table.item(row, 5)
-                if other is not None and other.checkState() == _Qt.CheckState.Checked:
-                    other.setCheckState(_Qt.CheckState.Unchecked)
-        finally:
-            self.knob_table.blockSignals(False)
+        if item.column() == 5 and item.checkState() == _Qt.CheckState.Checked:
+            self.knob_table.blockSignals(True)
+            try:
+                for row in range(self.knob_table.rowCount()):
+                    if row == item.row():
+                        continue
+                    other = self.knob_table.item(row, 5)
+                    if other is not None and other.checkState() == _Qt.CheckState.Checked:
+                        other.setCheckState(_Qt.CheckState.Unchecked)
+            finally:
+                self.knob_table.blockSignals(False)
+        self._refresh_corner_count()
 
     def _on_remove_knob_row(self) -> None:
         row = self.knob_table.currentRow()
         if row >= 0:
             self.knob_table.removeRow(row)
+            self._refresh_corner_count()
+
+    def _refresh_corner_count(self) -> None:
+        """Show how many corner captures the current knob set implies.
+
+        The count is 2**(n-1) over the non-gain knobs, doubled for a gain knob, so it grows
+        with the knob count fast enough that the user should see it before committing to
+        the plan rather than after.
+        """
+        # The Knobs tab is built (and seeds a first row) before the Plan tab that owns the
+        # label, so this can run before the label exists.
+        if getattr(self, "corner_count_label", None) is None:
+            return
+        try:
+            knobs = knob_rows_to_specs(self._knob_table_rows())
+            count = _corner_capture_count(knobs)
+        except ValueError:
+            self.corner_count_label.setText("")
+            return
+        text = f"Corner captures for this knob set: {count}"
+        if count > _CORNER_COUNT_ADVISORY:
+            text += " — that is a long session; consider fewer knobs or plan for it."
+        self.corner_count_label.setText(text)
 
     def _knob_table_rows(self) -> list[tuple]:
         rows = []
