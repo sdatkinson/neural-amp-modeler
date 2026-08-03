@@ -65,6 +65,7 @@ from ..project import reconcile_with_disk as _reconcile_with_disk
 from ..project import save_project as _save_project
 from ..project import QAModel as _QAModel
 from ..session import CaptureSession as _CaptureSession
+from ..session import LOOPBACK_NOT_DETECTED_MESSAGE as _LOOPBACK_NOT_DETECTED_MESSAGE
 from .workers import CancelToken as _CancelToken
 from .workers import SessionWorker as _SessionWorker
 
@@ -1305,7 +1306,18 @@ class MainWindow(_QMainWindow):
 
     def _on_route_test_success(self, result: _Any) -> None:
         self.route_test_progress.setValue(100)
-        if result.ok:
+        if result.loopback_failed:
+            # Not "no signal": the amp return may well be fine. Distinct, loud failure
+            # so a silent amp-return fallback never gets shown as a loopback reading.
+            self.route_test_result_label.setText(
+                f"Route test failed: {_LOOPBACK_NOT_DETECTED_MESSAGE}"
+            )
+            _QMessageBox.critical(
+                self, "Loopback not detected", _LOOPBACK_NOT_DETECTED_MESSAGE
+            )
+        elif result.ok:
+            # Reached only when a configured loopback actually detected its blips (a
+            # failed loopback is handled above), so this label is never misattributed.
             source = "loopback" if result.loopback_used else "amp return"
             text = (
                 f"Route OK: delay={result.latency.delay} samples (from {source}), "

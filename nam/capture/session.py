@@ -44,6 +44,15 @@ DELAY_DISAGREEMENT_SAMPLES = 10
 # delays should agree to within a handful of samples; a larger gap means a mispatched
 # loopback or a genuine routing problem worth flagging.
 LOOPBACK_CROSSCHECK_SAMPLES = 3
+# Shared between the route test and the actual capture so the two surfaces never
+# describe this failure differently.
+LOOPBACK_NOT_DETECTED_MESSAGE = (
+    "Loopback is enabled but no blip was detected on the loopback input, so the "
+    "measured delay cannot be trusted as coming from the loopback. Check the "
+    "loopback cable and patch, or uncheck 'Use a second I/O pair as a clean "
+    "delay-detection loopback' in Audio settings to capture from the amp return "
+    "only."
+)
 # Extra playback beyond the input audio so the delayed response tail is still inside
 # the stream when the recording stops.
 TAIL_SECONDS = 0.5
@@ -63,10 +72,15 @@ class RouteTestResult:
     loopback_used: bool = False
     crosscheck: _Optional[_LatencyResult] = None
     loopback_disagreement: bool = False
+    # A loopback was configured but its blips were not detected (e.g. an unplugged
+    # cable). Distinct from ``not latency.detected``: that also covers "no loopback
+    # configured and the amp return itself found nothing", which needs a different
+    # message since there is no loopback to blame.
+    loopback_failed: bool = False
 
     @property
     def ok(self) -> bool:
-        return self.latency.detected
+        return self.latency.detected and not self.loopback_failed
 
 
 class CaptureSession:
@@ -196,30 +210,36 @@ class CaptureSession:
         main_recording: _np.ndarray,
         loopback_recording: _Optional[_np.ndarray],
         preamble: _BlipPreamble,
-    ) -> tuple[_LatencyResult, _Optional[_LatencyResult], bool]:
+    ) -> tuple[_LatencyResult, _Optional[_LatencyResult], bool, bool]:
         """
-        Measure the delay. Returns ``(authoritative, crosscheck, disagreement)``.
+        Measure the delay. Returns ``(authoritative, crosscheck, disagreement,
+        loopback_failed)``.
 
         With a loopback the clean loopback delay is authoritative (it is undistorted no
         matter how hard the amp is driven) and the amp return is measured only as a
         cross-check. Without one the amp return is authoritative and there is no
         cross-check. ``disagreement`` is set when both are detected but their delays
         differ by more than :data:`LOOPBACK_CROSSCHECK_SAMPLES`.
+
+        A loopback that is configured but whose blips are not detected (e.g. an
+        unplugged cable) is a hard failure, not a fallback: silently substituting the
+        amp-return delay would report a "loopback" measurement that was never actually
+        checked. ``loopback_failed`` signals this so the caller refuses the capture
+        instead of saving one; ``authoritative`` is the (undetected) loopback result in
+        that case, so ``.detected`` stays correctly ``False``.
         """
         amp_latency = _measure_delay(main_recording, preamble)
         if loopback_recording is None:
-            return amp_latency, None, False
+            return amp_latency, None, False, False
         loopback_latency = _measure_delay(loopback_recording, preamble)
+        if not loopback_latency.detected:
+            return loopback_latency, amp_latency, False, True
         disagreement = (
-            loopback_latency.delay is not None
-            and amp_latency.delay is not None
+            amp_latency.delay is not None
             and abs(loopback_latency.delay - amp_latency.delay)
             > LOOPBACK_CROSSCHECK_SAMPLES
         )
-        # Trust the loopback when it actually detected the blips; fall back to the amp
-        # return if the loopback route itself came up empty (e.g. cable unplugged).
-        authoritative = loopback_latency if loopback_latency.detected else amp_latency
-        return authoritative, amp_latency, disagreement
+        return loopback_latency, amp_latency, disagreement, False
 
     def route_test(
         self,
@@ -248,7 +268,7 @@ class CaptureSession:
         main, loopback = self._playrec(
             playback, sample_rate, progress, cancel, loopback_playback
         )
-        latency, crosscheck, disagreement = self._resolve_latency(
+        latency, crosscheck, disagreement, loopback_failed = self._resolve_latency(
             main, loopback, preamble
         )
         return RouteTestResult(
@@ -257,6 +277,7 @@ class CaptureSession:
             loopback_used=loopback is not None,
             crosscheck=crosscheck,
             loopback_disagreement=disagreement,
+            loopback_failed=loopback_failed,
         )
 
     def capture_entry(
@@ -269,6 +290,11 @@ class CaptureSession:
         Record one planned entry and persist everything. Returns the QA report; the
         entry is marked captured even when QA raises flags (the WAV exists and is
         saved), and the flags tell the user whether to recapture.
+
+        Raises :class:`CaptureSessionError` -- writing nothing and leaving the entry
+        pending -- if a loopback is enabled but its blips were not detected (e.g. an
+        unplugged cable). That case is not a QA flag on a saved capture: the delay
+        cannot be trusted as coming from the loopback at all, so nothing is saved.
         """
         x, sample_rate = self._input_for_split(entry.split)
         preamble = _BlipPreamble(sample_rate)
@@ -284,9 +310,14 @@ class CaptureSession:
             playback, sample_rate, progress, cancel, loopback_playback
         )
 
-        latency, _crosscheck, loopback_disagreement = self._resolve_latency(
-            main, loopback, preamble
+        latency, _crosscheck, loopback_disagreement, loopback_failed = (
+            self._resolve_latency(main, loopback, preamble)
         )
+        if loopback_failed:
+            # Refuse the capture outright rather than quietly falling back to the amp
+            # return: nothing is written and the entry stays pending, so the user must
+            # fix the loopback patch or uncheck it before this entry can be captured.
+            raise CaptureSessionError(LOOPBACK_NOT_DETECTED_MESSAGE)
         y = main[preamble.n_samples : preamble.n_samples + len(x)]
         qa = self._qa(
             entry,

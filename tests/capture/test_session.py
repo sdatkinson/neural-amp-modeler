@@ -34,11 +34,15 @@ class _FakeRecorder:
         gain: float = 0.5,
         noise: float = 1e-5,
         loopback_delay: int = None,
+        loopback_silent: bool = False,
     ):
         self.delay = delay
         self.gain = gain
         self.noise = noise
         self.loopback_delay = delay if loopback_delay is None else loopback_delay
+        # Models an unplugged loopback cable: channels are requested but nothing
+        # (beyond noise) actually arrives on the loopback input.
+        self.loopback_silent = loopback_silent
         self.calls: list[dict] = []
 
     @staticmethod
@@ -62,7 +66,9 @@ class _FakeRecorder:
             and kwargs.get("loopback_input_channel") is not None
             and loopback_playback is not None
         ):
-            loopback = self._shift(loopback_playback, self.loopback_delay, 1.0) + noise
+            loopback = _np.zeros_like(loopback_playback) + noise
+            if not self.loopback_silent:
+                loopback += self._shift(loopback_playback, self.loopback_delay, 1.0)
         return recording, loopback
 
 
@@ -307,9 +313,47 @@ def test_route_test_reports_loopback(tmp_path):
 
     assert result.ok
     assert result.loopback_used
+    assert not result.loopback_failed
     assert result.latency.delay == 480 - result.latency.safety_factor
     assert result.crosscheck is not None
     assert not result.loopback_disagreement
+
+
+def test_capture_refuses_when_loopback_enabled_but_not_detected(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    # Channels are configured (as if the cable were plugged in and selected) but
+    # nothing comes back on the loopback input -- an unplugged cable.
+    session = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(480, loopback_silent=True)
+    )
+    entry = project.pending_entries()[0]
+
+    with _pytest.raises(_CaptureSessionError, match="[Ll]oopback"):
+        session.capture_entry(entry)
+
+    assert entry.status == "pending"
+    assert entry.delay is None
+    assert not (project_dir / entry.y_path).exists()
+    assert not (project_dir / "data.json").exists()
+
+
+def test_route_test_flags_loopback_not_detected(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(480, loopback_silent=True)
+    )
+
+    result = session.route_test()
+
+    assert not result.ok
+    assert result.loopback_failed
+    # The amp return itself was fine; the failure must not be reported as if the
+    # measured delay came from (or agreed with) the loopback.
+    assert not result.latency.detected
 
 
 def test_mismatched_input_rates_are_rejected(tmp_path):
