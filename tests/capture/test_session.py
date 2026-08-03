@@ -271,10 +271,11 @@ def test_capture_uses_loopback_delay_and_crosschecks_amp(tmp_path):
     project_dir = _make_project_dir(tmp_path)
     project = _load_project(project_dir)
     _enable_loopback(project)
-    # The distorted amp return lands a few samples later than the clean loopback; the
-    # loopback is the one that should be trusted, and the amp agrees within tolerance.
+    # The distorted amp return lands a couple samples later than the clean loopback,
+    # within LOOPBACK_CROSSCHECK_SAMPLES; the loopback is the one that should be
+    # trusted, and the amp agrees within tolerance.
     session = _CaptureSession(
-        project, project_dir, recorder=_FakeRecorder(485, loopback_delay=480)
+        project, project_dir, recorder=_FakeRecorder(482, loopback_delay=480)
     )
     entry = project.pending_entries()[0]
     qa = session.capture_entry(entry)
@@ -305,8 +306,10 @@ def test_route_test_reports_loopback(tmp_path):
     project_dir = _make_project_dir(tmp_path)
     project = _load_project(project_dir)
     _enable_loopback(project)
+    # Amp return lands a couple samples later than the loopback, within
+    # LOOPBACK_CROSSCHECK_SAMPLES, so the two should agree.
     session = _CaptureSession(
-        project, project_dir, recorder=_FakeRecorder(486, loopback_delay=480)
+        project, project_dir, recorder=_FakeRecorder(482, loopback_delay=480)
     )
 
     result = session.route_test()

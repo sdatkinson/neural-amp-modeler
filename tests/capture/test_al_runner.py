@@ -116,7 +116,7 @@ def test_build_al_model_config_uses_reference_learning_rate_for_all_physical_bat
     def lr(batch_size: int) -> float:
         return _build_al_model_config(project, batch_size=batch_size)["optimizer"]["lr"]
 
-    assert _ref_bs == 37
+    assert _ref_bs == 40
     assert _ref_lr == _pytest.approx(0.008)
     assert lr(_ref_bs) == _pytest.approx(_ref_lr)
     assert lr(32) == _pytest.approx(_ref_lr)
@@ -213,7 +213,7 @@ def test_build_al_learning_config_val_batch_decoupled_and_defaults():
     assert cfg["train_dataloader"]["drop_last"] is True
     assert cfg["val_dataloader"]["batch_size"] == 200
     assert cfg["trainer"]["accumulate_grad_batches"] == 1
-    assert cfg["batch_sizing"]["target_effective_batch_size"] == 37
+    assert cfg["batch_sizing"]["target_effective_batch_size"] == 40
 
     # val_batch_size falls back to batch_size when unset.
     default_cfg = build_al_learning_config(batch_size=8, drop_last=True)
@@ -248,7 +248,7 @@ def test_compute_al_batch_plan_uses_target_batch_when_it_fits():
         10**15, _AL_NY, 2_000
     )
 
-    assert (physical, accumulation, effective) == (37, 1, 37)
+    assert (physical, accumulation, effective) == (40, 1, 40)
 
 
 def test_compute_al_batch_plan_accumulates_on_smaller_gpu():
@@ -259,8 +259,8 @@ def test_compute_al_batch_plan_accumulates_on_smaller_gpu():
     )
 
     assert physical == 3
-    assert accumulation == 12
-    assert effective == 36
+    assert accumulation == 13
+    assert effective == 39
 
 
 def test_compute_al_batch_plan_caps_target_at_tiny_dataset():
@@ -285,13 +285,13 @@ def test_compute_al_batch_size_unknown_dataset_uses_best_effective_batch_plan():
     available = 200 * bytes_per_window
     batch, drop_last = _al_runner.compute_al_batch_size(available, _AL_NY, 0)
 
-    assert batch == 37
+    assert batch == 40
     assert drop_last is True
 
 
 def test_compute_al_batch_size_bounded_by_target_effective_batch():
     batch, _ = _al_runner.compute_al_batch_size(10**15, _AL_NY, 0)
-    assert batch == 37
+    assert batch == 40
 
 
 def test_compute_al_batch_size_tiny_memory_floors_at_one():
