@@ -19,6 +19,7 @@ from typing import Any as _Any
 from typing import Literal as _Literal
 from typing import Optional as _Optional
 from typing import Sequence as _Sequence
+from typing import Union as _Union
 
 import numpy as _np
 from pydantic import BaseModel as _BaseModel
@@ -141,6 +142,32 @@ class AudioSettingsModel(_BaseModel):
     # Device buffer/block size in frames passed to the audio stream. 0 lets
     # PortAudio pick an optimal block size.
     blocksize: int = 0
+    # Suggested stream latency, in seconds, or one of PortAudio's per-device presets
+    # ("low"/"high"). This is the single biggest lever on the round trip: sounddevice
+    # defaults to "high", which on an iD44 asks for a 0.1 s input buffer and lands the
+    # measured delay near 8400 samples, where "low" or an explicit few milliseconds
+    # reaches DAW territory. Small values raise the risk of a dropout mid-capture, which
+    # is why SounddeviceRecorder fails the capture outright on an over/underflow rather
+    # than saving corrupted audio.
+    #
+    # Changing it mid-project is fine: ``delay`` is measured and stored per capture, and
+    # a buffer change moves the round trip by a whole number of samples, so it shifts the
+    # blip response and its energy peak together and leaves the sub-sample timebase in
+    # nam.capture.session untouched.
+    latency: _Union[float, _Literal["low", "high"]] = "low"
+
+    def stream_fingerprint(self) -> str:
+        """
+        Identifies the stream configuration a capture was recorded through. Captures
+        made through different configurations have legitimately different round-trip
+        delays, so QA compares each capture's delay only against others that share this.
+        """
+        return (
+            f"{self.input_device}|{self.output_device}|{self.host_api}"
+            f"|in{self.input_channel}|out{self.output_channel}"
+            f"|lb{self.loopback_input_channel}>{self.loopback_output_channel}"
+            f"|bs{self.blocksize}|lat{self.latency}"
+        )
 
     @property
     def loopback_enabled(self) -> bool:
@@ -183,6 +210,15 @@ class CaptureEntryModel(_BaseModel):
     delay: _Optional[int] = None
     captured_at: _Optional[str] = None
     qa: _Optional[QAModel] = None
+    # ``AudioSettingsModel.stream_fingerprint()`` at the time this was captured. Buffer
+    # size and stream latency are the user's to change mid-project -- a session that
+    # has to run at a bigger buffer to stay glitch-free should not be a broken project --
+    # and each capture carries its own measured ``delay``, so a change is harmless. What
+    # it would otherwise break is the delay-consistency check, which flags a capture whose
+    # delay departs from the project's typical value; recording the configuration lets
+    # that check compare like with like instead of firing on every capture after a
+    # deliberate change. ``None`` for captures made before this was recorded.
+    stream_config: _Optional[str] = None
 
 
 class CaptureProject(_BaseModel):
@@ -470,8 +506,10 @@ def mark_captured(
     *,
     delay: _Optional[int],
     qa: QAModel,
+    stream_config: _Optional[str] = None,
 ) -> None:
     entry.status = "captured"
     entry.delay = delay
     entry.qa = qa
+    entry.stream_config = stream_config
     entry.captured_at = _datetime.now(_timezone.utc).isoformat(timespec="seconds")

@@ -12,11 +12,35 @@ from __future__ import annotations
 import time as _time
 from dataclasses import dataclass as _dataclass
 from typing import Callable as _Callable
+from typing import Literal as _Literal
 from typing import Optional as _Optional
 from typing import Protocol as _Protocol
 from typing import Tuple as _Tuple
+from typing import Union as _Union
 
 import numpy as _np
+
+
+# Suggested stream latency: seconds, or one of PortAudio's per-device presets.
+_Latency = _Union[float, _Literal["low", "high"]]
+
+# Offered latency settings, coarsest first, as ``(label, value)``. sounddevice's own
+# default is "high", which is why the capture app measured a ~150 ms round trip before
+# this was settable; PortAudio's high-latency suggestion for an interface can be an
+# order of magnitude above what the same hardware does in a DAW (an iD44 asks for 0.1 s
+# on the input alone). A tighter setting costs dropout headroom, not accuracy -- and a
+# dropout is caught, see :class:`AudioDropoutError`.
+#
+# Note that these interact with the block size rather than adding to it: once the
+# latency hint is small, a large ``blocksize`` puts it back, because PortAudio inserts
+# its own ring buffer when the requested block does not match the device's. A tight
+# latency wants "Auto" or a small block size.
+LATENCY_CHOICES: _Tuple[_Tuple[str, _Latency], ...] = (
+    ("System default (safest)", "high"),
+    ("Low (device default)", "low"),
+    ("5 ms", 0.005),
+    ("2 ms", 0.002),
+)
 
 
 class CaptureCancelled(Exception):
@@ -28,6 +52,22 @@ class CaptureCancelled(Exception):
 
 
 class AudioDeviceError(RuntimeError):
+    pass
+
+
+class AudioDropoutError(AudioDeviceError):
+    """
+    The stream dropped samples: PortAudio reported an input overflow (recorded audio
+    was lost) or an output underflow (a gap in what was played).
+
+    A capture this happens to is silently wrong -- a hole somewhere in the middle that
+    no delay measurement or QA level check would notice -- so it is raised rather than
+    returned, and the capture is refused. It is the counterweight to a low
+    ``latency`` setting: small buffers are what make dropouts possible in the first
+    place, and without this check lowering the latency would trade a known, measurable
+    delay for silent data corruption.
+    """
+
     pass
 
 
@@ -284,6 +324,7 @@ class PlaybackRecorder(_Protocol):
         loopback_input_channel: _Optional[int] = None,
         loopback_playback: _Optional[_np.ndarray] = None,
         blocksize: int = 0,
+        latency: _Latency = "low",
         progress: _Optional[_Callable[[float], None]] = None,
         cancel: _Optional[_Callable[[], bool]] = None,
     ) -> _Tuple[_np.ndarray, _Optional[_np.ndarray]]:
@@ -298,8 +339,16 @@ class PlaybackRecorder(_Protocol):
         element; otherwise ``loopback_recording`` is ``None``. The loopback channels
         must differ from the primary channels and share the same devices.
 
+        ``blocksize`` and ``latency`` set the stream's block size in frames (0 = let
+        PortAudio choose) and its suggested latency in seconds, or one of PortAudio's
+        per-device presets ("low"/"high"). Together they set the round-trip delay; see
+        :data:`LATENCY_CHOICES`.
+
         ``progress`` is called with a fraction in [0, 1]; ``cancel`` is polled and a
         truthy return aborts the stream by raising :class:`CaptureCancelled`.
+
+        Raises :class:`AudioDropoutError` if the stream over- or underflowed, since the
+        recording is then silently missing samples.
         """
         ...
 
@@ -313,6 +362,35 @@ def _device_channels(index: _Optional[int], *, kind: str) -> int:
 
     info = sd.query_devices(kind=kind) if index is None else sd.query_devices(index)
     return int(info[f"max_{kind}_channels"])
+
+
+def _raise_on_dropout(status, *, latency: _Latency, blocksize: int) -> None:
+    """
+    Turn PortAudio's accumulated callback status flags into an
+    :class:`AudioDropoutError`, or return quietly if the stream ran clean.
+
+    Only the two flags that mean lost audio on a callback duplex stream are fatal:
+    ``input_overflow`` (recorded samples discarded) and ``output_underflow`` (silence
+    inserted into the playback). ``input_underflow``/``output_overflow`` are artefacts
+    of PortAudio's blocking read/write API and never indicate a problem here, and
+    ``priming_output`` is normal at stream start.
+    """
+    lost_input = bool(getattr(status, "input_overflow", False))
+    lost_output = bool(getattr(status, "output_underflow", False))
+    if not (lost_input or lost_output):
+        return
+    what = []
+    if lost_input:
+        what.append("recorded samples were dropped")
+    if lost_output:
+        what.append("gaps were played into the output")
+    raise AudioDropoutError(
+        f"The audio stream could not keep up: {' and '.join(what)}. The capture is "
+        "missing audio and was not saved. Raise 'Stream latency' (currently "
+        f"{latency!r}) or the buffer size (currently "
+        f"{'Auto' if blocksize == 0 else blocksize}) in Audio settings, close other "
+        "audio applications, and capture again."
+    )
 
 
 class SounddeviceRecorder:
@@ -331,6 +409,7 @@ class SounddeviceRecorder:
         loopback_input_channel: _Optional[int] = None,
         loopback_playback: _Optional[_np.ndarray] = None,
         blocksize: int = 0,
+        latency: _Latency = "low",
         progress: _Optional[_Callable[[float], None]] = None,
         cancel: _Optional[_Callable[[], bool]] = None,
     ) -> _Tuple[_np.ndarray, _Optional[_np.ndarray]]:
@@ -410,6 +489,7 @@ class SounddeviceRecorder:
             channels=input_channels,
             dtype="float32",
             blocksize=blocksize,
+            latency=latency,
             blocking=False,
         )
         duration = len(playback) / sample_rate
@@ -427,6 +507,7 @@ class SounddeviceRecorder:
         except BaseException:
             sd.stop()
             raise
+        _raise_on_dropout(sd.get_status(), latency=latency, blocksize=blocksize)
         if progress is not None:
             progress(1.0)
         main = recording[:, input_channel - 1].copy()

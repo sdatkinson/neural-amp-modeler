@@ -47,6 +47,7 @@ from PySide6.QtWidgets import QWidget as _QWidget
 from .. import al_runner as _al_runner
 from ..audio import current_device_sample_rates as _current_device_sample_rates
 from ..audio import DeviceInfo as _DeviceInfo
+from ..audio import LATENCY_CHOICES as _LATENCY_CHOICES
 from ..audio import list_devices as _list_devices
 from ..export import write_training_configs as _write_training_configs
 from ..params import KnobSpec as _KnobSpec
@@ -81,6 +82,18 @@ _BUFFER_SIZE_CHOICES = (0, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 # corner set doubles with every knob added, so a knob or two more than expected turns into
 # an unexpectedly long session.
 _CORNER_COUNT_ADVISORY = 32
+
+
+def _latency_index(value) -> int:
+    """
+    Index of ``value`` in :data:`nam.capture.audio.LATENCY_CHOICES`, or -1. Matched in
+    Python rather than with ``QComboBox.findData`` because the choices mix strings and
+    floats, which ``findData`` compares as QVariants.
+    """
+    for index, (_, choice) in enumerate(_LATENCY_CHOICES):
+        if type(choice) is type(value) and choice == value:
+            return index
+    return -1
 
 
 def format_number(value: float) -> str:
@@ -468,7 +481,7 @@ class MainWindow(_QMainWindow):
             "Play the timing blips on a second output channel patched straight back "
             "into a second input channel. The delay is measured from that clean "
             "loopback instead of the amp return, so it stays consistent as gain and "
-            "distortion increase (the buffer size must not change between captures)."
+            "distortion increase."
         )
         self.loopback_output_channel_spin = _QSpinBox()
         self.loopback_output_channel_spin.setRange(1, 1)
@@ -478,6 +491,17 @@ class MainWindow(_QMainWindow):
         for frames in _BUFFER_SIZE_CHOICES:
             label = "Auto" if frames == 0 else f"{frames} frames"
             self.buffer_size_combo.addItem(label, frames)
+        self.latency_combo = _QComboBox()
+        for label, value in _LATENCY_CHOICES:
+            self.latency_combo.addItem(label, value)
+        self.latency_combo.setToolTip(
+            "How much buffering to ask the device for. This, not the buffer size, is "
+            "what usually puts the round-trip delay far above what the same interface "
+            "does in a DAW. Lower settings risk dropouts; a capture that drops samples "
+            "is refused rather than saved, so it is safe to try the lowest one that "
+            "holds. Changing it mid-project is fine — the delay is measured per "
+            "capture — but check the route test after you do."
+        )
         form.addRow("Audio device", self.device_combo)
         form.addRow("Output channel", self.output_channel_spin)
         form.addRow("Input channel", self.input_channel_spin)
@@ -485,6 +509,7 @@ class MainWindow(_QMainWindow):
         form.addRow("Loopback output channel", self.loopback_output_channel_spin)
         form.addRow("Loopback input channel", self.loopback_input_channel_spin)
         form.addRow("Buffer size", self.buffer_size_combo)
+        form.addRow("Stream latency", self.latency_combo)
         layout.addLayout(form)
 
         self.routing_note_label = _QLabel(
@@ -534,6 +559,7 @@ class MainWindow(_QMainWindow):
             self._save_audio_settings
         )
         self.buffer_size_combo.currentIndexChanged.connect(self._save_audio_settings)
+        self.latency_combo.currentIndexChanged.connect(self._save_audio_settings)
         self._update_loopback_enabled_state()
         return widget
 
@@ -1198,6 +1224,9 @@ class MainWindow(_QMainWindow):
         buffer_index = self.buffer_size_combo.findData(audio.blocksize)
         self.buffer_size_combo.setCurrentIndex(max(0, buffer_index))
         self.buffer_size_combo.blockSignals(False)
+        self.latency_combo.blockSignals(True)
+        self.latency_combo.setCurrentIndex(max(0, _latency_index(audio.latency)))
+        self.latency_combo.blockSignals(False)
 
     def _on_device_changed(self) -> None:
         self._update_channel_ranges()
@@ -1288,6 +1317,7 @@ class MainWindow(_QMainWindow):
             audio.loopback_output_channel = None
             audio.loopback_input_channel = None
         audio.blocksize = int(self.buffer_size_combo.currentData())
+        audio.latency = self.latency_combo.currentData()
         if self.project is not None and self.project_dir is not None:
             _save_project(self.project, self.project_dir)
 

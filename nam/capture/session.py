@@ -201,6 +201,7 @@ class CaptureSession:
             ),
             loopback_playback=loopback_playback if use_loopback else None,
             blocksize=audio.blocksize,
+            latency=audio.latency,
             progress=progress,
             cancel=cancel,
             **self._resolve_devices(),
@@ -336,14 +337,14 @@ class CaptureSession:
                 f"Alignment correction of {shift:+.2f} samples was needed but not "
                 f"applied: past {MAX_ALIGNMENT_SHIFT:g} samples the timing measurement "
                 "itself is in doubt. Re-run the route test and check the loopback patch "
-                "and the buffer size before trusting this capture."
+                "before trusting this capture."
             )
         note = None
         if abs(shift) >= 0.5:
             note = (
                 f"Timing moved {shift:+.2f} samples from this project's reference; the "
-                "capture was realigned, but a shift this large usually means the buffer "
-                "size or routing changed mid-session."
+                "capture was realigned, but a sub-sample shift this large usually means "
+                "the interface re-clocked or the routing changed mid-session."
             )
         return float(shift), note
 
@@ -440,7 +441,12 @@ class CaptureSession:
         )
 
         self._write_capture_wav(entry, y, sample_rate)
-        _mark_captured(entry, delay=latency.delay, qa=qa)
+        _mark_captured(
+            entry,
+            delay=latency.delay,
+            qa=qa,
+            stream_config=self.project.audio.stream_fingerprint(),
+        )
         _save_project(self.project, self.project_dir)
         _update_data_json(self.project, self.project_dir)
         return qa
@@ -485,6 +491,37 @@ class CaptureSession:
             _update_data_json(self.project, self.project_dir)
         return notes
 
+    def _comparable_delays(self, entry: _CaptureEntryModel) -> list[int]:
+        """
+        Delays of the already-captured entries this one's delay may be compared against:
+        those recorded through the same stream configuration.
+
+        Buffer size and stream latency are the user's to change mid-project -- a room or
+        a machine that needs a bigger buffer today should not cost a project -- and doing
+        so moves the round trip by hundreds or thousands of samples at once. That is not
+        a fault: ``delay`` is measured and written per capture, and the sub-sample
+        timebase is untouched by it (a buffer change is a whole number of samples, so the
+        blip response and its energy peak move together and ``_alignment_shift`` sees
+        nothing). Only the delay-consistency check would notice, and comparing across
+        configurations would make it fire on every capture after the change while saying
+        "did the routing change?" -- training the user to ignore the one message that
+        catches a genuinely mispatched rig.
+
+        Entries from before the configuration was recorded (``stream_config is None``)
+        are used only when nothing matches the current one, so an existing project keeps
+        its delay check on the next capture instead of silently losing it.
+        """
+        current = self.project.audio.stream_fingerprint()
+        others = [
+            other
+            for other in self.project.captured_entries()
+            if other.delay is not None and other is not entry
+        ]
+        matching = [other.delay for other in others if other.stream_config == current]
+        if matching:
+            return matching
+        return [other.delay for other in others if other.stream_config is None]
+
     def _qa(
         self,
         entry: _CaptureEntryModel,
@@ -520,11 +557,7 @@ class CaptureSession:
 
         delay_disagreement = False
         if latency.delay is not None:
-            other_delays = [
-                other.delay
-                for other in self.project.captured_entries()
-                if other.delay is not None and other is not entry
-            ]
+            other_delays = self._comparable_delays(entry)
             if other_delays and (
                 abs(latency.delay - int(_np.median(other_delays)))
                 >= DELAY_DISAGREEMENT_SAMPLES
@@ -533,7 +566,7 @@ class CaptureSession:
                 messages.append(
                     f"Delay {latency.delay} differs from this project's typical "
                     f"{int(_np.median(other_delays))} by {DELAY_DISAGREEMENT_SAMPLES}+ "
-                    "samples. Did the routing or device settings change?"
+                    "samples at these audio settings. Did the routing change?"
                 )
 
         if peak < 1e-4:
@@ -545,8 +578,8 @@ class CaptureSession:
         if loopback_disagreement:
             messages.append(
                 f"The loopback and amp-return timing blips disagree by more than "
-                f"{LOOPBACK_CROSSCHECK_SAMPLES} samples. Check the loopback patch and "
-                "that the buffer size has not changed."
+                f"{LOOPBACK_CROSSCHECK_SAMPLES} samples. Check the loopback patch: the "
+                "two routes are no longer travelling the same chain."
             )
 
         if alignment_note:

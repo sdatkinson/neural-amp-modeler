@@ -19,6 +19,7 @@ from nam.capture.gui.main import format_entry_row as _format_entry_row
 from nam.capture.gui.main import format_params as _format_params
 from nam.capture.gui.main import format_qa_summary as _format_qa_summary
 from nam.capture.gui.main import knob_rows_to_specs as _knob_rows_to_specs
+from nam.capture.gui.main import _latency_index
 from nam.capture.project import CaptureEntryModel as _CaptureEntryModel
 from nam.capture.project import load_project as _load_project
 from nam.capture.project import QAModel as _QAModel
@@ -300,6 +301,11 @@ def test_new_project_gets_a_session_and_keeps_audio_settings_through_generate_pl
     assert window.project.audio.blocksize == 256
     assert _load_project(tmp_path).audio.blocksize == 256
 
+    # The latency choices mix strings and floats, so the combo has to round-trip both.
+    window.latency_combo.setCurrentIndex(_latency_index(0.002))
+    assert window.project.audio.latency == 0.002
+    assert _load_project(tmp_path).audio.latency == 0.002
+
     # Generating the plan must not reset the audio settings chosen beforehand.
     _fill_knob_rows(window, _GAIN_KNOB_ROWS)
     window.n_train_spin.setValue(2)
@@ -307,6 +313,28 @@ def test_new_project_gets_a_session_and_keeps_audio_settings_through_generate_pl
     window._on_generate_plan()
     assert window.project.audio.blocksize == 256
     assert _load_project(tmp_path).audio.blocksize == 256
+    assert window.project.audio.latency == 0.002
+    window.close()
+
+
+def test_audio_settings_load_the_stored_latency_into_the_combo(
+    _qapp, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        _MainWindow_module._QFileDialog,
+        "getExistingDirectory",
+        lambda *a, **k: str(tmp_path),
+    )
+    monkeypatch.setattr(
+        _InputWavDialog,
+        "exec",
+        lambda self: _MainWindow_module._QDialog.DialogCode.Rejected,
+    )
+    window = _MainWindow()
+    window._on_new_project()
+    window.project.audio.latency = "high"
+    window._load_audio_settings_into_ui()
+    assert window.latency_combo.currentData() == "high"
     window.close()
 
 

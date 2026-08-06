@@ -4,6 +4,7 @@ from pathlib import Path as _Path
 import numpy as _np
 import pytest as _pytest
 
+from nam.capture.audio import AudioDropoutError as _AudioDropoutError
 from nam.capture.params import KnobSpec as _KnobSpec
 from nam.capture.project import find_recoverable_entries as _find_recoverable_entries
 from nam.capture.project import load_project as _load_project
@@ -172,6 +173,109 @@ def test_delay_disagreement_flagged_when_routing_changes(tmp_path):
     qa_second = drifted.capture_entry(second)
     assert qa_second.delay_disagreement
     assert any("differs" in message for message in qa_second.messages)
+
+
+def test_stream_latency_is_passed_to_the_recorder(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    project.audio.latency = 0.002
+    project.audio.blocksize = 64
+    recorder = _FakeRecorder(480)
+    session = _CaptureSession(project, project_dir, recorder=recorder)
+
+    session.capture_entry(project.pending_entries()[0])
+
+    assert recorder.calls[0]["latency"] == 0.002
+    assert recorder.calls[0]["blocksize"] == 64
+
+
+def test_changing_the_stream_settings_does_not_flag_a_delay_disagreement(tmp_path):
+    """
+    Buffer size and latency are the user's to change mid-project. Doing so moves the
+    round trip by hundreds of samples, which must not be reported as a routing fault:
+    each capture stores its own delay, so the change costs nothing.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+
+    first = project.entries_for_split("train")[0]
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(900))
+    session.capture_entry(first)
+    assert first.stream_config == project.audio.stream_fingerprint()
+
+    project.audio.latency = 0.002
+    second = project.entries_for_split("train")[1]
+    faster = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    qa_second = faster.capture_entry(second)
+
+    assert not qa_second.delay_disagreement
+    assert not any("differs" in message for message in qa_second.messages)
+    assert second.delay != first.delay
+    assert second.stream_config != first.stream_config
+
+
+def test_delay_disagreement_still_fires_after_a_settings_change(tmp_path):
+    """
+    Scoping the check by stream configuration must not switch it off: once a capture
+    exists at the new settings, the next one is compared against it.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    project.audio.latency = 0.002
+
+    entries = project.entries_for_split("train")
+    _CaptureSession(project, project_dir, recorder=_FakeRecorder(480)).capture_entry(
+        entries[0]
+    )
+    qa = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(900)
+    ).capture_entry(entries[1])
+
+    assert qa.delay_disagreement
+
+
+def test_delay_disagreement_uses_entries_predating_the_stream_config(tmp_path):
+    """
+    A project captured before the configuration was recorded keeps its delay check on
+    the next capture rather than silently losing it.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+
+    entries = project.entries_for_split("train")
+    _CaptureSession(project, project_dir, recorder=_FakeRecorder(480)).capture_entry(
+        entries[0]
+    )
+    entries[0].stream_config = None
+
+    qa = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(900)
+    ).capture_entry(entries[1])
+
+    assert qa.delay_disagreement
+
+
+def test_a_dropout_saves_nothing_and_leaves_the_entry_pending(tmp_path):
+    """
+    A dropped block leaves a hole in the middle of the capture that no delay
+    measurement or level check would notice, so it must not reach disk.
+    """
+
+    class _DroppingRecorder:
+        def playrec(self, playback, sample_rate, **kwargs):
+            raise _AudioDropoutError("the audio stream could not keep up")
+
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    session = _CaptureSession(project, project_dir, recorder=_DroppingRecorder())
+    entry = project.pending_entries()[0]
+
+    with _pytest.raises(_AudioDropoutError):
+        session.capture_entry(entry)
+
+    assert entry.status == "pending"
+    assert entry.delay is None
+    assert not (project_dir / entry.y_path).exists()
 
 
 def test_clipping_is_flagged(tmp_path):
