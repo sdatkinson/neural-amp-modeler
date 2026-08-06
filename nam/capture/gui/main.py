@@ -66,6 +66,7 @@ from ..project import reconcile_with_disk as _reconcile_with_disk
 from ..project import save_project as _save_project
 from ..project import QAModel as _QAModel
 from ..session import CaptureSession as _CaptureSession
+from ..session import LOOPBACK_CROSSCHECK_SAMPLES as _LOOPBACK_CROSSCHECK_SAMPLES
 from ..session import LOOPBACK_NOT_DETECTED_MESSAGE as _LOOPBACK_NOT_DETECTED_MESSAGE
 from .workers import CancelToken as _CancelToken
 from .workers import SessionWorker as _SessionWorker
@@ -107,6 +108,10 @@ def format_qa_summary(qa: _Optional[_QAModel]) -> str:
         parts.append("delay disagreement")
     if qa.loopback_disagreement:
         parts.append("loopback mismatch")
+    if qa.subsample_shift is not None:
+        # Routine and expected -- the point is to see at a glance whether the rig's
+        # timing is holding still across a session, so it is shown, not flagged.
+        parts.append(f"aligned {qa.subsample_shift:+.2f}")
     return ", ".join(parts)
 
 
@@ -515,6 +520,7 @@ class MainWindow(_QMainWindow):
         layout.addWidget(self.route_test_progress)
 
         self.route_test_result_label = _QLabel("")
+        self.route_test_result_label.setWordWrap(True)
         layout.addWidget(self.route_test_result_label)
 
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)
@@ -1370,10 +1376,18 @@ class MainWindow(_QMainWindow):
                     text += "; amp-return blip not detected (loopback only)"
                 elif result.loopback_disagreement:
                     text += (
-                        f"; ⚠ amp-return delay {amp_delay} disagrees with the loopback"
+                        f"; ⚠ amp-return delay {amp_delay} disagrees with the loopback "
+                        f"by more than {_LOOPBACK_CROSSCHECK_SAMPLES} sample(s). On a "
+                        "correctly patched rig the two travel the same route and agree; "
+                        "check the loopback patch before capturing."
                     )
                 else:
                     text += f"; amp-return delay {amp_delay} agrees"
+            if result.latency.peak_delay is not None:
+                text += (
+                    f"; timing resolved to {result.latency.peak_delay:.2f} samples "
+                    "(sub-sample alignment active)"
+                )
             self.route_test_result_label.setText(text)
         else:
             self.route_test_result_label.setText(

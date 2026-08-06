@@ -271,11 +271,11 @@ def test_capture_uses_loopback_delay_and_crosschecks_amp(tmp_path):
     project_dir = _make_project_dir(tmp_path)
     project = _load_project(project_dir)
     _enable_loopback(project)
-    # The distorted amp return lands a couple samples later than the clean loopback,
-    # within LOOPBACK_CROSSCHECK_SAMPLES; the loopback is the one that should be
-    # trusted, and the amp agrees within tolerance.
+    # The distorted amp return's threshold crossing lands a sample later than the clean
+    # loopback's, which is within LOOPBACK_CROSSCHECK_SAMPLES; the loopback is the one
+    # that should be trusted, and the amp agrees within tolerance.
     session = _CaptureSession(
-        project, project_dir, recorder=_FakeRecorder(482, loopback_delay=480)
+        project, project_dir, recorder=_FakeRecorder(481, loopback_delay=480)
     )
     entry = project.pending_entries()[0]
     qa = session.capture_entry(entry)
@@ -283,6 +283,9 @@ def test_capture_uses_loopback_delay_and_crosschecks_amp(tmp_path):
     assert entry.delay == 480 - 1
     assert qa.impulse_detected
     assert qa.loopback_disagreement is False
+    # Both measurements are kept, not just the boolean above.
+    assert qa.loopback_delay == 480 - 1
+    assert qa.amp_return_delay == 481 - 1
 
 
 def test_capture_flags_loopback_disagreement(tmp_path):
@@ -306,10 +309,10 @@ def test_route_test_reports_loopback(tmp_path):
     project_dir = _make_project_dir(tmp_path)
     project = _load_project(project_dir)
     _enable_loopback(project)
-    # Amp return lands a couple samples later than the loopback, within
+    # Amp return lands a sample later than the loopback, within
     # LOOPBACK_CROSSCHECK_SAMPLES, so the two should agree.
     session = _CaptureSession(
-        project, project_dir, recorder=_FakeRecorder(482, loopback_delay=480)
+        project, project_dir, recorder=_FakeRecorder(481, loopback_delay=480)
     )
 
     result = session.route_test()
@@ -374,3 +377,127 @@ def test_missing_input_is_rejected(tmp_path):
     session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
     with _pytest.raises(_CaptureSessionError):
         session.load_inputs()
+
+
+def _converter_response(taps: int = 31, cutoff: float = 0.8):
+    """
+    A compact bandlimited pulse standing in for a converter's round-trip impulse
+    response. ``_FakeRecorder`` returns a bare unit impulse, which is not usable for
+    timing tests: a fractionally delayed *ideal* impulse rings as a full sinc, decaying
+    only as 1/n, so its leading lobes cross the calibrator's threshold a hundred samples
+    early and the reported delay swings wildly with sub-sample phase. Real converters
+    ring for a handful of samples, so their threshold crossing moves by at most one.
+    """
+    offset = _np.arange(taps) - (taps - 1) // 2
+    return _np.sinc(cutoff * offset) * _np.hanning(taps) * cutoff
+
+
+class _DriftingRecorder(_FakeRecorder):
+    """
+    A rig with a realistic loopback response whose round trip is ``delay + drift``
+    samples, ``drift`` being a fraction the integer delay measurement cannot represent.
+    It is read fresh on every call so a test can move it between captures.
+    """
+
+    def __init__(self, delay: int, drift: float = 0.0, **kwargs):
+        super().__init__(delay, **kwargs)
+        self.drift = drift
+
+    def playrec(self, playback, sample_rate, **kwargs):
+        from scipy.signal import fftconvolve as _fftconvolve
+
+        from nam.capture.resample import apply_fractional_delay as _apply
+
+        recording, loopback = super().playrec(playback, sample_rate, **kwargs)
+        if loopback is not None:
+            loopback = _fftconvolve(loopback, _converter_response(), mode="same")
+            if self.drift:
+                loopback = _apply(loopback, self.drift)
+            loopback = loopback.astype(_np.float32)
+        return recording, loopback
+
+
+def test_first_capture_sets_the_timebase_and_is_not_shifted(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    assert project.alignment_reference is None
+    qa = session.capture_entry(project.pending_entries()[0])
+
+    assert project.alignment_reference is not None
+    assert qa.subsample_shift is None
+    # It is persisted, so reopening the project keeps the same timebase.
+    assert _load_project(project_dir).alignment_reference == project.alignment_reference
+
+
+def test_later_captures_are_shifted_back_onto_the_timebase(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    recorder = _DriftingRecorder(480)
+    session = _CaptureSession(project, project_dir, recorder=recorder)
+
+    entries = project.pending_entries()
+    session.capture_entry(entries[0])
+
+    # The rig's sub-sample phase moves between captures; the correction should take it
+    # straight back out rather than leaving it for the model to memorise.
+    recorder.drift = 0.3
+    qa = session.capture_entry(entries[1])
+
+    assert qa.subsample_shift is not None
+    assert qa.subsample_shift == _pytest.approx(-0.3, abs=0.05)
+
+
+def test_no_correction_without_a_loopback(tmp_path):
+    # The amp return carries the tone stack's own knob-dependent group delay, which is
+    # real behaviour to be learned, not jitter to be removed.
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    project.audio.loopback_output_channel = None
+    project.audio.loopback_input_channel = None
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    qa = session.capture_entry(project.pending_entries()[0])
+
+    assert qa.subsample_shift is None
+    assert project.alignment_reference is None
+    assert qa.loopback_delay is None
+    assert qa.amp_return_delay == 480 - 1
+
+
+def test_implausible_shift_is_refused_and_flagged(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    # A timebase from a rig that no longer exists: correcting onto it would slide the
+    # capture far enough to do real damage.
+    project.alignment_reference = 500.0
+
+    qa = session.capture_entry(project.pending_entries()[0])
+
+    assert qa.subsample_shift is None
+    assert any("Alignment correction" in message for message in qa.messages)
+
+
+def test_whole_sample_part_of_a_shift_is_taken_losslessly(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    entries = project.pending_entries()
+
+    session.capture_entry(entries[0])
+    baseline = _wav_to_np(project_dir / entries[0].y_path)
+
+    # Same rig, but the timebase asks for exactly one whole sample of delay. That is a
+    # slice offset, not a resample, so the samples themselves must be untouched.
+    project.alignment_reference += 1.0
+    qa = session.capture_entry(entries[1])
+    shifted = _wav_to_np(project_dir / entries[1].y_path)
+
+    assert qa.subsample_shift == _pytest.approx(1.0, abs=1e-6)
+    assert _np.abs(shifted[1:] - baseline[:-1]).max() < 1e-6

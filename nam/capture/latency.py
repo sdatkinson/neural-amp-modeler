@@ -41,6 +41,12 @@ DEFAULT_BLIP_AMPLITUDE = 0.9
 _CALIBRATOR_LOOKAHEAD = 1_000
 _CALIBRATOR_LOOKBACK = 10_000
 
+# Sub-sample peak location (see ``_peak_delay``). 129 steps across one sample resolves the
+# peak to under 0.008 samples, which is well inside the spread the correction is there to
+# remove (~0.1-0.2 samples measured across real capture sessions).
+_PEAK_INTERPOLATION_TAPS = 257
+_PEAK_INTERPOLATION_STEPS = 129
+
 
 @_dataclass(frozen=True)
 class BlipPreamble:
@@ -108,6 +114,11 @@ class LatencyResult:
     detected: bool
     disagreement_too_high: bool
     safety_factor: int
+    # Sub-sample position of the blip response's energy peak, in the same frame as
+    # ``delay``. See :func:`_peak_delay` for why this is not simply ``delay`` with a
+    # fractional part: the two are different estimators of the same arrival, and only
+    # the *difference between captures* of this one is meaningful.
+    peak_delay: _Optional[float] = None
 
     @property
     def ok(self) -> bool:
@@ -147,6 +158,66 @@ def _coarse_bulk_delay(recording: _np.ndarray, preamble: BlipPreamble) -> int:
     return d
 
 
+def _peak_delay(scan: _np.ndarray, preamble: BlipPreamble) -> _Optional[float]:
+    """
+    Sub-sample arrival time of the blip response, from the continuous position of its
+    energy peak. ``scan`` must already be coarse-aligned, as it is for the calibrator.
+
+    This is deliberately a *different* estimator from the one behind ``delay``, which is
+    the first sample to cross an amplitude threshold, minus a safety factor. A threshold
+    crossing has no meaningful fractional part -- it is amplitude-biased, and a quieter
+    return crosses later -- so there is nothing there to refine. The peak of the response
+    does have one.
+
+    The two therefore disagree by some fixed offset. That offset does not matter: the
+    round trip is LTI and, on a loopback, its impulse response is fixed hardware, so the
+    offset is identical for every capture in a project and is absorbed as a constant. What
+    varies between captures -- and what this exists to remove -- is the fractional part.
+    See :meth:`nam.capture.session.CaptureSession._subsample_shift`.
+
+    Both blips are averaged, as in the calibrator: they are exact-integer impulses through
+    the same LTI path, so they share a sub-sample phase and averaging halves the noise.
+
+    The peak is located by sinc interpolation on a fine grid, not by fitting a parabola to
+    the three samples around it. A converter round trip's impulse response is bandlimited,
+    so its peak is sinc-shaped rather than parabolic, and a three-point parabola
+    underestimates the offset by more than an order of magnitude there -- 0.009 for a true
+    0.2 in the test that caught it. Sinc interpolation is the exact reconstruction for a
+    bandlimited signal, so it has no such bias.
+    """
+    from .resample import fractional_delay_kernel as _kernel
+
+    section = scan[: preamble.blip_section_samples]
+    windows = []
+    for location in preamble.blip_locations:
+        start = location - _CALIBRATOR_LOOKAHEAD
+        stop = location + _CALIBRATOR_LOOKBACK
+        if start < 0 or stop > len(section):
+            return None
+        windows.append(section[start:stop])
+    response = _np.mean(_np.stack(windows), axis=0).astype(_np.float64)
+
+    peak = int(_np.argmax(response**2))
+    half = (_PEAK_INTERPOLATION_TAPS - 1) // 2
+    if peak - half < 0 or peak + half + 1 > len(response) or response[peak] == 0.0:
+        return None
+    neighbourhood = response[peak - half : peak + half + 1]
+
+    # Interpolated value at a continuous offset `t` from the peak sample. The response is
+    # not a bare impulse -- it is the round trip's own shape -- so the offset this finds
+    # carries that shape's own bias. It is the same shape on every capture, so the bias is
+    # a constant and cancels; only the drift between captures is used.
+    offsets = _np.linspace(-0.5, 0.5, _PEAK_INTERPOLATION_STEPS)
+    interpolated = _np.array(
+        [
+            _kernel(offset, taps=_PEAK_INTERPOLATION_TAPS) @ neighbourhood
+            for offset in offsets
+        ]
+    )
+    fraction = float(offsets[int(_np.argmax(_np.abs(interpolated)))])
+    return float(peak - _CALIBRATOR_LOOKAHEAD + fraction)
+
+
 def measure_delay(recording: _np.ndarray, preamble: BlipPreamble) -> LatencyResult:
     """
     Measure round-trip delay from a recording that is time-aligned with the playback
@@ -182,9 +253,12 @@ def measure_delay(recording: _np.ndarray, preamble: BlipPreamble) -> LatencyResu
         _override_suppress_plots=True,
     )
     recommended = calibration.recommended
+    detected = not calibration.warnings.not_detected
+    peak = _peak_delay(scan, preamble) if detected else None
     return LatencyResult(
         delay=None if recommended is None else int(recommended) + coarse,
-        detected=not calibration.warnings.not_detected,
+        detected=detected,
         disagreement_too_high=calibration.warnings.disagreement_too_high,
         safety_factor=int(calibration.safety_factor),
+        peak_delay=None if peak is None else peak + coarse,
     )

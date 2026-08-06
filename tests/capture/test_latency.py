@@ -91,3 +91,47 @@ def test_preamble_rejects_bad_parameters():
         _BlipPreamble(_RATE, amplitude=0.0)
     with _pytest.raises(ValueError):
         _BlipPreamble(_RATE, amplitude=1.5)
+
+
+def _fractionally_delayed_chain(
+    playback: _np.ndarray, *, delay: int, fraction: float, gain: float = 0.5
+) -> _np.ndarray:
+    """A rig whose round trip is ``delay + fraction`` samples, with no added noise."""
+    from nam.capture.resample import apply_fractional_delay as _apply
+
+    recording = _np.zeros_like(playback, dtype=_np.float64)
+    recording[delay:] = playback[: len(playback) - delay] * gain
+    return _apply(recording, fraction).astype(_np.float32)
+
+
+def test_peak_delay_is_reported_alongside_the_integer_delay():
+    preamble = _BlipPreamble(_RATE)
+    playback = _np.concatenate([preamble.render(), _np.zeros(_RATE // 2, _np.float32)])
+    result = _measure_delay(_simulate_chain(playback, delay=500), preamble)
+    assert result.peak_delay is not None
+    # It is a different estimator from `delay` (peak vs threshold crossing minus a
+    # safety factor), so it need not equal it -- only be close and be sub-sample.
+    assert abs(result.peak_delay - result.delay) < 5.0
+
+
+def test_peak_delay_tracks_sub_sample_drift_that_the_integer_delay_cannot():
+    preamble = _BlipPreamble(_RATE)
+    playback = _np.concatenate([preamble.render(), _np.zeros(_RATE // 2, _np.float32)])
+
+    baseline = _measure_delay(
+        _fractionally_delayed_chain(playback, delay=500, fraction=0.0), preamble
+    )
+    for fraction in (0.2, 0.4, -0.3):
+        moved = _measure_delay(
+            _fractionally_delayed_chain(playback, delay=500, fraction=fraction),
+            preamble,
+        )
+        assert moved.peak_delay - baseline.peak_delay == _pytest.approx(
+            fraction, abs=0.02
+        )
+
+
+def test_peak_delay_is_none_when_nothing_is_detected():
+    preamble = _BlipPreamble(_RATE)
+    recording = _np.zeros(preamble.n_samples + _RATE, dtype=_np.float32)
+    assert _measure_delay(recording, preamble).peak_delay is None

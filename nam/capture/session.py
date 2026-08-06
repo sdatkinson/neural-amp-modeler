@@ -3,9 +3,17 @@ Capture-session orchestration: turn one planned entry at a time into a recorded,
 delay-measured, QA-checked WAV, persisting after every step.
 
 Per capture: build the playback (blip preamble + input audio + tail), play/record it,
-measure the round-trip delay from the blips, run QA, save the capture WAV, then
-rewrite both ``capture_project.json`` and ``data.json`` so a crash or app close
-never loses a completed capture.
+measure the round-trip delay from the blips, shift the target onto the project's
+timebase, run QA, save the capture WAV, then rewrite both ``capture_project.json`` and
+``data.json`` so a crash or app close never loses a completed capture.
+
+The alignment step exists because ``delay`` is an integer while the rig's latency is not.
+A capture set aligned only to whole samples carries up to half a sample of per-capture
+error, and that error is not a function of the knobs, so a parametric model cannot learn
+it as a rule -- it can only memorise a per-capture phase. Correcting it at write time
+keeps ``delay`` an integer and leaves everything downstream unchanged. See
+:meth:`CaptureSession._alignment_shift` for what is measured and why, and
+:mod:`nam.capture.resample` for the filter.
 """
 
 from __future__ import annotations
@@ -40,10 +48,12 @@ CLIPPING_THRESHOLD = 0.999
 # Matches the ensemble-disagreement threshold inside the wrapped NAM calibration.
 DELAY_DISAGREEMENT_SAMPLES = 10
 # When a clean loopback is used to measure the delay, the amp-return blip is still
-# detected as a cross-check. The two share the interface round-trip, so their measured
-# delays should agree to within a handful of samples; a larger gap means a mispatched
-# loopback or a genuine routing problem worth flagging.
-LOOPBACK_CROSSCHECK_SAMPLES = 3
+# detected as a cross-check. On a correctly patched rig the two travel the same route and
+# agree to within a sample; a larger gap means a mispatched loopback or a genuine routing
+# problem. This was 3, which is wider than the ~3-sample drift a mispatched loopback
+# actually produced, so the check never fired across a whole 93-capture project. It has to
+# sit below the drift it is meant to catch to be worth anything.
+LOOPBACK_CROSSCHECK_SAMPLES = 1
 # Shared between the route test and the actual capture so the two surfaces never
 # describe this failure differently.
 LOOPBACK_NOT_DETECTED_MESSAGE = (
@@ -56,6 +66,10 @@ LOOPBACK_NOT_DETECTED_MESSAGE = (
 # Extra playback beyond the input audio so the delayed response tail is still inside
 # the stream when the recording stops.
 TAIL_SECONDS = 0.5
+# Alignment corrections beyond this are refused rather than applied: at that size the
+# measurement itself is suspect, and silently sliding a capture several samples is worse
+# than leaving it where it is and saying so.
+MAX_ALIGNMENT_SHIFT = 4.0
 
 
 class CaptureSessionError(RuntimeError):
@@ -241,6 +255,98 @@ class CaptureSession:
         )
         return loopback_latency, amp_latency, disagreement, False
 
+    @staticmethod
+    def _aligned_target(
+        main: _np.ndarray,
+        preamble: _BlipPreamble,
+        length: int,
+        shift: float,
+    ) -> _np.ndarray:
+        """
+        Cut the target out of the recording, delayed by ``shift`` samples.
+
+        The whole part is taken by starting the cut that many samples earlier, which is
+        exact -- the recording extends well past the target on both sides (the preamble
+        before it, ``TAIL_SECONDS`` after). Only the remaining fraction goes through the
+        resampling filter, so a shift of exactly 1.0 costs nothing at all.
+        """
+        whole = int(round(shift))
+        fraction = shift - whole
+        start = preamble.n_samples - whole
+        if start < 0 or start + length > len(main):
+            # Cannot borrow the samples the shift needs; fall back to the plain cut
+            # rather than truncating the target.
+            start, fraction = preamble.n_samples, 0.0
+        y = main[start : start + length]
+        if fraction:
+            from .resample import apply_fractional_delay as _apply_fractional_delay
+
+            y = _apply_fractional_delay(y, fraction).astype(_np.float32)
+        return y
+
+    def _alignment_shift(
+        self, latency: _LatencyResult, loopback_used: bool
+    ) -> tuple[float, _Optional[str]]:
+        """
+        How far to shift this capture's target so it lands on the project's timebase.
+        Returns ``(shift, note)``; ``note`` is a QA message worth surfacing.
+
+        What has to hold for a capture set to be mutually aligned is that
+
+            (true latency of the written target) - (delay it is labelled with)
+
+        is the same for every capture. ``latency.peak_delay`` measures the first term to a
+        fraction of a sample and ``latency.delay`` is the second, so the shift that
+        restores the invariant is ``reference + delay - peak_delay``. The first capture to
+        measure both defines ``reference``; its own shift is therefore zero.
+
+        Both terms are needed, and this is why the shift is not clamped below a sample.
+        ``delay`` comes from a threshold crossing on the blip's leading edge, so it moves
+        with the response's pre-ringing and can step by a whole sample (or further) while
+        the peak barely moves. When it does, that step is a genuine misalignment of the
+        written data, and compensating for it is the correct response -- the whole part of
+        the shift costs nothing, since it is taken by slicing the recording one sample
+        over rather than by filtering.
+
+        Only done when a loopback is in use. The amp return carries the tone stack's
+        genuine knob-dependent group delay, which the model is supposed to learn; taking
+        that out per capture would be correcting away real amp behaviour, which is worse
+        than leaving the jitter in.
+
+        What this is for, measured rather than assumed: while the interface's clock stays
+        put there is no sub-sample drift at all (52 route tests on an iD44 read the same
+        offset to sd 0.0000). Re-clocking it is what moves the phase -- taking the device
+        to 44.1 kHz and back to 48 kHz shifted the round trip by 0.48 samples while the
+        integer delay stayed at 8442, invisible to any whole-sample measurement. A project
+        captured over several days crosses clock epochs whenever another application
+        touches the interface, which is why ``alignment_reference`` lives in the project
+        file rather than in a session.
+        """
+        if not loopback_used or latency.peak_delay is None or latency.delay is None:
+            return 0.0, None
+
+        offset = latency.peak_delay - latency.delay
+        if self.project.alignment_reference is None:
+            self.project.alignment_reference = offset
+            return 0.0, None
+
+        shift = self.project.alignment_reference - offset
+        if abs(shift) > MAX_ALIGNMENT_SHIFT:
+            return 0.0, (
+                f"Alignment correction of {shift:+.2f} samples was needed but not "
+                f"applied: past {MAX_ALIGNMENT_SHIFT:g} samples the timing measurement "
+                "itself is in doubt. Re-run the route test and check the loopback patch "
+                "and the buffer size before trusting this capture."
+            )
+        note = None
+        if abs(shift) >= 0.5:
+            note = (
+                f"Timing moved {shift:+.2f} samples from this project's reference; the "
+                "capture was realigned, but a shift this large usually means the buffer "
+                "size or routing changed mid-session."
+            )
+        return float(shift), note
+
     def route_test(
         self,
         sample_rate: _Optional[int] = None,
@@ -310,7 +416,7 @@ class CaptureSession:
             playback, sample_rate, progress, cancel, loopback_playback
         )
 
-        latency, _crosscheck, loopback_disagreement, loopback_failed = (
+        latency, crosscheck, loopback_disagreement, loopback_failed = (
             self._resolve_latency(main, loopback, preamble)
         )
         if loopback_failed:
@@ -318,13 +424,19 @@ class CaptureSession:
             # return: nothing is written and the entry stays pending, so the user must
             # fix the loopback patch or uncheck it before this entry can be captured.
             raise CaptureSessionError(LOOPBACK_NOT_DETECTED_MESSAGE)
-        y = main[preamble.n_samples : preamble.n_samples + len(x)]
+        loopback_used = loopback is not None
+        shift, shift_note = self._alignment_shift(latency, loopback_used)
+        y = self._aligned_target(main, preamble, len(x), shift)
+
         qa = self._qa(
             entry,
             y,
             latency,
-            loopback_used=loopback is not None,
+            loopback_used=loopback_used,
             loopback_disagreement=loopback_disagreement,
+            crosscheck=crosscheck,
+            alignment_shift=shift,
+            alignment_note=shift_note,
         )
 
         self._write_capture_wav(entry, y, sample_rate)
@@ -380,6 +492,9 @@ class CaptureSession:
         latency: _LatencyResult,
         loopback_used: bool = False,
         loopback_disagreement: bool = False,
+        crosscheck: _Optional[_LatencyResult] = None,
+        alignment_shift: float = 0.0,
+        alignment_note: _Optional[str] = None,
     ) -> _QAModel:
         messages: list[str] = []
 
@@ -434,12 +549,20 @@ class CaptureSession:
                 "that the buffer size has not changed."
             )
 
+        if alignment_note:
+            messages.append(alignment_note)
+
         return _QAModel(
             peak=peak_dbfs,
             clipping=clipping,
             impulse_detected=latency.detected,
             delay_disagreement=delay_disagreement,
             loopback_disagreement=loopback_disagreement if loopback_used else None,
+            loopback_delay=latency.delay if loopback_used else None,
+            amp_return_delay=(
+                crosscheck.delay if loopback_used and crosscheck else latency.delay
+            ),
+            subsample_shift=alignment_shift or None,
             messages=messages,
         )
 

@@ -119,12 +119,21 @@ class AudioSettingsModel(_BaseModel):
     # clean copy of the timing blips is played on ``loopback_output_channel`` and
     # patched straight back into ``loopback_input_channel``. It stays undistorted no
     # matter how hard the amp is driven, so the delay is measured from it instead of the
-    # (increasingly smeared) amp return. It only stands in for the amp path where it
-    # shares that path's conversion chain: it tracks latency on the route it actually
-    # travels, so anything the capture route crosses that the loopback does not -- an
-    # ADAT/optical link to a second interface above all -- is invisible here, and can
-    # move the capture by several samples whenever that link re-locks while this
-    # measurement does not budge. Both must be set to enable the loopback.
+    # (increasingly smeared) amp return. It also sees none of the amp's own knob-dependent
+    # tone-stack group delay, which is real behaviour the model must learn rather than
+    # have corrected away -- that is why it, and not the amp return, drives the
+    # sub-sample correction in nam.capture.session.
+    #
+    # It only stands in for the amp path where it shares that path's conversion chain: it
+    # tracks latency on the route it actually travels, so anything the capture route
+    # crosses that the loopback does not -- an ADAT/optical link to a second interface
+    # above all -- is invisible here, and can move the capture by several samples whenever
+    # that link re-locks while this measurement does not budge. A mispatched loopback has
+    # exactly this signature, and once cost a whole project: the loopback read one
+    # constant across 93 captures while the amp path moved over 4.6 samples. Both delays
+    # are now recorded per capture (QAModel.loopback_delay / amp_return_delay) and
+    # compared at LOOPBACK_CROSSCHECK_SAMPLES, which is what makes that visible while it
+    # is happening. Both must be set to enable the loopback.
     # Defaults to channel 2 (on both directions) so a fresh setup starts with the
     # loopback enabled without colliding with the channel-1 default of the main path.
     loopback_output_channel: _Optional[int] = 2
@@ -152,6 +161,16 @@ class QAModel(_BaseModel):
     # cross-check tolerance (a mispatched loopback or a routing change). ``None`` when
     # no loopback was used for this capture.
     loopback_disagreement: _Optional[bool] = None
+    # The two measured delays themselves, not just the boolean above. A mispatched
+    # loopback once went undetected across a whole project because the tolerance was
+    # wider than the drift; a per-capture record of both numbers is what makes that
+    # visible after the fact instead of only in aggregate.
+    loopback_delay: _Optional[int] = None
+    amp_return_delay: _Optional[int] = None
+    # Shift, in samples, applied to the target before it was written, to put it on the
+    # project's timebase (see CaptureSession._alignment_shift). ``None`` when no
+    # correction was applied.
+    subsample_shift: _Optional[float] = None
     messages: list[str] = _Field(default_factory=list)
 
 
@@ -186,6 +205,14 @@ class CaptureProject(_BaseModel):
     # planned LHS size drift every time the project is reopened.
     n_train_lhs: int = 0
     include_initial_corners: bool = False
+    # Timebase for this project: the offset, in samples, between the blip response's
+    # energy peak and the integer delay reported alongside it. The first capture that
+    # measures it sets it, and every later capture is shifted so its own offset matches --
+    # which is what puts the whole project on one timebase. The value itself is arbitrary
+    # (it carries the round trip's impulse-response shape); only holding it constant
+    # matters. ``None`` until the first capture sets it, and for projects captured without
+    # a loopback, where the correction is deliberately not applied.
+    alignment_reference: _Optional[float] = None
 
     def knob_specs(self) -> tuple[KnobSpec, ...]:
         return tuple(knob.to_knob_spec() for knob in self.knobs)
