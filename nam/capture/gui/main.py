@@ -49,7 +49,8 @@ from ..audio import current_device_sample_rates as _current_device_sample_rates
 from ..audio import DeviceInfo as _DeviceInfo
 from ..audio import LATENCY_CHOICES as _LATENCY_CHOICES
 from ..audio import list_devices as _list_devices
-from ..export import write_training_configs as _write_training_configs
+from ..export import write_concat_training_configs as _write_concat_training_configs
+from ..export import write_hyper_training_configs as _write_hyper_training_configs
 from ..params import KnobSpec as _KnobSpec
 from ..params import validate_knobs as _validate_knobs
 from ..planner import corner_capture_count as _corner_capture_count
@@ -604,9 +605,14 @@ class MainWindow(_QMainWindow):
         self.capture_log.setReadOnly(True)
         layout.addWidget(self.capture_log)
 
-        export_button = _QPushButton("Export training configs")
-        export_button.clicked.connect(self._on_export_configs)
-        layout.addWidget(export_button)
+        export_buttons = _QHBoxLayout()
+        self.export_concat_button = _QPushButton("Export ConcatWaveNet Configs")
+        self.export_concat_button.clicked.connect(self._on_export_concat_configs)
+        self.export_hyper_button = _QPushButton("Export HyperWaveNet Configs")
+        self.export_hyper_button.clicked.connect(self._on_export_hyper_configs)
+        export_buttons.addWidget(self.export_concat_button)
+        export_buttons.addWidget(self.export_hyper_button)
+        layout.addLayout(export_buttons)
         return widget
 
     def _build_al_tab(self) -> _QWidget:
@@ -1508,18 +1514,28 @@ class MainWindow(_QMainWindow):
         self.capture_log.appendPlainText("Capture cancelled.")
         self._refresh_all()
 
-    def _on_export_configs(self) -> None:
+    def _on_export_concat_configs(self) -> None:
+        self._export_configs("ConcatWaveNet", _write_concat_training_configs)
+
+    def _on_export_hyper_configs(self) -> None:
+        self._export_configs("HyperWaveNet", _write_hyper_training_configs)
+
+    def _export_configs(self, architecture: str, writer) -> None:
         if self.project is None or self.project_dir is None:
             _QMessageBox.warning(self, "No project", "Open or create a project first.")
             return
         try:
-            paths = _write_training_configs(self.project, self.project_dir)
+            paths = writer(self.project, self.project_dir)
         except Exception as exc:
             _QMessageBox.critical(self, "Export failed", str(exc))
             return
         message = "\n".join(str(path) for path in paths)
-        self.capture_log.appendPlainText(f"Wrote training configs:\n{message}")
-        _QMessageBox.information(self, "Training configs written", message)
+        self.capture_log.appendPlainText(
+            f"Wrote {architecture} training configs:\n{message}"
+        )
+        _QMessageBox.information(
+            self, f"{architecture} training configs written", message
+        )
 
     # -- active learning -------------------------------------------------
 

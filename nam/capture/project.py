@@ -36,6 +36,11 @@ PROJECT_FILENAME = "capture_project.json"
 DATA_FILENAME = "data.json"
 MODEL_CONFIG_FILENAME = "model.json"
 LEARNING_CONFIG_FILENAME = "learning.json"
+# The two parametric architectures are exported side by side, so each gets its own pair.
+CONCAT_MODEL_CONFIG_FILENAME = "model_concat.json"
+CONCAT_LEARNING_CONFIG_FILENAME = "learning_concat.json"
+HYPER_MODEL_CONFIG_FILENAME = "model_hyper.json"
+HYPER_LEARNING_CONFIG_FILENAME = "learning_hyper.json"
 
 _PROJECT_VERSION = 1
 # Keep every window below one ConcatLSTM processing block (65535 samples) and above the

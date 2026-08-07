@@ -6,8 +6,10 @@ parametric trainer needs from the project file —
 
 * ``data.json``: rewritten after every successful capture (completed entries only)
   so the training config stays valid if the app closes mid-session.
-* ``model.json`` / ``learning.json``: a ready-to-train ConcatWaveNet model config
-  with the project's knobs as its params, plus a matching learning config.
+* ``model_concat.json`` / ``learning_concat.json`` and ``model_hyper.json`` /
+  ``learning_hyper.json``: ready-to-train ConcatWaveNet and HyperWaveNet model configs
+  with the project's knobs as their params, each with its own matching learning config
+  (the two architectures do not share learning settings).
 """
 
 from __future__ import annotations
@@ -16,10 +18,12 @@ from pathlib import Path as _Path
 from typing import Any as _Any
 from typing import Optional as _Optional
 
+from .project import CONCAT_LEARNING_CONFIG_FILENAME
+from .project import CONCAT_MODEL_CONFIG_FILENAME
+from .project import HYPER_LEARNING_CONFIG_FILENAME
+from .project import HYPER_MODEL_CONFIG_FILENAME
 from .project import CaptureProject
 from .project import DATA_FILENAME
-from .project import LEARNING_CONFIG_FILENAME
-from .project import MODEL_CONFIG_FILENAME
 from .project import atomic_write_json as _atomic_write_json
 
 
@@ -161,24 +165,34 @@ def build_al_data_config(project: CaptureProject) -> dict[str, _Any]:
     return config
 
 
-# ConcatWaveNet counterpart of nam_full_configs/parametric/model.json: the same packed
-# channels_8 WaveNet architecture, conditioned by concatenating the encoded params onto
-# the audio input (the TwoNotes-style scheme) instead of through a hypernetwork.
-# input_size/condition_size are omitted on purpose: ConcatWaveNet derives them from the
-# param specs.
-_CONCAT_WAVENET_LAYERS: list[dict[str, _Any]] = [
-    {
-        "channels": 8,
-        "kernel_sizes": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 15, 15, 6, 6, 6, 6, 6, 6, 6],
-        "dilations": [1, 3, 7, 17, 41, 101, 239, 1, 3, 7, 17, 41, 101, 239, 1, 13, 1, 3, 7, 17, 41, 101, 239],
-        "activation": "LeakyReLU",
-        "gated": False,
-        "head": {"out_channels": 1, "kernel_size": 16, "bias": True},
-    }
-]
+# Both architectures wrap the same packed channels_8 WaveNet layer stack; they differ in
+# how the knobs reach it (concatenated onto the input vs. generated weight deltas) and in
+# their learning settings, which are NOT shared -- each pair below mirrors the training run
+# that produced it.
+_WAVENET_KERNEL_SIZES = [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 15, 15, 6, 6, 6, 6, 6, 6, 6]
+_WAVENET_DILATIONS = [1, 3, 7, 17, 41, 101, 239, 1, 3, 7, 17, 41, 101, 239, 1, 13, 1, 3, 7, 17, 41, 101, 239]
+_WAVENET_HEAD: dict[str, _Any] = {"out_channels": 1, "kernel_size": 16, "bias": True}
+
+# The reference (5-knob) ConcatWaveNet run widened the stock 8 channels to 16 to carry the
+# concatenated param channels; widen by two per knob beyond the first so any project lands
+# on that same width for five knobs.
+_CONCAT_BASE_CHANNELS = 8
+_CONCAT_CHANNELS_PER_EXTRA_PARAM = 2
+
+# HyperWaveNet's template sees audio only -- the knobs act through the hypernetwork -- so
+# its layer array stays at the stock channels_8 width with input_size/condition_size 1.
+_HYPER_CHANNELS = 8
+_HYPER_HIDDEN_SIZES = [16]
 
 
-def build_model_config(project: CaptureProject) -> dict[str, _Any]:
+def concat_wavenet_channels(num_params: int) -> int:
+    """Layer-array width for a ConcatWaveNet conditioned on ``num_params`` knobs."""
+    if num_params < 1:
+        raise ValueError(f"ConcatWaveNet needs at least one param, got {num_params}")
+    return _CONCAT_BASE_CHANNELS + _CONCAT_CHANNELS_PER_EXTRA_PARAM * (num_params - 1)
+
+
+def _training_param_specs(project: CaptureProject) -> list[dict[str, _Any]]:
     params = []
     for knob in project.knob_specs():
         spec = knob.to_param_spec().to_dict()
@@ -187,8 +201,24 @@ def build_model_config(project: CaptureProject) -> dict[str, _Any]:
         # avoid_zero is capture-planning metadata only; it has no training meaning.
         del spec["avoid_zero"]
         params.append(spec)
+    return params
+
+
+def build_concat_model_config(project: CaptureProject) -> dict[str, _Any]:
+    # input_size/condition_size are omitted on purpose: ConcatWaveNet derives them from
+    # the param specs.
+    params = _training_param_specs(project)
     config: dict[str, _Any] = {
-        "layers": [dict(layer) for layer in _CONCAT_WAVENET_LAYERS],
+        "layers": [
+            {
+                "channels": concat_wavenet_channels(len(params)),
+                "kernel_sizes": list(_WAVENET_KERNEL_SIZES),
+                "dilations": list(_WAVENET_DILATIONS),
+                "activation": "LeakyReLU",
+                "gated": False,
+                "head": dict(_WAVENET_HEAD),
+            }
+        ],
         "head_scale": 0.01,
         "params": params,
     }
@@ -197,7 +227,39 @@ def build_model_config(project: CaptureProject) -> dict[str, _Any]:
     return {
         "net": {"name": "ConcatWaveNet", "config": config},
         "loss": {"val_loss": "esr", "mrstft_weight": 0.0005},
-        "optimizer": {"lr": 0.004, "weight_decay": 3.17e-07},
+        "optimizer": {"lr": 0.003, "weight_decay": 3.17e-07},
+        "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.994}},
+    }
+
+
+def build_hyper_model_config(project: CaptureProject) -> dict[str, _Any]:
+    config: dict[str, _Any] = {
+        "layers": [
+            {
+                "input_size": 1,
+                "condition_size": 1,
+                "channels": _HYPER_CHANNELS,
+                "kernel_sizes": list(_WAVENET_KERNEL_SIZES),
+                "dilations": list(_WAVENET_DILATIONS),
+                "activation": "LeakyReLU",
+                "gated": False,
+                "head": dict(_WAVENET_HEAD),
+            }
+        ],
+        "head_scale": 0.01,
+        "params": _training_param_specs(project),
+        "hypernet": {
+            "hidden_sizes": list(_HYPER_HIDDEN_SIZES),
+            "activation": "LeakyReLU",
+            "selector": {"exclude_suffixes": ["_conv.weight"]},
+        },
+    }
+    if project.sample_rate is not None:
+        config["sample_rate"] = float(project.sample_rate)
+    return {
+        "net": {"name": "HyperWaveNet", "config": config},
+        "loss": {"val_loss": "esr", "mrstft_weight": 0.0005},
+        "optimizer": {"lr": 0.002, "weight_decay": 3.17e-07},
         "lr_scheduler": {"class": "ExponentialLR", "kwargs": {"gamma": 0.994}},
     }
 
@@ -215,7 +277,7 @@ def build_al_model_config(
         spec = knob.to_param_spec().to_dict()
         # enum_names is a switch-only field; continuous-only projects don't carry it.
         del spec["enum_names"]
-        # Unlike build_model_config, step and avoid_zero are kept: the active-learning
+        # Unlike the training model configs, step and avoid_zero are kept: the active-learning
         # proposal quantizer (quantize_to_capture_grid) reads them to snap g-opt results
         # onto the realizable capture grid and to honor avoid-zero knobs.
         params.append(spec)
@@ -246,20 +308,19 @@ def build_al_model_config(
     }
 
 
-def build_learning_config(project: CaptureProject) -> dict[str, _Any]:
-    # Mirrors nam_full_configs/parametric/learning.json, but with accelerator "auto"
-    # so a generated project trains without edits on CUDA, MPS, or CPU. Keep the
-    # lr/batch-size pairing in mind if batch_size changes (0.002 <-> 16, 0.004 <-> 32).
+def _build_learning_config(*, gradient_clip_val: float) -> dict[str, _Any]:
+    # accelerator "auto" so a generated project trains without edits on CUDA, MPS, or CPU.
+    # Keep the lr/batch-size pairing in mind if batch_size changes.
     return {
         "train_dataloader": {
-            "batch_size": 16,
+            "batch_size": 32,
             "shuffle": True,
             "pin_memory": True,
             "drop_last": True,
             "num_workers": 0,
         },
         "val_dataloader": {
-            "batch_size": 16,
+            "batch_size": 32,
             "pin_memory": True,
             "num_workers": 0,
         },
@@ -269,13 +330,22 @@ def build_learning_config(project: CaptureProject) -> dict[str, _Any]:
             "precision": "32-true",
             "benchmark": True,
             "max_epochs": 200,
-            "gradient_clip_val": 1.0,
+            "gradient_clip_val": gradient_clip_val,
             "enable_progress_bar": True,
             "enable_model_summary": True,
         },
         "threshold_esr": None,
         "trainer_fit_kwargs": {},
+        "torch_compile": {"enabled": True, "mode": "reduce-overhead"},
     }
+
+
+def build_concat_learning_config(project: CaptureProject) -> dict[str, _Any]:
+    return _build_learning_config(gradient_clip_val=0.5)
+
+
+def build_hyper_learning_config(project: CaptureProject) -> dict[str, _Any]:
+    return _build_learning_config(gradient_clip_val=1.0)
 
 
 # Mirrors nam_full_configs/active_learning/learning.json, less its _notes. trainer.accelerator
@@ -335,14 +405,29 @@ def build_al_learning_config(
     }
 
 
-def write_training_configs(project: CaptureProject, project_dir: _Path) -> list[_Path]:
+def write_concat_training_configs(
+    project: CaptureProject, project_dir: _Path
+) -> list[_Path]:
     """
-    Write ``model.json`` and ``learning.json`` into the project folder, overwriting
-    previous generated versions.
+    Write the ConcatWaveNet model/learning configs into the project folder, overwriting
+    previous generated versions. The HyperWaveNet pair lives under its own filenames, so
+    both architectures can be exported side by side.
     """
     project_dir = _Path(project_dir)
-    model_path = project_dir / MODEL_CONFIG_FILENAME
-    learning_path = project_dir / LEARNING_CONFIG_FILENAME
-    _atomic_write_json(model_path, build_model_config(project))
-    _atomic_write_json(learning_path, build_learning_config(project))
+    model_path = project_dir / CONCAT_MODEL_CONFIG_FILENAME
+    learning_path = project_dir / CONCAT_LEARNING_CONFIG_FILENAME
+    _atomic_write_json(model_path, build_concat_model_config(project))
+    _atomic_write_json(learning_path, build_concat_learning_config(project))
+    return [model_path, learning_path]
+
+
+def write_hyper_training_configs(
+    project: CaptureProject, project_dir: _Path
+) -> list[_Path]:
+    """HyperWaveNet counterpart of :func:`write_concat_training_configs`."""
+    project_dir = _Path(project_dir)
+    model_path = project_dir / HYPER_MODEL_CONFIG_FILENAME
+    learning_path = project_dir / HYPER_LEARNING_CONFIG_FILENAME
+    _atomic_write_json(model_path, build_hyper_model_config(project))
+    _atomic_write_json(learning_path, build_hyper_learning_config(project))
     return [model_path, learning_path]
