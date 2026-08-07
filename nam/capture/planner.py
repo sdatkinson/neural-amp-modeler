@@ -19,7 +19,7 @@ import math as _math
 from collections.abc import Sequence as _Sequence
 from dataclasses import dataclass as _dataclass
 from typing import Any as _Any
-from typing import Literal as _Literal
+from typing import Literal
 from typing import Optional as _Optional
 
 import numpy as _np
@@ -371,14 +371,14 @@ class PlannedCapture:
     """
 
     index: int
-    split: _Literal["train", "validation"]
+    split: Literal["train", "validation"]
     params: dict[str, _Any]
     y_path: str
 
 
 def _planned_from_params(
     prefix: str,
-    split: _Literal["train", "validation"],
+    split: Literal["train", "validation"],
     specs: _Sequence[_ParamSpec],
     param_dicts: list[dict[str, _Any]],
     *,

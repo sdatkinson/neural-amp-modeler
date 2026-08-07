@@ -16,7 +16,7 @@ from datetime import datetime as _datetime
 from datetime import timezone as _timezone
 from pathlib import Path as _Path
 from typing import Any as _Any
-from typing import Literal as _Literal
+from typing import Literal
 from typing import Optional as _Optional
 from typing import Sequence as _Sequence
 from typing import Union as _Union
@@ -159,7 +159,7 @@ class AudioSettingsModel(_BaseModel):
     # a buffer change moves the round trip by a whole number of samples, so it shifts the
     # blip response and its energy peak together and leaves the sub-sample timebase in
     # nam.capture.session untouched.
-    latency: _Union[float, _Literal["low", "high"]] = "low"
+    latency: _Union[float, Literal["low", "high"]] = "low"
 
     def stream_fingerprint(self) -> str:
         """
@@ -208,10 +208,10 @@ class QAModel(_BaseModel):
 
 class CaptureEntryModel(_BaseModel):
     index: int
-    split: _Literal["train", "validation"]
+    split: Literal["train", "validation"]
     params: dict[str, float]
     y_path: str
-    status: _Literal["pending", "captured"] = "pending"
+    status: Literal["pending", "captured"] = "pending"
     delay: _Optional[int] = None
     captured_at: _Optional[str] = None
     qa: _Optional[QAModel] = None
@@ -259,7 +259,7 @@ class CaptureProject(_BaseModel):
         return tuple(knob.to_knob_spec() for knob in self.knobs)
 
     def entries_for_split(
-        self, split: _Literal["train", "validation"]
+        self, split: Literal["train", "validation"]
     ) -> list[CaptureEntryModel]:
         return [entry for entry in self.entries if entry.split == split]
 
@@ -269,10 +269,10 @@ class CaptureProject(_BaseModel):
     def captured_entries(self) -> list[CaptureEntryModel]:
         return [entry for entry in self.entries if entry.status == "captured"]
 
-    def input_for_split(self, split: _Literal["train", "validation"]) -> str:
+    def input_for_split(self, split: Literal["train", "validation"]) -> str:
         return self.train_input if split == "train" else self.validation_input
 
-    def window_for_split(self, split: _Literal["train", "validation"]) -> WindowModel:
+    def window_for_split(self, split: Literal["train", "validation"]) -> WindowModel:
         return self.train_window if split == "train" else self.validation_window
 
 

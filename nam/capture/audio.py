@@ -12,7 +12,7 @@ from __future__ import annotations
 import time as _time
 from dataclasses import dataclass as _dataclass
 from typing import Callable as _Callable
-from typing import Literal as _Literal
+from typing import Literal
 from typing import Optional as _Optional
 from typing import Protocol as _Protocol
 from typing import Tuple as _Tuple
@@ -22,7 +22,7 @@ import numpy as _np
 
 
 # Suggested stream latency: seconds, or one of PortAudio's per-device presets.
-_Latency = _Union[float, _Literal["low", "high"]]
+_Latency = _Union[float, Literal["low", "high"]]
 
 # Offered latency settings, coarsest first, as ``(label, value)``. sounddevice's own
 # default is "high", which is why the capture app measured a ~150 ms round trip before
