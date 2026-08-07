@@ -17,14 +17,6 @@ from nam.models.parametric import ParamSpec as _ParamSpec
 from nam.models.wavenet._wavenet import WaveNet as _InnerWaveNet
 
 
-# A zero-init hypernetwork reproduces the template exactly in algebra, but the two sides
-# of the comparison run different code (functional_call over batched generated weights
-# vs. the template's own forward), so they accumulate float32 rounding in a different
-# order. allclose's default atol of 1e-8 sits below float32 epsilon (~1.2e-7) and makes
-# the assertion depend on which kernels the platform picks.
-_ZERO_INIT_ATOL = 1e-6
-
-
 @_lru_cache(maxsize=1)
 def _channels_8_wavenet_config() -> dict:
     with open("nam/train/_resources/config_model_packed.json") as fp:
@@ -161,28 +153,36 @@ def test_condition_dsp_template_is_rejected():
 
 
 def test_zero_init_matches_bare_template_for_shared_and_batched_params():
+    # Double precision: the identity being checked is algebraic, but the two sides run
+    # different code (functional_call over batched generated weights vs. the template's
+    # own forward) and so accumulate rounding in a different order. In float32 that
+    # residue is near allclose's default tolerance and swings with whichever kernels the
+    # platform dispatches to; in float64 it is far below, leaving the assertion tight.
     _torch.manual_seed(0)
-    model = _HyperWaveNet.init_from_config(_hyperwavenet_config())
-    x = _torch.randn(2, model.receptive_field + 32)
-    params = _torch.tensor([[2.5, 0.0], [9.0, 2.0]], dtype=_torch.float32)
+    model = _HyperWaveNet.init_from_config(_hyperwavenet_config()).double()
+    x = _torch.randn(2, model.receptive_field + 32, dtype=_torch.float64)
+    params = _torch.tensor([[2.5, 0.0], [9.0, 2.0]], dtype=_torch.float64)
 
     actual = model(x, params, pad_start=False)
     expected = model._template(x[:, None, :])[:, 0, :]
 
-    assert _torch.allclose(actual, expected, atol=_ZERO_INIT_ATOL)
+    assert _torch.allclose(actual, expected)
 
 
 def test_zero_init_matches_bare_template_for_broadcast_input():
+    # Double precision for the same reason as the batched case above.
     _torch.manual_seed(0)
-    model = _HyperWaveNet.init_from_config(_hyperwavenet_config())
-    x = _torch.randn(model.receptive_field + 16)
-    params = _torch.tensor([[1.0, 0.0], [8.0, 1.0], [11.0, 2.0]], dtype=_torch.float32)
+    model = _HyperWaveNet.init_from_config(_hyperwavenet_config()).double()
+    x = _torch.randn(model.receptive_field + 16, dtype=_torch.float64)
+    params = _torch.tensor(
+        [[1.0, 0.0], [8.0, 1.0], [11.0, 2.0]], dtype=_torch.float64
+    )
 
     actual = model(x, params, pad_start=False)
     expected = model._template(x.repeat(3, 1)[:, None, :])[:, 0, :]
 
     assert actual.shape == expected.shape == (3, 17)
-    assert _torch.allclose(actual, expected, atol=_ZERO_INIT_ATOL)
+    assert _torch.allclose(actual, expected)
 
 
 def test_backward_reaches_base_template_and_hypernetwork():
