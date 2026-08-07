@@ -84,6 +84,15 @@ _BUFFER_SIZE_CHOICES = (0, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 # an unexpectedly long session.
 _CORNER_COUNT_ADVISORY = 32
 
+# Rule-of-thumb LHS training-capture count per knob, used as the default before a plan
+# has been generated.
+_RECOMMENDED_LHS_PER_KNOB = 15
+
+# Rule-of-thumb validation-capture count per knob, capped so validation doesn't grow
+# unbounded with the knob count the way training LHS does.
+_RECOMMENDED_VALIDATION_PER_KNOB = 3
+_RECOMMENDED_VALIDATION_MAX = 10
+
 
 def _latency_index(value) -> int:
     """
@@ -415,14 +424,25 @@ class MainWindow(_QMainWindow):
         self.n_train_spin = _QSpinBox()
         self.n_train_spin.setRange(1, 100_000)
         self.n_train_spin.setValue(10)
+        self.n_train_recommended_label = _QLabel("")
+        n_train_row = _QHBoxLayout()
+        n_train_row.addWidget(self.n_train_spin)
+        n_train_row.addWidget(self.n_train_recommended_label)
+        n_train_row.addStretch(1)
         self.n_validation_spin = _QSpinBox()
         self.n_validation_spin.setRange(0, 100_000)
         self.n_validation_spin.setValue(5)
+        self.n_validation_recommended_label = _QLabel("")
+        n_validation_row = _QHBoxLayout()
+        n_validation_row.addWidget(self.n_validation_spin)
+        n_validation_row.addWidget(self.n_validation_recommended_label)
+        n_validation_row.addStretch(1)
         self.seed_spin = _QSpinBox()
         self.seed_spin.setRange(0, 2**31 - 1)
         self.seed_spin.setValue(0)
-        form.addRow("Initial LHS random training captures", self.n_train_spin)
-        form.addRow("Validation captures", self.n_validation_spin)
+        self.seed_spin.setFixedWidth(self.n_validation_spin.sizeHint().width())
+        form.addRow("Initial LHS random training captures", n_train_row)
+        form.addRow("Validation captures", n_validation_row)
         form.addRow("Seed", self.seed_spin)
         layout.addLayout(form)
 
@@ -904,7 +924,9 @@ class MainWindow(_QMainWindow):
             or len(self.project.entries_for_split("train"))
             or 1
         )
+        self._apply_n_train_recommendation()
         self.n_validation_spin.setValue(len(self.project.entries_for_split("validation")))
+        self._apply_n_validation_recommendation()
         self.seed_spin.setValue(self.project.seed)
         self.include_corners_check.setChecked(self.project.include_initial_corners)
         self._refresh_corner_count()
@@ -913,6 +935,8 @@ class MainWindow(_QMainWindow):
 
     def _on_add_knob_row(self) -> None:
         self._add_knob_row("", 0.0, 10.0, 0.5, False, False)
+        self._apply_n_train_recommendation()
+        self._apply_n_validation_recommendation()
         self._refresh_corner_count()
 
     def _add_knob_row(
@@ -965,6 +989,8 @@ class MainWindow(_QMainWindow):
         row = self.knob_table.currentRow()
         if row >= 0:
             self.knob_table.removeRow(row)
+            self._apply_n_train_recommendation()
+            self._apply_n_validation_recommendation()
             self._refresh_corner_count()
 
     def _refresh_corner_count(self) -> None:
@@ -978,6 +1004,8 @@ class MainWindow(_QMainWindow):
         # label, so this can run before the label exists.
         if getattr(self, "corner_count_label", None) is None:
             return
+        self._refresh_n_train_recommendation()
+        self._refresh_n_validation_recommendation()
         try:
             knobs = knob_rows_to_specs(self._knob_table_rows())
             count = _corner_capture_count(knobs)
@@ -988,6 +1016,71 @@ class MainWindow(_QMainWindow):
         if count > _CORNER_COUNT_ADVISORY:
             text += " — that is a long session; consider fewer knobs or plan for it."
         self.corner_count_label.setText(text)
+
+    def _refresh_n_train_recommendation(self) -> None:
+        """Update the "Recommended: n (15 * k Knobs)" label for the current knob count.
+
+        Always kept current, independent of whether the spinner's value tracks it --
+        see ``_apply_n_train_recommendation`` for that.
+        """
+        k = self.knob_table.rowCount()
+        recommended = _RECOMMENDED_LHS_PER_KNOB * k
+        self.n_train_recommended_label.setText(
+            f"Recommended: {recommended} ({_RECOMMENDED_LHS_PER_KNOB} * {k} Knobs)"
+        )
+
+    def _refresh_n_validation_recommendation(self) -> None:
+        """Update the "Recommended: n (3 per Knob, max 10)" label for the current knob
+        count. Always kept current, independent of whether the spinner's value tracks
+        it -- see ``_apply_n_validation_recommendation`` for that.
+        """
+        k = self.knob_table.rowCount()
+        recommended = min(
+            _RECOMMENDED_VALIDATION_PER_KNOB * k, _RECOMMENDED_VALIDATION_MAX
+        )
+        self.n_validation_recommended_label.setText(
+            f"Recommended: {recommended} "
+            f"({_RECOMMENDED_VALIDATION_PER_KNOB} per Knob, max {_RECOMMENDED_VALIDATION_MAX})"
+        )
+
+    def _no_plan_generated_yet(self) -> bool:
+        """Whether a plan (train + validation entries) has not yet been generated.
+
+        Train and validation entries are always created together by
+        ``_on_generate_plan``, so a single check covers both spinners' recommendations.
+        """
+        return self.project is None or not (
+            self.project.n_train_lhs or self.project.entries_for_split("train")
+        )
+
+    def _apply_n_train_recommendation(self) -> None:
+        """Snap the training-capture spinner to the recommendation for the current knob
+        count. Only called from actions that change the knob count, and only takes
+        effect before a plan has been generated -- once a plan exists, a stored value
+        must never be silently overwritten, since regenerating with a changed count
+        discards capture progress.
+        """
+        # The Knobs tab is built (and seeds a first row) before the Plan tab that owns
+        # this spinner, so this can run before it exists.
+        if getattr(self, "n_train_spin", None) is None:
+            return
+        if self._no_plan_generated_yet():
+            k = self.knob_table.rowCount()
+            self.n_train_spin.setValue(_RECOMMENDED_LHS_PER_KNOB * k)
+
+    def _apply_n_validation_recommendation(self) -> None:
+        """Snap the validation-capture spinner to the recommendation for the current
+        knob count, under the same before-a-plan-exists rule as
+        ``_apply_n_train_recommendation``.
+        """
+        if getattr(self, "n_validation_spin", None) is None:
+            return
+        if self._no_plan_generated_yet():
+            k = self.knob_table.rowCount()
+            recommended = min(
+                _RECOMMENDED_VALIDATION_PER_KNOB * k, _RECOMMENDED_VALIDATION_MAX
+            )
+            self.n_validation_spin.setValue(recommended)
 
     def _knob_table_rows(self) -> list[tuple]:
         rows = []
