@@ -45,6 +45,16 @@ class TestExportable(object):
             assert len(weights_list) == 2
             assert all(isinstance(w, float) for w in weights_list)
 
+    def test_export_uses_stock_model_version(self):
+        """
+        Stock (non-parametric) models export the stock MODEL_VERSION. Parity with
+        upstream: parametric models version independently and must not perturb this.
+        """
+        from nam.models._constants import MODEL_VERSION
+
+        model = self._get_model()
+        assert model._get_export_dict()["version"] == MODEL_VERSION
+
     @pytest.mark.parametrize(
         "user_metadata,other_metadata",
         (

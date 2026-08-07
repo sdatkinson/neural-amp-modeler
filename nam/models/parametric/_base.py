@@ -17,6 +17,7 @@ import torch.nn.functional as _F
 
 from .._abc import ImportsWeights as _ImportsWeights
 from ..base import BaseNet as _BaseNet
+from ._constants import PARAMETRIC_MODEL_VERSION as _PARAMETRIC_MODEL_VERSION
 from ._spec import ParamSpec as _ParamSpec
 
 # Devices with no inductor backend. Compilation stays enabled and simply falls back, so one
@@ -272,6 +273,9 @@ class ParametricNet(_BaseNet, _ImportsWeights):
 
     def _at_nominal_settings(self, x: _torch.Tensor) -> _torch.Tensor:
         return self(x, self.nominal_params)
+
+    def _get_export_version(self) -> str:
+        return _PARAMETRIC_MODEL_VERSION
 
     def _export_config(self) -> dict[str, _Any]:
         config = self._export_inner_config()
