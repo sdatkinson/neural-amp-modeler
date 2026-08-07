@@ -130,17 +130,40 @@ def _convert_nam_layer_array_config(layer_config: _Dict[str, _Any]) -> _Dict[str
     return lc
 
 
-def _init_wavenet(config, sample_rate: _Optional[float]) -> _WaveNet:
-    # This might have some issues with activation parameters not setting appropriately.
-    # Need to look closer.
-    layers_configs = [_convert_nam_layer_array_config(lc) for lc in config["layers"]]
+def convert_nam_wavenet_config(
+    config: _Dict[str, _Any],
+    sample_rate: _Optional[float] = None,
+) -> _Dict[str, _Any]:
+    """
+    Convert a WaveNet `.nam` export config into the internal init layout.
+
+    Accepts the stock export shape (`layers`, optional exported `condition_dsp`) and returns
+    the config expected by `WaveNet.init_from_config()`.
+    """
     full_config = {
-        "layers_configs": layers_configs,
-        "head": config["head"],
-        "head_scale": config["head_scale"],
+        "layers_configs": [_convert_nam_layer_array_config(lc) for lc in config["layers"]],
+        "head": config.get("head"),
+        "head_scale": config.get("head_scale", 1.0),
         "sample_rate": sample_rate,
     }
-    return _WaveNet.init_from_config(full_config)
+    condition_dsp = config.get("condition_dsp")
+    if condition_dsp is not None:
+        if condition_dsp.get("architecture") != "WaveNet":
+            raise NotImplementedError("Only WaveNet condition DSP is supported")
+        full_config["condition_dsp"] = {
+            "name": "WaveNet",
+            "config": convert_nam_wavenet_config(
+                condition_dsp["config"],
+                sample_rate=condition_dsp.get("sample_rate", sample_rate),
+            ),
+        }
+    return full_config
+
+
+def _init_wavenet(config, sample_rate: _Optional[float]) -> _WaveNet:
+    return _WaveNet.init_from_config(
+        convert_nam_wavenet_config(config, sample_rate=sample_rate)
+    )
 
 
 def init_from_nam(config) -> _BaseNet:

@@ -1,0 +1,72 @@
+{
+    "_notes": [
+        "Active-learning ensemble-member config: a parametric ConcatLSTM, NOT the shipped HyperWaveNet.",
+        "The active-learning workflow is adapted from PANAMA (arXiv 2509.26564v1); the ConcatLSTM",
+        "conditioning scheme (encode the control vector, tile across time, concatenate to audio) is theirs.",
+        "Architecture, loss, and gamma follow PANAMA's published LSTM defaults (3 layers of 18 units,",
+        "MSE plus seven-resolution log-mel loss, ExponentialLR gamma 0.995), but the recurrent-gradient",
+        "path, learning rate, and warmup are set for the short single-file dataset used here:",
+        "lr 0.008 and 16 warmup epochs. train_truncate is null (full BPTT): every truncated",
+        "recipe tried on this capture generalized worse than the pre-truncation full-BPTT runs",
+        "at this batch size, whose logs show occasional non-finite gradients (survived by",
+        "configure_gradient_clipping's non-finite skip, not a crash) that are likely a bounded",
+        "catapult effect helping escape sharp minima.",
+        "This LSTM is a disposable query-by-committee acquisition proxy: scripts/active_learn.py trains a",
+        "4-member ensemble from this config to find the control settings where members disagree most.",
+        "ConcatLSTM derives its conditioning width (1 + encoded_param_dim) from the params below, so there",
+        "is no PANAMA-style 'conditioning_dim' key; the params block MUST match the production parametric",
+        "model you intend to capture for (here: the Gain/Tone/Boost example).",
+        "Physical batches are GPU-sized and gradient-accumulated to the effective batch of 37",
+        "(see nam_full_configs/active_learning/learning.json), smaller than PANAMA's 512."
+    ],
+    "net": {
+        "name": "ConcatLSTM",
+        "config": {
+            "hidden_size": 18,
+            "num_layers": 3,
+            "train_burn_in": 8192,
+            "train_truncate": null,
+            "params": [
+                {
+                    "name": "Gain",
+                    "min": 0,
+                    "max": 10,
+                    "default": 5,
+                    "type": "continuous"
+                },
+                {
+                    "name": "Tone",
+                    "min": 0,
+                    "max": 10,
+                    "default": 5.0,
+                    "type": "continuous"
+                },
+                {
+                    "name": "Boost",
+                    "type": "switch",
+                    "min": 0,
+                    "max": 1,
+                    "default": 0,
+                    "enum_names": [
+                        "Off",
+                        "On"
+                    ]
+                }
+            ]
+        }
+    },
+    "loss": {
+        "mel_weight": 0.000062
+    },
+    "optimizer": {
+        "lr": 0.008,
+        "weight_decay": 0.0
+    },
+    "lr_scheduler": {
+        "class": "ExponentialLR",
+        "kwargs": {
+            "gamma": 0.995
+        },
+        "warmup_epochs": 16
+    }
+}

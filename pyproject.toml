@@ -42,18 +42,38 @@ test = [
     "requests",
 ]
 
+# The guided parametric capture desktop app (nam-capture)
+capture-app = [
+    "PySide6",
+]
+
 [project.urls]
 homepage = "https://github.com/sdatkinson/"
 
 [project.scripts]
 nam = "nam.cli:nam_gui"
+nam-capture = "nam.capture.gui.main:main"
 nam-full = "nam.cli:nam_full"
+nam-full-parametric = "nam.cli:nam_full_parametric"
 nam-hello-world = "nam.cli:nam_hello_world"
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
 write_to = "nam/_version.py"
+# Derive the version only from real version tags. The default match pattern also
+# accepts a trailing number on any tag name, so a release tag for non-code assets
+# (e.g. training-inputs-v1) would otherwise be read as version 1.
+[tool.setuptools_scm.scm.git]
+describe_command = [
+    "git",
+    "describe",
+    "--dirty",
+    "--tags",
+    "--long",
+    "--match",
+    "v[0-9]*",
+]
 
 [tool.setuptools]
 include-package-data = true
@@ -67,6 +87,7 @@ packages = [
     "nam.train.gui._resources",
     "nam.models",
     "nam.models._resources",
+    "nam.models.parametric",
     "nam.models.wavenet",
 ]
 

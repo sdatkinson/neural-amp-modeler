@@ -83,7 +83,14 @@ from pathlib import Path as _Path
 
 from nam.train.full import main as _nam_full
 from nam.train.gui import run as nam_gui  # noqa F401 Used as an entry point
+from nam.train.parametric import main as _nam_full_parametric
 from nam.util import timestamp as _timestamp
+
+
+def _ensure_outdir(outdir: str) -> _Path:
+    outdir_path = _Path(outdir, _timestamp())
+    outdir_path.mkdir(parents=True, exist_ok=False)
+    return outdir_path
 
 
 def nam_hello_world():
@@ -116,12 +123,7 @@ def nam_full():
 
     args = parser.parse_args()
 
-    def ensure_outdir(outdir: str) -> _Path:
-        outdir = _Path(outdir, _timestamp())
-        outdir.mkdir(parents=True, exist_ok=False)
-        return outdir
-
-    outdir = ensure_outdir(args.outdir)
+    outdir = _ensure_outdir(args.outdir)
     # Read
     with open(args.data_config_path, "r") as fp:
         data_config = _json.load(fp)
@@ -130,6 +132,36 @@ def nam_full():
     with open(args.learning_config_path, "r") as fp:
         learning_config = _json.load(fp)
     _nam_full(
+        data_config,
+        model_config,
+        learning_config,
+        outdir,
+        args.no_show,
+        make_plots=not args.no_plots,
+    )
+
+
+def nam_full_parametric():
+    parser = _ArgumentParser()
+    parser.add_argument("data_config_path", type=str)
+    parser.add_argument("model_config_path", type=str)
+    parser.add_argument("learning_config_path", type=str)
+    parser.add_argument("outdir", type=str)
+    parser.add_argument("--no-show", action="store_true", help="Don't show plots")
+    parser.add_argument(
+        "--no-plots", action="store_true", help="Don't create the plots at all"
+    )
+
+    args = parser.parse_args()
+
+    outdir = _ensure_outdir(args.outdir)
+    with open(args.data_config_path, "r") as fp:
+        data_config = _json.load(fp)
+    with open(args.model_config_path, "r") as fp:
+        model_config = _json.load(fp)
+    with open(args.learning_config_path, "r") as fp:
+        learning_config = _json.load(fp)
+    _nam_full_parametric(
         data_config,
         model_config,
         learning_config,

@@ -1,0 +1,67 @@
+name: Capture app build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[capture-app]" pyinstaller
+
+      - name: Import health smoke test
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -c "import nam.capture.gui.main"
+          python - <<'PY'
+          from nam.capture.audio import list_devices
+
+          try:
+              list_devices()
+          except Exception as exc:
+              print(f"list_devices failed: {exc}")
+          PY
+
+      - name: Build with PyInstaller
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --windowed --name NAMCapture --collect-all sounddevice scripts/nam_capture_launcher.py
+
+      - name: Determine artifact path
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # upload-artifact strips executable bits and symlinks, which breaks a
+            # .app bundle; ditto preserves them inside a zip.
+            ditto -c -k --keepParent dist/NAMCapture.app dist/NAMCapture-macos.zip
+            echo "artifact_path=dist/NAMCapture-macos.zip" >> "$GITHUB_ENV"
+          else
+            echo "artifact_path=dist/NAMCapture" >> "$GITHUB_ENV"
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nam-capture-${{ matrix.os }}
+          path: ${{ env.artifact_path }}
+          retention-days: 14

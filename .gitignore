@@ -139,3 +139,7 @@ nam/train/gui/_resources/settings.json
 
 # Resources downloaded into tests/
 tests/resources/*.reapeaks
+
+AGENTS.md
+
+.DS_Store

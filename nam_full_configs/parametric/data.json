@@ -1,0 +1,61 @@
+{
+    "_notes": [
+        "Parametric capture layout: one shared input wav, one output wav per knob setting.",
+        "This bundle uses basename-only audio paths so the files can be moved together.",
+        "Parameter metadata lives in the model config under net.config.params.",
+        "Train captures cover two distinct settings; validation holds out two different mixed settings."
+    ],
+    "type": "parametric",
+    "common": {
+        "x_path": "input.wav",
+        "delay": 0
+    },
+    "train": [
+        {
+            "y_path": "gain_2_tone_8_boost_off.wav",
+            "params": {
+                "Gain": 2.0,
+                "Tone": 8.0,
+                "Boost": "Off"
+            },
+            "start_seconds": 10.0,
+            "stop_seconds": -9.0,
+            "ny": 8192
+        },
+        {
+            "y_path": "gain_9_tone_3_boost_on.wav",
+            "params": {
+                "Gain": 9.0,
+                "Tone": 3.0,
+                "Boost": "On"
+            },
+            "start_seconds": 10.0,
+            "stop_seconds": -9.0,
+            "ny": 8192
+        }
+    ],
+    "validation": [
+        {
+            "y_path": "gain_5_tone_6_boost_on.wav",
+            "params": {
+                "Gain": 5.0,
+                "Tone": 6.0,
+                "Boost": "On"
+            },
+            "start_seconds": -9.0,
+            "stop_seconds": null,
+            "ny": null
+        },
+        {
+            "y_path": "gain_7_tone_1_boost_off.wav",
+            "params": {
+                "Gain": 7.0,
+                "Tone": 1.0,
+                "Boost": "Off"
+            },
+            "start_seconds": -9.0,
+            "stop_seconds": null,
+            "ny": null
+        }
+    ]
+}
