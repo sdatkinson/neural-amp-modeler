@@ -45,6 +45,17 @@ the rig. A separate validation input is optional but worth it — held-out setti
 held-out signal. Everything lives in that folder and is saved after every capture, so quitting
 mid-session costs nothing.
 
+**Input files.** No reamp signal handy? Take `inputTrunc.wav` and `validation.wav` from
+[this repo's releases](https://github.com/phillipmself/neural-amp-modeler-parametric/releases/tag/training-inputs-v1).
+They're truncated cuts of NAM's standard `input.wav` v3.0.0 — 38 s and 7 s against the original's
+3:10 — and models trained on them still come out well. The trim is what makes a parametric session
+practical: the input gets played through your rig once per knob setting, so cutting each pass
+fivefold takes a 90-capture run from roughly five hours of reamping down to under one.
+
+For standard single-setting NAM captures, keep using the full-length v3.0.0 file. You only reamp
+once there, so there's nothing to save, and the stock trainer keys off blip landmarks that a
+truncated cut doesn't preserve.
+
 **Knobs.** One row per control you want the model to learn:
 
 | Field | What it means |
