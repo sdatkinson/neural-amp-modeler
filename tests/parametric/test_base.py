@@ -137,6 +137,20 @@ def test_export_config_appends_params():
     }
 
 
+def test_export_dict_uses_parametric_version():
+    from nam.models.parametric._constants import PARAMETRIC_MODEL_VERSION
+
+    model = _make_model(sample_rate=8.0)
+
+    model_dict = model._get_export_dict()
+
+    assert model_dict["version"] == PARAMETRIC_MODEL_VERSION
+    # Sanity: the parametric schema is versioned independently of the stock schema.
+    from nam.models._constants import MODEL_VERSION
+
+    assert model_dict["version"] != MODEL_VERSION
+
+
 def test_at_nominal_settings_uses_default_params():
     model = _make_model()
     x = _torch.tensor([0.25, -0.5, 0.75], dtype=_torch.float32)

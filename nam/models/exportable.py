@@ -184,9 +184,17 @@ class Exportable(_abc.ABC):
     def _get_export_architecture(self) -> str:
         return self.__class__.__name__
 
+    def _get_export_version(self) -> str:
+        """
+        Schema version written to the exported model's top-level "version" field.
+        Overridable so that model families with their own file schema can version
+        independently of the stock NAM schema.
+        """
+        return _MODEL_VERSION
+
     def _get_export_dict(self) -> _ExportModelDict:
         return {
-            "version": _MODEL_VERSION,
+            "version": self._get_export_version(),
             "metadata": self._get_non_user_metadata(),
             "architecture": self._get_export_architecture(),
             "config": self._export_config(),
