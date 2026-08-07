@@ -24,6 +24,12 @@ jobs:
           fetch-depth: 0  # Ensures the full history is available
           fetch-tags: true  # Ensures tags are fetched
       - name: Clone NeuralAmpModelerCore and build loadmodel
+        # Upstream-only: the clone interpolates the repo owner, and forks have no
+        # NeuralAmpModelerCore at this tag, so the step cannot succeed off sdatkinson.
+        # Tests that need the loadmodel tool are marked skipif-not-present
+        # (tests/_skips.py), so skipping the build here skips those tests rather than
+        # failing them.
+        if: github.repository_owner == 'sdatkinson'
         env:
           CXX: clang++
         run: |
