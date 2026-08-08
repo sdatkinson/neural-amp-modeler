@@ -447,6 +447,7 @@ class MainWindow(_QMainWindow):
         layout.addLayout(form)
 
         self.include_corners_check = _QCheckBox("Include initial corners")
+        self.include_corners_check.setChecked(True)
         self.include_corners_check.setToolTip(
             "Add knob-range corner captures on top of the LHS points, so the plan has a "
             "boundary picture of the amp. The corners are a 2**(n-1) fractional factorial "
