@@ -54,6 +54,7 @@ from ..export import write_hyper_training_configs as _write_hyper_training_confi
 from ..params import KnobSpec as _KnobSpec
 from ..params import validate_knobs as _validate_knobs
 from ..planner import corner_capture_count as _corner_capture_count
+from ..planner import settings_sort_key as _settings_sort_key
 from ..project import add_corner_captures as _add_corner_captures
 from ..project import AudioSettingsModel as _AudioSettingsModel
 from ..project import CaptureEntryModel as _CaptureEntryModel
@@ -75,6 +76,24 @@ from .workers import SessionWorker as _SessionWorker
 
 
 _PLAN_COLUMNS = ("Split", "Index", "Params", "Filename", "Status", "Delay", "QA")
+
+# Display orders for the capture lists, in the order the sort button cycles them. "off" is
+# plan order: the order the captures were generated in, which keeps each section (LHS,
+# validation, corners) together and already sorted within itself. The other two sort every
+# capture together, across sections.
+SORT_MODES = ("off", "ascending", "descending")
+_SORT_BUTTON_LABELS = {
+    "off": "Sort All: Off (plan order)",
+    "ascending": "Sort All: Ascending",
+    "descending": "Sort All: Descending",
+}
+_SORT_BUTTON_TOOLTIP = (
+    "Cycle the capture list between plan order, ascending knob order and descending knob "
+    "order. Sorting is by the capture's knob values, in knob order: the last knob sweeps "
+    "its range for each value of the one before it, so going down the list moves the amp's "
+    "knobs as little as possible. This only changes the order the list is shown and "
+    "captured in -- the plan itself, the indexes, and the filenames are untouched."
+)
 
 # Selectable audio device buffer sizes in frames; 0 lets PortAudio choose.
 _BUFFER_SIZE_CHOICES = (0, 32, 64, 128, 256, 512, 1024, 2048, 4096)
@@ -147,6 +166,30 @@ def format_entry_row(entry: _CaptureEntryModel) -> tuple:
         entry.status,
         "" if entry.delay is None else str(entry.delay),
         format_qa_summary(entry.qa),
+    )
+
+
+def sort_entries(
+    entries: _Sequence[_CaptureEntryModel],
+    knob_names: _Sequence[str],
+    mode: str,
+) -> list[_CaptureEntryModel]:
+    """
+    The capture entries in display order for ``mode`` (one of :data:`SORT_MODES`).
+
+    ``"off"`` leaves them in plan order. The other two sort every entry together by its
+    knob values (see :func:`nam.capture.planner.settings_sort_key`), regardless of which
+    section it came from. The sort is stable, so entries that dial identically -- which
+    only a recaptured or re-imported duplicate produces -- keep their plan order.
+    """
+    if mode not in SORT_MODES:
+        raise ValueError(f"Unknown sort mode {mode!r}; expected one of {SORT_MODES}")
+    if mode == "off":
+        return list(entries)
+    return sorted(
+        entries,
+        key=lambda entry: _settings_sort_key(entry.params, knob_names),
+        reverse=mode == "descending",
     )
 
 
@@ -340,6 +383,12 @@ class MainWindow(_QMainWindow):
         self._al_process: _Optional[_QProcess] = None
         self._al_kill_timer: _Optional[_QTimer] = None
         self._al_cancel_requested = False
+        # Display order of the capture lists. Both tables share one mode, so a row index
+        # means the same entry in either of them; ``_displayed_entries`` is that row->entry
+        # mapping, kept in step with the tables by ``_refresh_plan_tables``.
+        self._sort_mode: str = SORT_MODES[0]
+        self._sort_buttons: list[_QPushButton] = []
+        self._displayed_entries: list[_CaptureEntryModel] = []
 
         self._build_ui()
         self._refresh_devices()
@@ -477,6 +526,11 @@ class MainWindow(_QMainWindow):
         self.add_corners_button.clicked.connect(self._on_add_corner_captures)
         layout.addWidget(self.add_corners_button)
 
+        sort_row = _QHBoxLayout()
+        sort_row.addWidget(self._make_sort_button())
+        sort_row.addStretch(1)
+        layout.addLayout(sort_row)
+
         self.plan_table = self._make_entry_table()
         layout.addWidget(self.plan_table)
         self._refresh_corner_count()
@@ -609,6 +663,7 @@ class MainWindow(_QMainWindow):
         buttons.addWidget(self.capture_next_button)
         buttons.addWidget(self.capture_selected_button)
         buttons.addWidget(self.cancel_button)
+        buttons.addWidget(self._make_sort_button())
         layout.addLayout(buttons)
 
         self.capture_progress = _QProgressBar()
@@ -707,6 +762,41 @@ class MainWindow(_QMainWindow):
         table.setHorizontalHeaderLabels(list(_PLAN_COLUMNS))
         table.setEditTriggers(_QTableWidget.EditTrigger.NoEditTriggers)
         return table
+
+    def _make_sort_button(self) -> _QPushButton:
+        """
+        A three-way sort toggle for the capture lists. The Plan and Capture tabs each get
+        one; they drive the single window-wide sort mode and are relabelled together, so
+        whichever tab the user is on shows the mode both tables are actually in.
+        """
+        button = _QPushButton()
+        button.setToolTip(_SORT_BUTTON_TOOLTIP)
+        button.clicked.connect(self._on_cycle_sort_mode)
+        self._sort_buttons.append(button)
+        button.setText(_SORT_BUTTON_LABELS[self._sort_mode])
+        return button
+
+    def _on_cycle_sort_mode(self) -> None:
+        self._sort_mode = SORT_MODES[
+            (SORT_MODES.index(self._sort_mode) + 1) % len(SORT_MODES)
+        ]
+        for button in self._sort_buttons:
+            button.setText(_SORT_BUTTON_LABELS[self._sort_mode])
+        # Row indices mean a different entry once the order changes, so follow the
+        # selected capture to its new row rather than leaving the highlight behind on
+        # whatever capture happens to land there.
+        row = self.capture_table.currentRow()
+        selected = (
+            self._displayed_entries[row]
+            if 0 <= row < len(self._displayed_entries)
+            else None
+        )
+        self._refresh_plan_tables()
+        self._refresh_next_entry_label()
+        for new_row, entry in enumerate(self._displayed_entries):
+            if entry is selected:
+                self.capture_table.setCurrentCell(new_row, 0)
+                break
 
     # -- project setup -----------------------------------------------------
 
@@ -1527,25 +1617,35 @@ class MainWindow(_QMainWindow):
 
     # -- capture -----------------------------------------------------------
 
+    def _next_pending_entry(self) -> _Optional[_CaptureEntryModel]:
+        """
+        The next capture to record: the first pending one in the order the list is
+        currently shown in, so "capture next" walks the sorted list the user is reading.
+        """
+        for entry in self._entries_in_display_order():
+            if entry.status == "pending":
+                return entry
+        return None
+
     def _on_capture_next(self) -> None:
         if self.session is None or self.project is None:
             _QMessageBox.warning(self, "No project", "Open or create a project first.")
             return
-        pending = self.project.pending_entries()
-        if not pending:
+        entry = self._next_pending_entry()
+        if entry is None:
             _QMessageBox.information(self, "Nothing pending", "All captures are complete.")
             return
-        self._begin_capture(pending[0])
+        self._begin_capture(entry)
 
     def _on_capture_selected(self) -> None:
         if self.session is None or self.project is None:
             _QMessageBox.warning(self, "No project", "Open or create a project first.")
             return
         row = self.capture_table.currentRow()
-        if row < 0 or row >= len(self.project.entries):
+        if row < 0 or row >= len(self._displayed_entries):
             _QMessageBox.warning(self, "No selection", "Select a row to capture.")
             return
-        self._begin_capture(self.project.entries[row])
+        self._begin_capture(self._displayed_entries[row])
 
     def _begin_capture(self, entry: _CaptureEntryModel) -> None:
         warnings = self._current_sample_rate_warnings()
@@ -1932,10 +2032,19 @@ class MainWindow(_QMainWindow):
         self._refresh_al_tab()
         self._refresh_sample_rate_warning()
 
+    def _entries_in_display_order(self) -> list[_CaptureEntryModel]:
+        if self.project is None:
+            return []
+        return sort_entries(
+            self.project.entries,
+            [knob.name for knob in self.project.knobs],
+            self._sort_mode,
+        )
+
     def _refresh_plan_tables(self) -> None:
-        entries = self.project.entries if self.project is not None else []
-        self._populate_entry_table(self.plan_table, entries)
-        self._populate_entry_table(self.capture_table, entries)
+        self._displayed_entries = self._entries_in_display_order()
+        self._populate_entry_table(self.plan_table, self._displayed_entries)
+        self._populate_entry_table(self.capture_table, self._displayed_entries)
 
     @staticmethod
     def _populate_entry_table(
@@ -1945,16 +2054,18 @@ class MainWindow(_QMainWindow):
         for row, entry in enumerate(entries):
             for col, value in enumerate(format_entry_row(entry)):
                 table.setItem(row, col, _QTableWidgetItem(value))
+        # Working down the list means reading the Params column, which the default column
+        # width elides to "Gain=0, ..." as soon as there is more than one knob.
+        table.resizeColumnsToContents()
 
     def _refresh_next_entry_label(self) -> None:
         if self.project is None:
             self.next_entry_label.setText("No project open.")
             return
-        pending = self.project.pending_entries()
-        if not pending:
+        entry = self._next_pending_entry()
+        if entry is None:
             self.next_entry_label.setText("All captures complete.")
             return
-        entry = pending[0]
         self.next_entry_label.setText(
             f"Next ({entry.split} #{entry.index}): "
             f"Set knobs to: {format_params(entry.params)}"

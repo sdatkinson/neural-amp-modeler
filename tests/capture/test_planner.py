@@ -1,10 +1,15 @@
+import numpy as _np
 import pytest as _pytest
 
+from nam.capture.params import DEFAULT_KNOB_STEP as _DEFAULT_KNOB_STEP
 from nam.capture.params import KnobSpec as _KnobSpec
 from nam.capture.planner import corner_capture_count as _corner_capture_count
 from nam.capture.planner import corner_settings as _corner_settings
 from nam.capture.planner import plan_captures as _plan_captures
 from nam.capture.planner import plan_corner_captures as _plan_corner_captures
+from nam.capture.planner import settings_sort_key as _settings_sort_key
+from nam.models.parametric import decode_named_params as _decode_named_params
+from nam.models.parametric import quantize_to_capture_grid as _quantize_to_capture_grid
 
 
 def _knobs() -> list[_KnobSpec]:
@@ -20,6 +25,11 @@ def _specs(knobs):
 
 def _keys(param_dicts, specs):
     return {tuple(params[spec.name] for spec in specs) for params in param_dicts}
+
+
+def _sort_keys(planned, specs):
+    names = [spec.name for spec in specs]
+    return [_settings_sort_key(capture.params, names) for capture in planned]
 
 
 def test_plan_captures_counts_and_grid():
@@ -88,9 +98,47 @@ def test_plan_captures_rejects_bad_counts():
         _plan_captures(_knobs(), n_train=3, n_validation=-1, seed=0)
 
 
+def test_plan_captures_sorts_each_split_by_knob_values():
+    # Each section of the plan is captured as a block, so within a block the settings must
+    # climb in knob order: the user dials down the list moving as little as possible.
+    knobs = _knobs()
+    specs = _specs(knobs)
+    train, validation = _plan_captures(knobs, n_train=12, n_validation=6, seed=1)
+
+    for planned in (train, validation):
+        keys = _sort_keys(planned, specs)
+        assert keys == sorted(keys)
+
+
+def test_plan_corner_captures_sorts_the_corner_section():
+    knobs = _five_knobs()
+    planned, _ = _plan_corner_captures(knobs)
+    keys = _sort_keys(planned, _specs(knobs))
+    assert keys == sorted(keys)
+    # Sorting reorders the corners; it must not drop or add any.
+    assert len(planned) == len(_corner_settings(_specs(knobs), gain_index=0))
+
+
+def test_settings_sort_key_orders_by_later_knobs_first():
+    # Gain sweeps slowest, the last knob fastest: 0/0, 0/1, ..., 1/0.
+    names = ["Gain", "Tone"]
+    settings = [
+        {"Gain": 1.0, "Tone": 0.0},
+        {"Gain": 0.0, "Tone": 5.0},
+        {"Gain": 0.0, "Tone": 0.0},
+    ]
+    ordered = sorted(settings, key=lambda params: _settings_sort_key(params, names))
+    assert ordered == [
+        {"Gain": 0.0, "Tone": 0.0},
+        {"Gain": 0.0, "Tone": 5.0},
+        {"Gain": 1.0, "Tone": 0.0},
+    ]
+
+
 def test_plan_captures_matches_starter_script_stream():
     # The starter script and the app planner must draw from the same LHS streams so a
-    # plan generated either way selects the same settings for the same seed.
+    # plan generated either way selects the same settings for the same seed. The planner
+    # emits each split sorted, so the settings are compared as sets, not element-wise.
     import importlib.util as _importlib_util
     from pathlib import Path as _Path
 
@@ -108,13 +156,29 @@ def test_plan_captures_matches_starter_script_stream():
     )
     train, validation = _plan_captures(knobs, n_train=4, n_validation=2, seed=5)
 
-    for script_entry, planned in zip(
-        starter["train"] + starter["validation"], train + validation
+    def quantized_keys(script_entries):
+        # The script was asked for raw, unrounded draws. Snapping them to the capture grid
+        # is exactly what the planner does to its own draws, so from the same stream the
+        # two must land on the same settings.
+        keys = set()
+        for entry in script_entries:
+            raw = _np.asarray(
+                [entry["params"][spec.name] for spec in param_specs], dtype=float
+            )
+            quantized = _quantize_to_capture_grid(
+                raw, param_specs, default_step=_DEFAULT_KNOB_STEP
+            )
+            params = _decode_named_params(quantized, param_specs)
+            keys.add(tuple(params[spec.name] for spec in param_specs))
+        return keys
+
+    for script_entries, planned in (
+        (starter["train"], train),
+        (starter["validation"], validation),
     ):
-        for name, value in planned.params.items():
-            # The planner snaps to each knob's grid; the raw draws must match to
-            # within half a step for these to be the same underlying settings.
-            assert abs(script_entry["params"][name] - value) <= 0.5 * 1.0 + 1e-9
+        assert quantized_keys(script_entries) == _keys(
+            [capture.params for capture in planned], param_specs
+        )
 
 
 def _one(name):

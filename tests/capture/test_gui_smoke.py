@@ -19,6 +19,8 @@ from nam.capture.gui.main import format_entry_row as _format_entry_row
 from nam.capture.gui.main import format_params as _format_params
 from nam.capture.gui.main import format_qa_summary as _format_qa_summary
 from nam.capture.gui.main import knob_rows_to_specs as _knob_rows_to_specs
+from nam.capture.gui.main import sort_entries as _sort_entries
+from nam.capture.gui.main import SORT_MODES as _SORT_MODES
 from nam.capture.gui.main import _latency_index
 from nam.capture.project import CaptureEntryModel as _CaptureEntryModel
 from nam.capture.project import load_project as _load_project
@@ -422,6 +424,113 @@ def test_regenerate_plan_reimports_matching_captures_immediately(
     reimported = next(e for e in window.project.entries if e.y_path == entry.y_path)
     assert reimported.status == "captured"
     assert reimported.delay == 12
+    window.close()
+
+
+def _entry(index, gain, tone, status="pending"):
+    return _CaptureEntryModel(
+        index=index,
+        split="train",
+        params={"Gain": gain, "Tone": tone},
+        y_path=f"captures/lhs_{index:03d}.wav",
+        status=status,
+    )
+
+
+def test_sort_entries_off_keeps_generation_order():
+    entries = [_entry(0, 5.0, 1.0), _entry(1, 0.0, 3.0), _entry(2, 5.0, 0.0)]
+    assert _sort_entries(entries, ["Gain", "Tone"], "off") == entries
+
+
+def test_sort_entries_ascending_and_descending_sweep_the_last_knob_fastest():
+    entries = [_entry(0, 5.0, 1.0), _entry(1, 0.0, 3.0), _entry(2, 5.0, 0.0)]
+
+    ascending = _sort_entries(entries, ["Gain", "Tone"], "ascending")
+    assert [(e.params["Gain"], e.params["Tone"]) for e in ascending] == [
+        (0.0, 3.0),
+        (5.0, 0.0),
+        (5.0, 1.0),
+    ]
+    descending = _sort_entries(entries, ["Gain", "Tone"], "descending")
+    assert descending == list(reversed(ascending))
+
+
+def test_sort_entries_rejects_an_unknown_mode():
+    with _pytest.raises(ValueError):
+        _sort_entries([], ["Gain"], "sideways")
+
+
+def test_sort_button_cycles_the_three_modes_and_reorders_both_tables(
+    _qapp, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(_MainWindow_module._QMessageBox, "information", lambda *a, **k: None)
+    window = _MainWindow()
+    window.project_dir = tmp_path
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(8)
+    window.n_validation_spin.setValue(2)
+    window.include_corners_check.setChecked(True)
+    window._on_generate_plan()
+
+    names = [knob.name for knob in window.project.knobs]
+
+    def shown_params(table):
+        return [
+            table.item(row, _MainWindow_module._PLAN_COLUMNS.index("Params")).text()
+            for row in range(table.rowCount())
+        ]
+
+    def expected(mode):
+        return [
+            _format_params(entry.params)
+            for entry in _sort_entries(window.project.entries, names, mode)
+        ]
+
+    # One button per capture list; they show the mode both lists are in, so they must
+    # always read the same.
+    assert len(window._sort_buttons) == 2
+    for mode in list(_SORT_MODES[1:]) + [_SORT_MODES[0]]:
+        window._on_cycle_sort_mode()
+        assert window._sort_mode == mode
+        labels = {button.text() for button in window._sort_buttons}
+        assert len(labels) == 1 and mode.capitalize() in labels.pop()
+        assert shown_params(window.plan_table) == expected(mode)
+        assert shown_params(window.capture_table) == expected(mode)
+        # The plan itself is untouched: sorting is display-only.
+        assert [e.y_path for e in window.project.entries] == [
+            e.y_path for e in _load_project(tmp_path).entries
+        ]
+    window.close()
+
+
+def test_sorting_remaps_capture_selected_and_capture_next(_qapp, tmp_path, monkeypatch):
+    # The tables are sorted but the project keeps plan order, so a row index must be read
+    # through the displayed order -- otherwise "capture selected" records the wrong knobs.
+    monkeypatch.setattr(_MainWindow_module._QMessageBox, "information", lambda *a, **k: None)
+    window = _MainWindow()
+    window.project_dir = tmp_path
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(8)
+    window.n_validation_spin.setValue(2)
+    window._on_generate_plan()
+
+    captured = []
+    monkeypatch.setattr(_MainWindow, "_begin_capture", lambda self, entry: captured.append(entry))
+
+    window._sort_mode = "descending"
+    window._refresh_plan_tables()
+    window._refresh_next_entry_label()
+    window.capture_table.setCurrentCell(3, 0)
+    window._on_capture_selected()
+    assert captured[-1] is window._displayed_entries[3]
+    assert captured[-1] is not window.project.entries[3]
+
+    # "Capture next" follows the list the user is reading, not the plan order.
+    window._on_capture_next()
+    assert captured[-1] is window._displayed_entries[0]
+    assert f"Set knobs to: {_format_params(captured[-1].params)}" in (
+        window.next_entry_label.text()
+    )
     window.close()
 
 

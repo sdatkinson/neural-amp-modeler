@@ -118,6 +118,36 @@ def _settings_key(
     return tuple(params[spec.name] for spec in specs)
 
 
+def settings_sort_key(
+    params: dict[str, _Any], names: _Sequence[str]
+) -> tuple[tuple[int, _Any], ...]:
+    """
+    Ordering key for one capture setting: its values in knob order. Sorting a list of
+    settings by this walks the last knob through its range for every value of the knob
+    before it, and so on, which is the order that asks the user to move the fewest knobs
+    between one capture and the next.
+
+    Each value is paired with a type rank so a numeric knob and a switch's label can never
+    be compared against each other. Within one knob every setting has the same type, so the
+    rank is constant down that column and the value is what orders it.
+    """
+    key: list[tuple[int, _Any]] = []
+    for name in names:
+        value = params[name]
+        try:
+            key.append((0, float(value)))
+        except (TypeError, ValueError):
+            key.append((1, str(value)))
+    return tuple(key)
+
+
+def sort_settings(
+    param_dicts: _Sequence[dict[str, _Any]], names: _Sequence[str]
+) -> list[dict[str, _Any]]:
+    """Capture settings in ascending :func:`settings_sort_key` order."""
+    return sorted(param_dicts, key=lambda params: settings_sort_key(params, names))
+
+
 def sample_unique_settings(
     specs: _Sequence[_ParamSpec],
     n: int,
@@ -421,6 +451,11 @@ def plan_captures(
     ``n_validation`` held-out validation settings (a separate LHS stream derived from
     the same seed), each snapped to its knob's capture grid. Every planned setting is
     distinct and validation is held out from train (see :func:`plan_unique_splits`).
+
+    Each split is emitted in ascending knob order (see :func:`settings_sort_key`) so the
+    user works through one section at a time with the knobs moving as little as possible
+    between consecutive captures. Sorting within a split does not touch which settings are
+    drawn, only the order they are recorded in.
     """
     knobs = _validate_knobs(knobs)
     if n_train <= 0:
@@ -436,8 +471,13 @@ def plan_captures(
         seed=seed,
         default_step=_DEFAULT_KNOB_STEP,
     )
-    train = _planned_from_params("lhs", "train", specs, train_params)
-    validation = _planned_from_params("val_lhs", "validation", specs, validation_params)
+    names = [spec.name for spec in specs]
+    train = _planned_from_params(
+        "lhs", "train", specs, sort_settings(train_params, names)
+    )
+    validation = _planned_from_params(
+        "val_lhs", "validation", specs, sort_settings(validation_params, names)
+    )
     return train, validation
 
 
@@ -473,21 +513,16 @@ def _corner_vertices(n: int) -> list[tuple[bool, ...]]:
     For four or more knobs this is the even-parity half fraction -- every pattern with an
     even number of maxes, 2**(n-1) of them. That is the standard 2**(n-1) fractional
     factorial, and it keeps all n knobs mutually orthogonal, so the corner set can tell
-    each knob's extreme apart from every other knob's. Ordered all-min first, all-max
-    second, so the two "everything at one end" corners are captured first.
+    each knob's extreme apart from every other knob's. This is a set, not an order:
+    :func:`plan_corner_captures` decides the order the corners are captured in.
     """
     if n < _MIN_HALF_FRACTION_KNOBS:
-        vertices = list(_itertools.product((False, True), repeat=n))
-    else:
-        vertices = [
-            combination
-            for combination in _itertools.product((False, True), repeat=n)
-            if sum(combination) % 2 == 0
-        ]
-    all_min = (False,) * n
-    all_max = (True,) * n
-    leading = [v for v in (all_min, all_max) if v in vertices]
-    return leading + [v for v in vertices if v not in leading]
+        return list(_itertools.product((False, True), repeat=n))
+    return [
+        combination
+        for combination in _itertools.product((False, True), repeat=n)
+        if sum(combination) % 2 == 0
+    ]
 
 
 def _corner_high_flag_sets(
@@ -568,6 +603,10 @@ def plan_corner_captures(
     Plan the corner captures for ``knobs`` as pending ``train`` captures, skipping any whose
     setting already appears in ``exclude`` (the LHS points and any corners already planned).
 
+    The corners are emitted as their own section, in ascending knob order (see
+    :func:`settings_sort_key`), so they read as one sorted block wherever they sit in the
+    plan. Which corners are captured does not depend on the order.
+
     Returns the planned corner captures and the number of distinct corners skipped because
     they duplicate an existing setting, so the caller can tell the user (they still get a
     useful boundary set; the overlap just means fewer *new* captures). ``index_offset`` and
@@ -595,7 +634,7 @@ def plan_corner_captures(
         "corner",
         "train",
         specs,
-        unique,
+        sort_settings(unique, [spec.name for spec in specs]),
         index_offset=index_offset,
         filename_start=filename_start,
     )
