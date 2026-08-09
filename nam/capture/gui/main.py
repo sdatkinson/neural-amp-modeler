@@ -382,9 +382,10 @@ class InputWavDialog(_QDialog):
 
 
 class MainWindow(_QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, *, enable_active_learning: bool = False) -> None:
         super().__init__()
         self.setWindowTitle("NAM Parametric Capture")
+        self._enable_active_learning = enable_active_learning
 
         self.project: _Optional[_CaptureProject] = None
         self.project_dir: _Optional[_Path] = None
@@ -443,7 +444,8 @@ class MainWindow(_QMainWindow):
         tabs.addTab(self._build_plan_tab(), "Plan")
         tabs.addTab(self._build_audio_tab(), "Audio I/O")
         tabs.addTab(self._build_capture_tab(), "Capture")
-        tabs.addTab(self._build_al_tab(), "Active Learning")
+        if self._enable_active_learning:
+            tabs.addTab(self._build_al_tab(), "Active Learning")
         self.status_bar = self.statusBar()
 
     def _build_project_tab(self) -> _QWidget:
@@ -2172,6 +2174,8 @@ class MainWindow(_QMainWindow):
         )
 
     def _refresh_al_tab(self) -> None:
+        if not self._enable_active_learning:
+            return
         if self.project is None or self.project_dir is None:
             self.al_next_round_label.setText("No project open.")
             self.al_rounds_completed_label.setText("")
@@ -2193,7 +2197,8 @@ class MainWindow(_QMainWindow):
 
 def main() -> None:
     app = _QApplication.instance() or _QApplication(_sys.argv)
-    window = MainWindow()
+    enable_active_learning = "--active-learning" in _sys.argv
+    window = MainWindow(enable_active_learning=enable_active_learning)
     window.show()
     _sys.exit(app.exec())
 

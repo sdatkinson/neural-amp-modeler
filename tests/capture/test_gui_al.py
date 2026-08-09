@@ -45,7 +45,7 @@ def _write_round(project_dir: _Path, round_idx: int, records: list[dict]) -> Non
 
 
 def test_al_tab_has_expected_widgets(_qapp):
-    window = _MainWindow()
+    window = _MainWindow(enable_active_learning=True)
     assert window.al_start_button.text() == "Start round"
     assert window.al_cancel_button.text() == "Cancel round"
     assert window.al_import_button.text() == "Import proposals"
@@ -56,14 +56,14 @@ def test_al_tab_has_expected_widgets(_qapp):
 
 
 def test_refresh_al_tab_with_no_project_does_not_crash(_qapp):
-    window = _MainWindow()
+    window = _MainWindow(enable_active_learning=True)
     window._refresh_al_tab()
     assert window.al_next_round_label.text() == "No project open."
     window.close()
 
 
 def test_al_process_args_omits_max_workers_when_zero(_qapp, tmp_path: _Path):
-    window = _MainWindow()
+    window = _MainWindow(enable_active_learning=True)
     window.project_dir = tmp_path
     args = window._al_process_args()
     assert args[:4] == ["-m", "nam.capture.al_runner", "--project-dir", str(tmp_path)]
@@ -72,7 +72,7 @@ def test_al_process_args_omits_max_workers_when_zero(_qapp, tmp_path: _Path):
 
 
 def test_al_process_args_includes_max_workers_when_positive(_qapp, tmp_path: _Path):
-    window = _MainWindow()
+    window = _MainWindow(enable_active_learning=True)
     window.project_dir = tmp_path
     window.al_max_workers_spin.setValue(3)
     args = window._al_process_args()
@@ -82,7 +82,7 @@ def test_al_process_args_includes_max_workers_when_positive(_qapp, tmp_path: _Pa
 
 
 def test_al_process_args_reflects_settings_spinboxes(_qapp, tmp_path: _Path):
-    window = _MainWindow()
+    window = _MainWindow(enable_active_learning=True)
     window.project_dir = tmp_path
     window.al_max_per_round_spin.setValue(5)
     window.al_ensemble_size_spin.setValue(2)
@@ -105,7 +105,7 @@ def test_import_al_proposals_adds_pending_entries_and_saves(_qapp, tmp_path: _Pa
     ]
     _write_round(tmp_path, 0, records)
 
-    window = _MainWindow()
+    window = _MainWindow(enable_active_learning=True)
     window.project = project
     window.project_dir = tmp_path
 

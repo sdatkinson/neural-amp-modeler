@@ -126,7 +126,8 @@ so a 5-knob model runs 16 wide, on every buffer, forever.
 
 ## Active learning (experimental)
 
-The capture app's **Active Learning** tab runs a PANAMA-style
+The **Active Learning** tab is hidden by default; launch the capture app with
+`nam-capture --active-learning` to show it. It runs a PANAMA-style
 ([arXiv 2509.26564v1](https://arxiv.org/html/2509.26564v1)) loop: it trains a throwaway ConcatLSTM
 ensemble on the captures you have so far, finds the knob settings where the ensemble members
 disagree most, and proposes those as your next round of captures. The idea is that disagreement
