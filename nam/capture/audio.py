@@ -9,6 +9,9 @@ user action, and the GUI must be able to start even if PortAudio is unhappy.
 
 from __future__ import annotations
 
+import contextlib as _contextlib
+import os as _os
+import sys as _sys
 import time as _time
 from dataclasses import dataclass as _dataclass
 from typing import Callable as _Callable
@@ -19,6 +22,80 @@ from typing import Tuple as _Tuple
 from typing import Union as _Union
 
 import numpy as _np
+
+
+def _enable_asio_on_windows() -> None:
+    """
+    Ask ``sounddevice`` for its ASIO-enabled PortAudio build, on Windows only.
+
+    ASIO is the only Windows backend this app supports: the only one with
+    DAW-comparable round-trip latency, and the only one presenting an interface as a
+    single duplex device. The rest split it in two and so never survive the device
+    picker's duplex filter, which excludes them for free.
+
+    ``sounddevice`` picks its DLL when first imported and reads this variable then, so
+    this must run before any ``import sounddevice`` -- hence module scope, which every
+    other reference in this module being lazy makes sufficient.
+
+    ``sounddevice`` checks only that the variable exists, so ``SD_ENABLE_ASIO=0`` still
+    selects ASIO. ``setdefault`` leaves an explicit setting alone, but there is no
+    value that acts as an off switch.
+    """
+    if _sys.platform == "win32":
+        _os.environ.setdefault("SD_ENABLE_ASIO", "1")
+
+
+_enable_asio_on_windows()
+
+
+# CoInitializeEx apartment flag, and the two HRESULTs that own a matching
+# CoUninitialize: S_OK means this call created the apartment, S_FALSE that the thread
+# was already in one. Anything else -- RPC_E_CHANGED_MODE above all, meaning the thread
+# is already in a different apartment model -- is not ours to undo.
+_COINIT_APARTMENTTHREADED = 0x2
+_S_OK = 0
+_S_FALSE = 1
+
+
+@_contextlib.contextmanager
+def asio_com_apartment():
+    """
+    Put the calling thread in a single-threaded COM apartment for the duration of the
+    block, on Windows. A no-op everywhere else.
+
+    ASIO drivers are in-process COM servers, loaded when a stream is *opened*, on
+    whichever thread opens it. A thread with no apartment cannot load one, which
+    PortAudio surfaces as ``Unanticipated host error ... 'Failed to load ASIO
+    driver'``. Python's main thread lands in an apartment incidentally, so only the
+    capture QThread needs this.
+
+    Reinitialising PortAudio on the worker thread is the intuitive fix and the wrong
+    one: ``Pa_Initialize`` is reference-counted so it does nothing while PortAudio is
+    up, and forcing a real one binds the driver to a thread that dies with the capture,
+    after which the main thread can no longer open a stream.
+    """
+    if _sys.platform != "win32":
+        yield
+        return
+
+    import ctypes
+
+    try:
+        ole32 = ctypes.windll.ole32
+        # ctypes defaults restype to c_int, so the HRESULT arrives already signed.
+        result = ole32.CoInitializeEx(None, _COINIT_APARTMENTTHREADED)
+    except (AttributeError, OSError):
+        # COM could not be reached at all. The apartment is a precondition, not the
+        # job, so let the capture be attempted rather than failing before it starts.
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        # Only unwind an apartment this call actually entered.
+        if result in (_S_OK, _S_FALSE):
+            ole32.CoUninitialize()
 
 
 # Suggested stream latency: seconds, or one of PortAudio's per-device presets.
@@ -133,42 +210,46 @@ def list_devices(refresh: bool = False) -> list[DeviceInfo]:
     return devices
 
 
-def current_device_sample_rates(allow_reinit: bool = False) -> dict[str, float]:
+def reports_current_sample_rate(device: DeviceInfo) -> bool:
+    """
+    Whether ``device.default_samplerate`` means "the rate this hardware is running at".
+
+    For most host APIs it does: the device is locked to a rate chosen in the OS, and a
+    capture at a different rate would be resampled or refused -- worth warning about.
+
+    ASIO is the exception. PortAudio never asks the driver what rate it is on; it walks
+    a fixed list starting at 44100 and reports the first the driver supports, so an
+    iD44 running at 48 kHz reports 44100 permanently. And there would be nothing to
+    warn about even if it did, because an ASIO driver retunes to whatever the stream
+    asks for. A rate it genuinely cannot do fails at stream open, which beats a warning
+    derived from a number that means something else.
+    """
+    return device.host_api != "ASIO"
+
+
+def current_device_sample_rates() -> dict[str, float]:
     """
     Map device name -> its *current* nominal sample rate in Hz, read live.
 
     PortAudio latches each device's ``default_samplerate`` when it initialises, so it
-    cannot see a rate changed in the OS while the app is running.
-
-    - On macOS this reads CoreAudio's nominal sample rate, which always reflects the
-      current hardware setting and is cheap enough to poll.
-    - On other platforms there is no comparably cheap always-live query, so the only
-      way to re-read the current rates is to reinitialise PortAudio. That must never
-      happen while a stream is open, so it is done only when ``allow_reinit`` is True;
-      the refreshed rates still come straight from PortAudio, so they are never wrong,
-      at worst merely not refreshed.
+    cannot see a rate changed in the OS while the app is running. macOS can be asked
+    for the real thing cheaply; nowhere else can, so nowhere else gets live rates.
 
     Returns an empty dict when it cannot produce live values; callers then fall back to
     :attr:`DeviceInfo.default_samplerate`.
     """
-    import sys as _sys
-
     if _sys.platform == "darwin":
         try:
             return _coreaudio_sample_rates()
         except Exception:
             return {}
 
-    if not allow_reinit:
-        return {}
-    import sounddevice as sd
-
-    try:
-        sd._terminate()
-        sd._initialize()
-        return {device.name: device.default_samplerate for device in list_devices()}
-    except Exception:
-        return {}
+    # Off macOS the only way to re-read the rates is to reinitialise PortAudio, and this
+    # is polled on a timer. PortAudio enumerates ASIO by loading every installed driver,
+    # so a reinit costs ~90 ms of blocked GUI thread and races the capture thread for
+    # the same driver. "Refresh devices" still reinitialises, which is where someone who
+    # just changed their interface's rate would look anyway.
+    return {}
 
 
 def _coreaudio_sample_rates() -> dict[str, float]:

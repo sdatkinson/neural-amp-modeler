@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import shutil as _shutil
 import sys as _sys
-import time as _time
 from pathlib import Path as _Path
 from typing import Any as _Any
 from typing import Callable as _Callable
@@ -49,6 +48,7 @@ from ..audio import current_device_sample_rates as _current_device_sample_rates
 from ..audio import DeviceInfo as _DeviceInfo
 from ..audio import LATENCY_CHOICES as _LATENCY_CHOICES
 from ..audio import list_devices as _list_devices
+from ..audio import reports_current_sample_rate as _reports_current_sample_rate
 from ..export import write_concat_training_configs as _write_concat_training_configs
 from ..export import write_hyper_training_configs as _write_hyper_training_configs
 from ..params import KnobSpec as _KnobSpec
@@ -285,6 +285,38 @@ def duplex_devices(devices: _Sequence[_DeviceInfo]) -> list[_DeviceInfo]:
     ]
 
 
+def no_duplex_devices_message(
+    devices: _Sequence[_DeviceInfo], platform: str
+) -> str:
+    """
+    What to tell the user when the device picker has nothing to offer, or "" when it
+    does. Takes the *full* device list, because what is missing is the diagnosis.
+
+    On Windows, devices but no duplex one is the ordinary no-ASIO-driver case; no
+    devices at all is a different fault and gets different advice. On macOS, where
+    CoreAudio makes every interface duplex, it just means nothing is plugged in.
+    """
+    if duplex_devices(devices):
+        return ""
+    if platform == "win32":
+        if not devices:
+            return (
+                "No audio devices found. PortAudio cannot see any sound hardware on "
+                "this machine — check that your interface is connected and working in "
+                "Windows' own sound settings, then press Refresh devices."
+            )
+        return (
+            "No ASIO device found. Install your interface's own ASIO driver from the "
+            "manufacturer, then press Refresh devices. If it has no ASIO driver of its "
+            "own, ASIO4ALL or FlexASIO work as a generic substitute."
+        )
+    return (
+        "No audio device with both inputs and outputs was found. A capture plays and "
+        "records at the same time, so it needs one device that does both. Connect your "
+        "audio interface, then press Refresh devices."
+    )
+
+
 class InputWavDialog(_QDialog):
     """
     Collect the training and validation input WAVs with both fields labelled and
@@ -370,10 +402,9 @@ class MainWindow(_QMainWindow):
         self._validation_input_name: str = "input_validation.wav"
         self._devices: list[_DeviceInfo] = []
         # Last known live device sample rates (name -> Hz), refreshed by the poll. Held
-        # so non-macOS polls that skip the throttled PortAudio reinit reuse the last
-        # reading instead of falling back and flickering.
+        # so a poll that comes back empty reuses the last reading instead of falling
+        # back and flickering.
         self._live_device_rates: dict[str, float] = {}
-        self._last_rate_reinit: float = 0.0
         self._worker: _Optional[_SessionWorker] = None
         # Workers are retained here until their ``finished`` signal fires so the
         # underlying QThread is never garbage-collected (and destroyed) while its
@@ -587,6 +618,14 @@ class MainWindow(_QMainWindow):
         form.addRow("Buffer size", self.buffer_size_combo)
         form.addRow("Stream latency", self.latency_combo)
         layout.addLayout(form)
+
+        # Sits directly under the picker it explains: an empty combo cannot be opened,
+        # so without this the tab gives no hint that anything is wrong.
+        self.no_devices_label = _QLabel("")
+        self.no_devices_label.setWordWrap(True)
+        self.no_devices_label.setStyleSheet("color: #b36b00;")
+        self.no_devices_label.setVisible(False)
+        layout.addWidget(self.no_devices_label)
 
         self.routing_note_label = _QLabel(
             "The loopback only tracks latency on the path it actually travels. "
@@ -1321,15 +1360,51 @@ class MainWindow(_QMainWindow):
 
     # -- audio -----------------------------------------------------------
 
+    # How long to give a cancelled operation to close its stream before re-enumerating.
+    # The recorder polls the cancel flag every 50 ms, so this is a ceiling, not a cost.
+    _REINIT_WAIT_MS = 2000
+
+    def _stop_worker_before_reinit(self) -> bool:
+        """
+        Stop any in-flight capture or route test so the device table can be rebuilt,
+        and report whether it is now safe to reinitialise PortAudio.
+
+        Re-enumerating tears PortAudio down and back up, which is not allowed while a
+        stream is open: the running operation dies with "PortAudio not initialized".
+        Cancelling first takes the same path as the Cancel button, so it closes its
+        stream and reports itself cancelled.
+
+        Losing the operation is the right trade at every caller -- the refresh button
+        (deliberately left enabled during one) and project open/create alike.
+        """
+        worker = self._worker
+        if worker is None or not worker.isRunning():
+            return True
+        if self._cancel_token is not None:
+            self._cancel_token.cancel()
+        # Only the thread finishing is waited on. The ``cancelled`` signal is queued and
+        # arrives once this returns to the event loop.
+        return bool(worker.wait(self._REINIT_WAIT_MS))
+
     def _refresh_devices(self) -> None:
+        safe_to_reinit = self._stop_worker_before_reinit()
+        if not safe_to_reinit:
+            # A stream may still be open. A stale table beats undefined behaviour.
+            self.project_log.appendPlainText(
+                "An audio operation would not stop, so the device list was re-read "
+                "without reinitialising the audio system; sample rates may be stale."
+            )
         try:
-            self._devices = _list_devices(refresh=True)
+            self._devices = _list_devices(refresh=safe_to_reinit)
         except Exception as exc:
             self._devices = []
             self.project_log.appendPlainText(f"Could not list audio devices: {exc}")
         self._populate_device_combo(
             self.device_combo, duplex_devices(self._devices)
         )
+        message = no_duplex_devices_message(self._devices, _sys.platform)
+        self.no_devices_label.setText(message)
+        self.no_devices_label.setVisible(bool(message))
         self._load_audio_settings_into_ui()
         self._refresh_sample_rate_warning()
 
@@ -1426,23 +1501,28 @@ class MainWindow(_QMainWindow):
     def _device_rate(
         self, device: _Optional[_DeviceInfo], live: dict[str, float]
     ) -> _Optional[int]:
-        """Current hardware rate for ``device``: live if known, else its PortAudio default."""
+        """
+        Current hardware rate for ``device``: live if known, else its PortAudio default,
+        else ``None`` when the device does not report one that means anything.
+
+        ``None`` is not an error: ``sample_rate_warnings`` skips an unknown rate rather
+        than warning about it, which is what ASIO needs. See
+        :func:`reports_current_sample_rate`.
+        """
         if device is None:
             return None
         rate = live.get(device.name)
         if rate is None:
+            if not _reports_current_sample_rate(device):
+                return None
             rate = device.default_samplerate
         return int(round(rate))
 
     def _update_live_device_rates(self) -> None:
-        now = _time.monotonic()
-        # Off macOS a refresh reinitialises PortAudio (disruptive and noisy), so
-        # throttle it and never run it while a capture or route test holds a stream.
-        # macOS ignores the flag: its CoreAudio read is cheap and stream-safe.
-        allow_reinit = self._worker is None and (now - self._last_rate_reinit) >= 2.5
-        rates = _current_device_sample_rates(allow_reinit=allow_reinit)
-        if allow_reinit:
-            self._last_rate_reinit = now
+        # Live rates exist on macOS only; elsewhere this returns nothing and callers
+        # fall back to PortAudio's cached defaults. Never reinitialises, so this is safe
+        # to call while a worker holds a stream.
+        rates = _current_device_sample_rates()
         if rates:
             self._live_device_rates = rates
 
@@ -1540,6 +1620,11 @@ class MainWindow(_QMainWindow):
             return None, None
         self._update_live_device_rates()
         rate = self._device_rate(device, self._live_device_rates)
+        if rate is None:
+            # None means no meaningful *current* rate (always so for ASIO). Right for
+            # the mismatch warning, wrong here: this needs a rate the device accepts,
+            # and PortAudio reports ``default_samplerate`` because the driver takes it.
+            rate = int(round(device.default_samplerate))
         project = _CaptureProject(knobs=[], audio=self._audio_settings)
         session = _CaptureSession(project, self.project_dir or _Path("."))
         return session, rate

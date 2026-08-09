@@ -19,6 +19,7 @@ from nam.capture.gui.main import format_entry_row as _format_entry_row
 from nam.capture.gui.main import format_params as _format_params
 from nam.capture.gui.main import format_qa_summary as _format_qa_summary
 from nam.capture.gui.main import knob_rows_to_specs as _knob_rows_to_specs
+from nam.capture.gui.main import no_duplex_devices_message as _no_duplex_devices_message
 from nam.capture.gui.main import sort_entries as _sort_entries
 from nam.capture.gui.main import SORT_MODES as _SORT_MODES
 from nam.capture.gui.main import _latency_index
@@ -133,6 +134,189 @@ def test_duplex_devices_keeps_only_full_io_devices():
         ),
     ]
     assert [d.name for d in _duplex_devices(devices)] == ["Duplex Interface"]
+
+
+def _device(name, host_api, max_input_channels, max_output_channels):
+    return _DeviceInfo(
+        index=0,
+        name=name,
+        host_api=host_api,
+        max_input_channels=max_input_channels,
+        max_output_channels=max_output_channels,
+        default_samplerate=48000.0,
+    )
+
+
+_ASIO_DEVICE = _device("Audient USB Audio ASIO Driver", "ASIO", 20, 24)
+# What Windows looks like with an interface connected but no ASIO driver: every backend
+# splits it into a separate capture and render device.
+_SPLIT_WINDOWS_DEVICES = [
+    _device("Input 1/2 (Audient iD44)", "MME", 2, 0),
+    _device("Output 1/2 (Audient iD44)", "MME", 0, 2),
+    _device("Input 1/2 (Audient iD44)", "Windows WASAPI", 2, 0),
+    _device("Output 1/2 (Audient iD44)", "Windows WASAPI", 0, 2),
+]
+
+
+def test_no_message_when_a_duplex_device_exists():
+    """One duplex device among the split ones is enough to keep the label hidden."""
+    assert _no_duplex_devices_message(_SPLIT_WINDOWS_DEVICES + [_ASIO_DEVICE], "win32") == ""
+    assert _no_duplex_devices_message([_device("Mic", "Core Audio", 4, 4)], "darwin") == ""
+
+
+def test_each_empty_picker_case_gets_its_own_advice():
+    """
+    The three ways the picker comes up empty are three different faults -- no ASIO
+    driver, no hardware at all, and nothing plugged in off Windows -- so each has to
+    reach its own branch. What those branches actually say is copy, not behaviour.
+    """
+    no_asio = _no_duplex_devices_message(_SPLIT_WINDOWS_DEVICES, "win32")
+    no_hardware = _no_duplex_devices_message([], "win32")
+    off_windows = _no_duplex_devices_message(
+        [_device("Mic", "Core Audio", 1, 0)], "darwin"
+    )
+    assert all([no_asio, no_hardware, off_windows])
+    assert len({no_asio, no_hardware, off_windows}) == 3
+
+
+def test_asio_device_rate_is_unknown_rather_than_wrong(_qapp):
+    """
+    An ASIO device's reported rate is not the rate it is running at, so it must come
+    back as None: a wrong one warns forever and leaves the capture buttons disabled.
+    Everything else still falls back to the PortAudio default.
+    """
+    window = _MainWindow()
+    asio = _device("Audient USB Audio ASIO Driver", "ASIO", 20, 24)
+    assert window._device_rate(asio, {}) is None
+    # A live reading, if one ever existed, is still believed over the default.
+    assert window._device_rate(asio, {asio.name: 48000.0}) == 48000
+    assert window._device_rate(_device("Audient iD44", "Core Audio", 4, 4), {}) == 48000
+    window.close()
+
+
+def test_asio_rate_mismatch_does_not_block_capture(_qapp):
+    """
+    The regression this guards: a 48 kHz input file against an ASIO device reporting
+    44100 produced a permanent 'device rate differs' warning, and the warning disables
+    the capture buttons.
+    """
+    asio = _device("Audient USB Audio ASIO Driver", "ASIO", 20, 24)
+    window = _MainWindow()
+    rate = window._device_rate(asio, {})
+    window.close()
+    assert _MainWindow_module.sample_rate_warnings(48000, 48000, rate, rate) == []
+
+
+def test_route_test_without_a_project_still_gets_a_usable_rate(_qapp, monkeypatch):
+    """
+    With no project there is no WAV to infer a rate from, so the route test is handed
+    one explicitly. ASIO reports no meaningful *current* rate, but default_samplerate is
+    still a rate the driver accepts -- and None makes the session hunt for input WAVs
+    that do not exist.
+    """
+    asio = _device("Audient USB Audio ASIO Driver", "ASIO", 20, 24)
+    window = _MainWindow()
+    monkeypatch.setattr(_MainWindow_module, "_list_devices", lambda refresh=False: [asio])
+    window._refresh_devices()
+    window.project = None
+    window.session = None
+
+    session, rate = window._route_test_session_and_rate()
+    window.close()
+    assert session is not None
+    assert rate == 48000  # the DeviceInfo's default_samplerate, not None
+
+
+def test_refreshing_devices_cancels_an_operation_instead_of_killing_it(
+    _qapp, monkeypatch
+):
+    """
+    Reinitialising PortAudio under an open stream killed the route test with
+    "PortAudio not initialized". The refresh has to cancel first, so the operation
+    closes its stream and reports itself cancelled.
+    """
+    import threading
+    import time
+
+    from nam.capture.audio import CaptureCancelled
+
+    window = _MainWindow()
+    # No hardware in the test: only the cancellation handshake is under test here.
+    monkeypatch.setattr(_MainWindow_module, "_list_devices", lambda refresh=False: [])
+
+    running = threading.Event()
+    outcome = []
+
+    def slow_operation(progress, cancel):
+        running.set()
+        while not cancel():
+            time.sleep(0.01)
+        raise CaptureCancelled()
+
+    window._run_worker(
+        slow_operation,
+        on_success=lambda result: outcome.append("succeeded"),
+        on_failure=lambda message: outcome.append(f"failed: {message}"),
+        on_cancelled=lambda: outcome.append("cancelled"),
+    )
+    assert running.wait(5.0), "worker never started"
+
+    assert window._stop_worker_before_reinit() is True
+    assert not window._worker.isRunning()
+
+    # The cancelled signal is queued; deliver it the way the event loop would.
+    _qapp.processEvents()
+    assert outcome == ["cancelled"]
+    window.close()
+
+
+def test_refresh_reinitialises_when_nothing_is_running(_qapp, monkeypatch):
+    """The safe case must keep doing the full re-enumeration, or the button stops
+    doing the one job it exists for -- picking up a rate changed in the OS."""
+    window = _MainWindow()
+    calls = []
+    monkeypatch.setattr(
+        _MainWindow_module,
+        "_list_devices",
+        lambda refresh=False: calls.append(refresh) or [],
+    )
+    window._refresh_devices()
+    assert calls == [True]
+    window.close()
+
+
+def test_session_worker_runs_the_capture_inside_a_com_apartment(_qapp):
+    """
+    The apartment has to be entered on the worker thread itself, and be open for the
+    whole engine call -- the stream is opened partway through it, not before it.
+    """
+    import contextlib
+
+    from nam.capture.gui import workers as _workers
+
+    events = []
+
+    @contextlib.contextmanager
+    def _tracking_apartment():
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    monkeypatch = _pytest.MonkeyPatch()
+    monkeypatch.setattr(_workers, "_asio_com_apartment", _tracking_apartment)
+    try:
+        worker = _workers.SessionWorker(
+            lambda progress, cancel: events.append("call") or "done",
+            _workers.CancelToken(),
+        )
+        worker.start()
+        worker.wait()
+    finally:
+        monkeypatch.undo()
+
+    assert events == ["enter", "call", "exit"]
 
 
 def test_format_device_label_includes_host_api():

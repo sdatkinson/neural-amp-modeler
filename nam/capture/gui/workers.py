@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject as _QObject
 from PySide6.QtCore import QThread as _QThread
 from PySide6.QtCore import Signal as _Signal
 
+from ..audio import asio_com_apartment as _asio_com_apartment
 from ..audio import AudioDeviceError as _AudioDeviceError
 from ..audio import CaptureCancelled as _CaptureCancelled
 from ..session import CaptureSessionError as _CaptureSessionError
@@ -64,8 +65,14 @@ class SessionWorker(_QThread):
         self._cancel_token = cancel_token
 
     def run(self) -> None:
+        # This thread opens the PortAudio stream, and on Windows an ASIO driver only
+        # loads from a thread in a COM apartment -- see ``asio_com_apartment``. It wraps
+        # the whole call because the apartment has to outlive the stream.
         try:
-            result = self._call(self.progress.emit, self._cancel_token.is_cancelled)
+            with _asio_com_apartment():
+                result = self._call(
+                    self.progress.emit, self._cancel_token.is_cancelled
+                )
         except _CaptureCancelled:
             self.cancelled.emit()
             return
