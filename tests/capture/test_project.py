@@ -73,6 +73,14 @@ def test_add_corner_captures_appends_pending_train_entries():
     assert len(y_paths) == len(set(y_paths))
 
 
+def test_add_corner_captures_go_before_the_validation_split():
+    project = _new_project(_gain_knobs(), n_train=4, n_validation=2, seed=0)
+    _add_corner_captures(project)
+
+    splits = [entry.split for entry in project.entries]
+    assert splits == ["train"] * (len(splits) - 2) + ["validation"] * 2
+
+
 def test_add_corner_captures_is_idempotent():
     project = _new_project(_gain_knobs(), n_train=4, n_validation=2, seed=0)
     first_added, first_skipped = _add_corner_captures(project)

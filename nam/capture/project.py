@@ -336,14 +336,18 @@ def _is_corner_entry(entry: CaptureEntryModel) -> bool:
 
 def add_corner_captures(project: CaptureProject) -> tuple[list[CaptureEntryModel], int]:
     """
-    Append the initial "corner" captures (knob-range extremes) to ``project`` as pending
+    Add the initial "corner" captures (knob-range extremes) to ``project`` as pending
     ``train`` entries, in addition to whatever is already planned. Corners whose setting
     already appears in the plan (an LHS point or an earlier corner) are skipped, so calling
     this again after adding LHS points -- or twice -- never duplicates a capture.
 
+    They go in after the last train entry rather than at the end of the plan: they are
+    training captures, so the user records them alongside the rest of the training set and
+    reaches the validation section only once training is done.
+
     Uses each knob's Gain/Drive marking (see :class:`~nam.capture.params.KnobSpec`) to shape
     the corner set. Mutates ``project.entries`` in place but does not save; the caller saves.
-    Returns the appended entries and the count of distinct corners skipped as duplicates.
+    Returns the added entries and the count of distinct corners skipped as duplicates.
     """
     knobs = project.knob_specs()
     specs = tuple(knob.to_param_spec() for knob in knobs)
@@ -360,7 +364,7 @@ def add_corner_captures(project: CaptureProject) -> tuple[list[CaptureEntryModel
         index_offset=next_index,
         filename_start=corner_count,
     )
-    appended = [
+    added = [
         CaptureEntryModel(
             index=capture.index,
             split=capture.split,
@@ -369,8 +373,16 @@ def add_corner_captures(project: CaptureProject) -> tuple[list[CaptureEntryModel
         )
         for capture in planned
     ]
-    project.entries.extend(appended)
-    return appended, skipped
+    insert_at = next(
+        (
+            position
+            for position, entry in enumerate(project.entries)
+            if entry.split == "validation"
+        ),
+        len(project.entries),
+    )
+    project.entries[insert_at:insert_at] = added
+    return added, skipped
 
 
 def save_project(project: CaptureProject, project_dir: _Path) -> _Path:

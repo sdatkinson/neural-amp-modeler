@@ -252,12 +252,18 @@ def plan_unique_splits(
     n_validation: int,
     seed: int,
     default_step: float,
+    validation_exclude: _Optional[set[tuple[_Any, ...]]] = None,
 ) -> tuple[list[dict[str, _Any]], list[dict[str, _Any]]]:
     """
     Draw ``n_train`` + ``n_validation`` distinct on-grid settings, with the validation
     settings held out of the train settings. Validation is a separate, reproducible LHS
     stream (see :data:`VALIDATION_SEED_OFFSET`). Returns the two lists of decoded params
     dicts.
+
+    ``validation_exclude`` is a set of settings keys the validation draw must avoid on top
+    of the train settings; :func:`plan_captures` passes the corner settings so a held-out
+    point can never claim a knob extreme that then has to be skipped when the corner
+    captures are added.
 
     Shared by :func:`plan_captures` (capture app) and ``build_starter_data`` (starter
     script) so both deduplicate and hold out validation the same way.
@@ -266,6 +272,13 @@ def plan_unique_splits(
         raise ValueError(f"n_train must be non-negative; got {n_train}")
     if n_validation < 0:
         raise ValueError(f"n_validation must be non-negative; got {n_validation}")
+    # The reservation only constrains the validation draw, so it costs nothing when there
+    # is no validation split.
+    reserved = (
+        set()
+        if validation_exclude is None or n_validation == 0
+        else set(validation_exclude)
+    )
 
     # Every train and validation setting must be distinct, and validation must be held out
     # from train. That is only possible if the knob grid has at least that many distinct
@@ -278,15 +291,44 @@ def plan_unique_splits(
             f"knob grid yields only {capacity} distinct settings. Reduce the capture "
             "counts, widen a knob's range, or use a finer step."
         )
+    if n_validation > capacity - len(reserved):
+        raise ValueError(
+            f"Cannot hold out {n_validation} validation settings: of the {capacity} distinct "
+            f"settings on the knob grid, {len(reserved)} are reserved for the corner "
+            "captures. Reduce the validation count, widen a knob's range, or use a finer "
+            "step."
+        )
 
-    train = sample_unique_settings(specs, n_train, seed=seed, default_step=default_step)
-    train_keys = {_settings_key(params, specs) for params in train}
+    validation_seed = (seed + VALIDATION_SEED_OFFSET) % 2**32
+    if not reserved:
+        train = sample_unique_settings(
+            specs, n_train, seed=seed, default_step=default_step
+        )
+        validation = sample_unique_settings(
+            specs,
+            n_validation,
+            seed=validation_seed,
+            default_step=default_step,
+            exclude={_settings_key(params, specs) for params in train},
+        )
+        return train, validation
+
+    # With settings reserved away from validation, draw validation first: taking train first
+    # could consume every unreserved setting and leave validation nothing to draw from, even
+    # when the grid is large enough for both splits.
     validation = sample_unique_settings(
         specs,
         n_validation,
-        seed=(seed + VALIDATION_SEED_OFFSET) % 2**32,
+        seed=validation_seed,
         default_step=default_step,
-        exclude=train_keys,
+        exclude=reserved,
+    )
+    train = sample_unique_settings(
+        specs,
+        n_train,
+        seed=seed,
+        default_step=default_step,
+        exclude={_settings_key(params, specs) for params in validation},
     )
     return train, validation
 
@@ -477,6 +519,12 @@ def plan_captures(
     user works through one section at a time with the knobs moving as little as possible
     between consecutive captures. Sorting within a split does not touch which settings are
     drawn, only the order they are recorded in.
+
+    The corner settings (see :func:`corner_settings`) are held out of the validation draw
+    even when the corners are not part of this plan. A validation point sitting on a corner
+    would be skipped as a duplicate when the corners are added later, leaving that knob
+    extreme uncaptured -- the model would never train on it and would then be validated
+    there.
     """
     knobs = _validate_knobs(knobs)
     if n_train <= 0:
@@ -485,12 +533,21 @@ def plan_captures(
         raise ValueError(f"n_validation must be non-negative; got {n_validation}")
     specs = tuple(knob.to_param_spec() for knob in knobs)
 
+    corner_keys = {
+        _settings_key(params, specs)
+        for params in corner_settings(
+            specs,
+            gain_index=_gain_knob_index(knobs),
+            default_step=_DEFAULT_KNOB_STEP,
+        )
+    }
     train_params, validation_params = plan_unique_splits(
         specs,
         n_train=n_train,
         n_validation=n_validation,
         seed=seed,
         default_step=_DEFAULT_KNOB_STEP,
+        validation_exclude=corner_keys,
     )
     names = [spec.name for spec in specs]
     train = _planned_from_params(

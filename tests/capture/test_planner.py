@@ -91,6 +91,28 @@ def test_plan_captures_supports_zero_validation():
     assert validation == []
 
 
+def test_plan_captures_keeps_corners_out_of_validation():
+    # A coarse single-knob grid: every LHS draw is one of 11 settings, so a validation point
+    # can easily land on an extreme. If it does, adding the corners skips that setting as a
+    # duplicate and the extreme is never trained on.
+    knobs = [_KnobSpec(name="Gain", min=0.0, max=10.0, step=1.0)]
+    specs = _specs(knobs)
+    corner_keys = _keys(_corner_settings(specs, gain_index=0), specs)
+
+    for seed in range(25):
+        _, validation = _plan_captures(knobs, n_train=7, n_validation=3, seed=seed)
+        assert _keys([capture.params for capture in validation], specs).isdisjoint(
+            corner_keys
+        )
+
+
+def test_plan_captures_rejects_more_validation_than_non_corner_settings():
+    # Two knob values total, both of them corners: no validation point can be held out.
+    knobs = [_KnobSpec(name="Gain", min=0.0, max=1.0, step=1.0)]
+    with _pytest.raises(ValueError):
+        _plan_captures(knobs, n_train=1, n_validation=1, seed=0)
+
+
 def test_plan_captures_rejects_bad_counts():
     with _pytest.raises(ValueError):
         _plan_captures(_knobs(), n_train=0, n_validation=2, seed=0)
