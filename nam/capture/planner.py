@@ -41,6 +41,27 @@ from .params import validate_knobs as _validate_knobs
 VALIDATION_SEED_OFFSET = 2**31 - 1
 
 CAPTURES_DIRNAME = "captures"
+# Untouched recordings kept alongside each capture: the amp return exactly as it came
+# back, and (when a loopback is patched) the loopback return, both still carrying the
+# timing blips. Nothing in training reads these; they exist so a session whose delay or
+# alignment turns out to be wrong can be reconstructed from what was actually recorded.
+CAPTURES_RAW_DIRNAME = "captures_raw"
+# The loopback recording is the capture's own filename with this appended; the amp return
+# keeps the filename unchanged. A suffix rather than a prefix so the two sort next to each
+# other -- the pair for one setting can be read off a file listing in order and dropped
+# into a DAW as adjacent tracks. It also derives from any capture name by appending,
+# which a prefix inserted after the index number would not: active-learning captures are
+# named ``r2_g4.5_bOn.wav`` (see nam.train.active_learning) and have no index group to
+# insert after.
+RAW_LOOPBACK_SUFFIX = "_lb"
+# Describes captures_raw/ well enough to recover the reamp from it: for each capture, how
+# much preamble and tail surround the input audio. See nam.capture.session.
+RAW_MANIFEST_FILENAME = "manifest.json"
+# An input WAV with the blip preamble in front and the tail behind: the stream that was
+# actually played, kept in captures_raw/ so a recording can be correlated against exactly
+# what produced it. Derived from the input's own name rather than being a fixed pair of
+# filenames, so a project with more than two inputs gets one per input.
+PLAYBACK_INPUT_SUFFIX = "_w_preamble_tail"
 
 # Quantizing Latin-Hypercube draws to the realizable knob grid collapses many distinct
 # continuous samples onto the same grid point, so raw draws produce duplicate settings

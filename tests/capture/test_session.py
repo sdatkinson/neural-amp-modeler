@@ -4,14 +4,21 @@ from pathlib import Path as _Path
 import numpy as _np
 import pytest as _pytest
 
+from nam.capture import CAPTURE_APP_VERSION as _CAPTURE_APP_VERSION
+from nam.capture import RAW_RECORDING_SINCE_VERSION as _RAW_RECORDING_SINCE_VERSION
 from nam.capture.audio import AudioDropoutError as _AudioDropoutError
+from nam.capture.latency import BlipPreamble as _BlipPreamble
 from nam.capture.params import KnobSpec as _KnobSpec
+from nam.capture.planner import CAPTURES_RAW_DIRNAME as _CAPTURES_RAW_DIRNAME
+from nam.capture.planner import RAW_MANIFEST_FILENAME as _RAW_MANIFEST_FILENAME
 from nam.capture.project import find_recoverable_entries as _find_recoverable_entries
 from nam.capture.project import load_project as _load_project
 from nam.capture.project import new_project as _new_project
 from nam.capture.project import save_project as _save_project
 from nam.capture.session import CaptureSession as _CaptureSession
 from nam.capture.session import CaptureSessionError as _CaptureSessionError
+from nam.capture.session import playback_input_path as _playback_input_path
+from nam.capture.session import raw_paths as _raw_paths
 from nam.data import np_to_wav as _np_to_wav
 from nam.data import wav_to_np as _wav_to_np
 
@@ -45,6 +52,8 @@ class _FakeRecorder:
         # (beyond noise) actually arrives on the loopback input.
         self.loopback_silent = loopback_silent
         self.calls: list[dict] = []
+        # What was handed back, so a test can compare it against what reached disk.
+        self.returns: list[tuple] = []
 
     @staticmethod
     def _shift(signal, delay, gain):
@@ -70,6 +79,7 @@ class _FakeRecorder:
             loopback = _np.zeros_like(loopback_playback) + noise
             if not self.loopback_silent:
                 loopback += self._shift(loopback_playback, self.loopback_delay, 1.0)
+        self.returns.append((recording, loopback))
         return recording, loopback
 
 
@@ -466,6 +476,311 @@ def test_route_test_flags_loopback_not_detected(tmp_path):
     assert not result.latency.detected
 
 
+# 24-bit WAVs are what the raw recordings are written as, so anything that survives the
+# round trip untouched comes back within one quantization step.
+_QUANTIZATION = 2.0**-23
+
+
+def _read_manifest(project_dir):
+    return _json.loads(
+        (project_dir / _CAPTURES_RAW_DIRNAME / _RAW_MANIFEST_FILENAME).read_text()
+    )
+
+
+def _manifest_record(project_dir, entry):
+    manifest = _read_manifest(project_dir)
+    return next(
+        record for record in manifest["captures"] if record["y_path"] == entry.y_path
+    )
+
+
+def test_raw_recordings_are_saved_exactly_as_recorded(tmp_path):
+    """
+    The point of captures_raw is that nothing has been done to it: no delay applied, no
+    alignment shift, no resampling, nothing trimmed off either end.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    recorder = _DriftingRecorder(480)
+    session = _CaptureSession(project, project_dir, recorder=recorder)
+
+    entries = project.pending_entries()
+    session.capture_entry(entries[0])
+    # The rig's sub-sample phase moves, so this capture's WAV really is shifted onto the
+    # project's timebase and the raw copy has something to be different from.
+    recorder.drift = 0.3
+    entry = entries[1]
+    qa = session.capture_entry(entry)
+    assert qa.subsample_shift  # the capture was moved; the raw files must not have been
+
+    recorded_main, recorded_loopback = recorder.returns[-1]
+    amp_path, loopback_path = _raw_paths(project_dir, entry.y_path)
+    for path, recorded in (
+        (amp_path, recorded_main),
+        (loopback_path, recorded_loopback),
+    ):
+        saved = _np.asarray(_wav_to_np(path)).squeeze()
+        assert len(saved) == len(recorded)
+        assert _np.abs(saved - recorded).max() < _QUANTIZATION
+
+    # The whole stream, not just the part the capture WAV was cut from.
+    x = _np.asarray(_wav_to_np(project_dir / "input_train.wav")).squeeze()
+    assert len(recorded_main) > len(x)
+
+
+def test_the_loopback_carries_the_capture_audio(tmp_path):
+    """
+    The loopback is played the same stream the amp is, so its recording is a clean,
+    delay-bearing copy of the input as the rig actually played it.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    recorder = _FakeRecorder(480)
+    session = _CaptureSession(project, project_dir, recorder=recorder)
+
+    entry = project.pending_entries()[0]
+    session.capture_entry(entry)
+
+    x = _np.asarray(_wav_to_np(project_dir / "input_train.wav")).squeeze()
+    _, loopback_path = _raw_paths(project_dir, entry.y_path)
+    saved = _np.asarray(_wav_to_np(loopback_path)).squeeze()
+
+    # Program material, not the silence a blips-only loopback would have recorded.
+    assert float(_np.max(_np.abs(saved[-len(x) :]))) > 0.1 * float(_np.max(_np.abs(x)))
+    # ...and the blips are still at the head of it, so the delay is still measurable.
+    assert entry.delay is not None
+
+
+def test_raw_amp_return_is_saved_without_a_loopback(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    project.audio.loopback_output_channel = None
+    project.audio.loopback_input_channel = None
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    entry = project.pending_entries()[0]
+    session.capture_entry(entry)
+
+    amp_path, loopback_path = _raw_paths(project_dir, entry.y_path)
+    assert amp_path.is_file()
+    assert not loopback_path.exists()
+
+
+def test_a_refused_capture_leaves_no_raw_recordings(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(
+        project, project_dir, recorder=_FakeRecorder(480, loopback_silent=True)
+    )
+    entry = project.pending_entries()[0]
+
+    with _pytest.raises(_CaptureSessionError):
+        session.capture_entry(entry)
+
+    # The played-stream copies belong to the inputs, not to this capture; what must not
+    # exist is a recording, or a manifest record claiming one.
+    assert not any(path.exists() for path in _raw_paths(project_dir, entry.y_path))
+    assert not (project_dir / _CAPTURES_RAW_DIRNAME / _RAW_MANIFEST_FILENAME).exists()
+
+
+def test_the_manifest_locates_the_reamp_inside_a_raw_recording(tmp_path):
+    """
+    What captures_raw has to support: take a raw file, trim off the preamble and tail the
+    manifest describes, and be left with exactly the region the input WAV was played
+    into. Everything else about the capture can be re-derived from there.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    entry = project.entries_for_split("validation")[0]
+    session.capture_entry(entry)
+
+    record = _manifest_record(project_dir, entry)
+    assert record["x_path"] == "input_validation.wav"
+    x = _np.asarray(_wav_to_np(project_dir / record["x_path"])).squeeze()
+
+    for name in ("raw", "raw_loopback", "playback"):
+        path = project_dir / _CAPTURES_RAW_DIRNAME / record[name]
+        audio = _np.asarray(_wav_to_np(path)).squeeze()
+        start = record["preamble_samples"]
+        stop = len(audio) - record["tail_samples"]
+        assert stop - start == len(x)
+
+
+def test_the_manifest_only_describes_captures_that_happened(tmp_path):
+    """
+    Records are written with the audio, not with the plan, so the manifest never claims a
+    file that is not there.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    manifest_path = project_dir / _CAPTURES_RAW_DIRNAME / _RAW_MANIFEST_FILENAME
+    assert not manifest_path.exists()
+
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    entry = project.pending_entries()[0]
+    session.capture_entry(entry)
+
+    assert [record["y_path"] for record in _read_manifest(project_dir)["captures"]] == [
+        entry.y_path
+    ]
+
+
+def test_recapturing_replaces_its_manifest_record(tmp_path):
+    """
+    A record describes the file currently on disk, so recapturing rewrites the two
+    together rather than leaving a second record for the same capture.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    entry = project.pending_entries()[0]
+
+    session.capture_entry(entry)
+    session.capture_entry(entry)
+
+    records = _read_manifest(project_dir)["captures"]
+    assert [record["y_path"] for record in records] == [entry.y_path]
+
+
+def test_manifest_records_name_the_files_the_capture_actually_writes(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _enable_loopback(project)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    entry = project.pending_entries()[0]
+    session.capture_entry(entry)
+
+    record = _manifest_record(project_dir, entry)
+    amp_path, loopback_path = _raw_paths(project_dir, entry.y_path)
+    assert record["raw"] == amp_path.name
+    assert record["raw_loopback"] == loopback_path.name
+    assert amp_path.is_file() and loopback_path.is_file()
+    # The pair sorts together, so a file listing can be read straight into DAW tracks.
+    assert sorted((amp_path.name, loopback_path.name)) == [
+        amp_path.name,
+        loopback_path.name,
+    ]
+
+
+def test_other_manifest_records_survive_a_later_capture(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    entries = project.pending_entries()
+    session.capture_entry(entries[0])
+    session.capture_entry(entries[1])
+
+    assert [record["y_path"] for record in _read_manifest(project_dir)["captures"]] == [
+        entries[0].y_path,
+        entries[1].y_path,
+    ]
+
+
+def test_a_project_from_before_raw_recordings_says_so_in_the_manifest(tmp_path):
+    """
+    A project carried over from a version that never wrote raw recordings will have
+    captures with nothing behind them. The folder explains itself rather than looking
+    like it lost files.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    # What an older project file looks like: no version was recorded when it was made.
+    project.created_with_version = None
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    entries = project.pending_entries()
+    session.capture_entry(entries[0])
+    note = _read_manifest(project_dir)["note"]
+    assert _RAW_RECORDING_SINCE_VERSION in note
+
+    # It describes the folder's history, so it is written once and not repeated or
+    # revised as more captures arrive.
+    session.capture_entry(entries[1])
+    assert _read_manifest(project_dir)["note"] == note
+
+
+def test_a_project_created_here_has_nothing_to_explain(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    assert project.created_with_version == _CAPTURE_APP_VERSION
+
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    session.capture_entry(project.pending_entries()[0])
+
+    assert "note" not in _read_manifest(project_dir)
+
+
+def test_a_project_file_without_a_version_still_opens(tmp_path):
+    """
+    Projects made before the version was recorded must open and carry on. The schema is
+    unchanged, so this is a load, not a migration.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    path = project_dir / "capture_project.json"
+    payload = _json.loads(path.read_text())
+    del payload["created_with_version"]
+    path.write_text(_json.dumps(payload))
+
+    project = _load_project(project_dir)
+
+    assert project.created_with_version is None
+    assert len(project.entries) == 3
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+    session.capture_entry(project.pending_entries()[0])
+    assert project.captured_entries()
+
+
+def test_the_played_stream_is_saved_for_each_input(tmp_path):
+    """
+    A copy of each input as it was actually played -- preamble, input, tail -- so a
+    recording can be correlated against exactly what produced it.
+    """
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    session = _CaptureSession(project, project_dir, recorder=_FakeRecorder(480))
+
+    session.load_inputs()
+
+    for name in ("input_train", "input_validation"):
+        x = _np.asarray(_wav_to_np(project_dir / f"{name}.wav")).squeeze()
+        path = _playback_input_path(project_dir, f"{name}.wav")
+        played = _np.asarray(_wav_to_np(path)).squeeze()
+        # The input sits inside it untouched, at the offset the capture uses.
+        preamble = _BlipPreamble(_RATE).n_samples
+        assert len(played) == preamble + len(x) + int(0.5 * _RATE)
+        assert _np.abs(played[preamble : preamble + len(x)] - x).max() < _QUANTIZATION
+        # ...behind the blips, so a chain that mangles the program still times.
+        assert float(_np.max(_np.abs(played[:preamble]))) > 0.5
+
+
+def test_a_replaced_input_regenerates_its_played_stream(tmp_path):
+    project_dir = _make_project_dir(tmp_path)
+    project = _load_project(project_dir)
+    _CaptureSession(project, project_dir, recorder=_FakeRecorder(480)).load_inputs()
+
+    path = _playback_input_path(project_dir, "input_train.wav")
+    before = len(_np.asarray(_wav_to_np(path)).squeeze())
+
+    rng = _np.random.default_rng(7)
+    _np_to_wav(
+        (0.1 * rng.standard_normal(2 * _RATE)).astype(_np.float32),
+        project_dir / "input_train.wav",
+        rate=_RATE,
+    )
+    _CaptureSession(project, project_dir, recorder=_FakeRecorder(480)).load_inputs()
+
+    after = len(_np.asarray(_wav_to_np(path)).squeeze())
+    assert after == before + _RATE
+
+
 def test_mismatched_input_rates_are_rejected(tmp_path):
     project_dir = _make_project_dir(tmp_path, validation_rate=44_100)
     project = _load_project(project_dir)
@@ -518,6 +833,7 @@ class _DriftingRecorder(_FakeRecorder):
             if self.drift:
                 loopback = _apply(loopback, self.drift)
             loopback = loopback.astype(_np.float32)
+        self.returns[-1] = (recording, loopback)
         return recording, loopback
 
 

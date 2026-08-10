@@ -7,6 +7,17 @@ measure the round-trip delay from the blips, shift the target onto the project's
 timebase, run QA, save the capture WAV, then rewrite both ``capture_project.json`` and
 ``data.json`` so a crash or app close never loses a completed capture.
 
+The recordings themselves are also kept, untouched, in ``captures_raw/`` -- the amp
+return under the capture's own filename and the loopback under the same name with an
+``_lb`` suffix. The same playback goes out both the amp and the loopback channels, so
+the pair is a full record of the session: what was played, what came back, and the blips
+that time them. Alongside them sit each input WAV as it was actually played (preamble,
+input, tail) and ``manifest.json``, which says how many samples of preamble and tail
+surround the input audio in each recording. Together that is enough to trim a raw file
+back to the reamp and re-measure its delay without trusting anything measured live. See
+:meth:`CaptureSession._write_raw_recordings`, :meth:`CaptureSession._write_playback_inputs`
+and :func:`update_raw_manifest`.
+
 The alignment step exists because ``delay`` is an integer while the rig's latency is not.
 A capture set aligned only to whole samples carries up to half a sample of per-capture
 error, and that error is not a function of the knobs, so a parametric model cannot learn
@@ -18,6 +29,7 @@ keeps ``delay`` an integer and leaves everything downstream unchanged. See
 
 from __future__ import annotations
 
+import json as _json
 import os as _os
 import tempfile as _tempfile
 from dataclasses import dataclass as _dataclass
@@ -28,15 +40,21 @@ from typing import Sequence as _Sequence
 
 import numpy as _np
 
+from . import RAW_RECORDING_SINCE_VERSION as _RAW_RECORDING_SINCE_VERSION
 from .audio import PlaybackRecorder as _PlaybackRecorder
 from .audio import peak_to_dbfs as _peak_to_dbfs
 from .export import update_data_json as _update_data_json
 from .latency import BlipPreamble as _BlipPreamble
 from .latency import LatencyResult as _LatencyResult
 from .latency import measure_delay as _measure_delay
+from .planner import CAPTURES_RAW_DIRNAME as _CAPTURES_RAW_DIRNAME
+from .planner import PLAYBACK_INPUT_SUFFIX as _PLAYBACK_INPUT_SUFFIX
+from .planner import RAW_LOOPBACK_SUFFIX as _RAW_LOOPBACK_SUFFIX
+from .planner import RAW_MANIFEST_FILENAME as _RAW_MANIFEST_FILENAME
 from .project import CaptureEntryModel as _CaptureEntryModel
 from .project import CaptureProject as _CaptureProject
 from .project import QAModel as _QAModel
+from .project import atomic_write_json as _atomic_write_json
 from .project import mark_captured as _mark_captured
 from .project import save_project as _save_project
 
@@ -72,8 +90,132 @@ TAIL_SECONDS = 0.5
 MAX_ALIGNMENT_SHIFT = 4.0
 
 
+# Schema version of captures_raw/manifest.json, independent of the project file's.
+RAW_MANIFEST_VERSION = 1
+
+
 class CaptureSessionError(RuntimeError):
     pass
+
+
+def raw_paths(project_dir: _Path, y_path: str) -> tuple[_Path, _Path]:
+    """
+    Where a capture's untouched recordings live: ``(amp return, loopback)``, both in
+    ``captures_raw/`` and named after the capture itself so the correspondence is
+    readable without consulting anything else.
+    """
+    name = _Path(y_path).name
+    raw = _Path(project_dir) / _CAPTURES_RAW_DIRNAME / name
+    return raw, raw.with_name(f"{raw.stem}{_RAW_LOOPBACK_SUFFIX}{raw.suffix}")
+
+
+def build_playback(
+    x: _np.ndarray, sample_rate: int
+) -> tuple[_np.ndarray, _BlipPreamble]:
+    """
+    The stream that goes out to the amp: blip preamble, then the input audio, then
+    enough tail for the delayed response to land inside the recording.
+
+    Single source of this layout. The copy saved in ``captures_raw/`` is what a raw
+    recording is correlated against, so it has to be built the same way as the stream
+    that was played, not merely the same way in two places.
+    """
+    preamble = _BlipPreamble(sample_rate)
+    tail = _np.zeros(int(TAIL_SECONDS * sample_rate), dtype=_np.float32)
+    playback = _np.concatenate([preamble.render(), x, tail])
+    return playback, preamble
+
+
+def _wav_frame_count(path: _Path) -> _Optional[int]:
+    """
+    Frames in a WAV from its header, without decoding it, or ``None`` if it cannot be
+    read at all.
+    """
+    import wave
+
+    try:
+        with wave.open(str(path)) as fp:
+            return fp.getnframes()
+    except (OSError, wave.Error):
+        return None
+
+
+def playback_input_path(project_dir: _Path, x_path: str) -> _Path:
+    """
+    Where the "as played" copy of an input WAV lives: the input with the blip preamble in
+    front and the tail behind, in ``captures_raw/``. Named after the input it was built
+    from, so a project with more than two inputs gets one of these per input.
+    """
+    stem = _Path(x_path).stem
+    return (
+        _Path(project_dir)
+        / _CAPTURES_RAW_DIRNAME
+        / f"{stem}{_PLAYBACK_INPUT_SUFFIX}.wav"
+    )
+
+
+def _predates_raw_recording_note(project: _CaptureProject) -> _Optional[str]:
+    """
+    The one-line explanation for a ``captures_raw/`` that cannot possibly be complete,
+    or ``None`` when there is nothing to explain.
+
+    A project with no recorded version was created before the capture app stamped one,
+    which is also before raw recordings existed -- so anything captured back then has
+    nothing here, and the folder will look like it lost files it never had. Saying so in
+    the folder itself beats a dialog: it is read exactly when someone is looking at the
+    gap, and it survives the folder being copied away from the project.
+    """
+    if project.created_with_version is not None:
+        return None
+    return (
+        f"Raw recordings were first saved in capture app {_RAW_RECORDING_SINCE_VERSION}. "
+        f"This project was created before that, so captures made earlier have no files "
+        f"here; everything captured from {_RAW_RECORDING_SINCE_VERSION} on is listed "
+        "below."
+    )
+
+
+def update_raw_manifest(
+    project_dir: _Path, record: dict, note: _Optional[str] = None
+) -> None:
+    """
+    Insert or replace one capture's record in ``captures_raw/manifest.json``, keyed by
+    ``y_path``. Written as each capture is recorded, so every record describes a file
+    that exists and the geometry that file was actually recorded with -- a recapture
+    rewrites both together.
+
+    What a record holds is where the input audio sits inside the raw recordings: how many
+    samples of preamble precede it and how many of tail follow. The delay is deliberately
+    not among them. A raw loopback is a delayed copy of a signal that is also on disk, so
+    the delay can always be re-measured from it, by correlation against the played stream
+    or from the blips when the preamble carries them. What cannot be recovered from the
+    audio alone is which part of it is the reamp, and that is what a recoverer needs to
+    trim a raw file back to something that lines up with the input WAV sample for sample.
+
+    ``note`` is recorded once, when the manifest is created, and left alone afterwards:
+    it explains something about the folder's history, not about any one capture.
+    """
+    path = _Path(project_dir) / _CAPTURES_RAW_DIRNAME / _RAW_MANIFEST_FILENAME
+    manifest: dict = {"version": RAW_MANIFEST_VERSION, "captures": []}
+    if note:
+        manifest["note"] = note
+    if path.is_file():
+        try:
+            with path.open() as fp:
+                existing = _json.load(fp)
+        except (OSError, ValueError):
+            existing = None
+        if isinstance(existing, dict) and isinstance(existing.get("captures"), list):
+            manifest = existing
+
+    records = manifest["captures"]
+    for index, existing_record in enumerate(records):
+        if existing_record.get("y_path") == record["y_path"]:
+            records[index] = record
+            break
+    else:
+        records.append(record)
+    _atomic_write_json(path, manifest)
 
 
 @_dataclass(frozen=True)
@@ -141,7 +283,32 @@ class CaptureSession:
             )
         rate = int(next(iter(rates.values())))
         self.project.sample_rate = rate
+        self._write_playback_inputs(rate)
         return rate
+
+    def _write_playback_inputs(self, sample_rate: int) -> None:
+        """
+        Save each input WAV as it will actually be played -- preamble, input, tail -- into
+        ``captures_raw/``.
+
+        This is the reference a raw recording is recovered against: correlating a return
+        against the exact stream that produced it gives the delay whether or not the
+        blips survived the chain, which is what a capture reamped in a DAW (or an input
+        file with no blips in it) will need. Written here rather than when the inputs are
+        chosen because this is the one place that has both the audio and the validated
+        sample rate, and it runs before any route test or capture; inputs dropped into
+        the project folder by hand are covered for free.
+
+        Rewritten only when what is on disk is not the right length, so replacing an
+        input WAV regenerates it and an unchanged project does no work.
+        """
+        for split in ("train", "validation"):
+            x_path = self.project.input_for_split(split)
+            playback, _ = build_playback(self._inputs[split], sample_rate)
+            path = playback_input_path(self.project_dir, x_path)
+            if _wav_frame_count(path) == len(playback):
+                continue
+            self._write_wav(path, playback, sample_rate)
 
     def _input_for_split(self, split: str) -> tuple[_np.ndarray, int]:
         if split not in self._inputs:
@@ -166,17 +333,20 @@ class CaptureSession:
         return resolved
 
     @staticmethod
-    def _loopback_playback(
-        playback: _np.ndarray, preamble: _BlipPreamble
-    ) -> _np.ndarray:
+    def _loopback_playback(playback: _np.ndarray) -> _np.ndarray:
         """
-        The signal for the loopback output channel: only the timing blips, followed by
-        silence for the rest of the playback. It carries no program material, so the
-        loopback stays clean regardless of the input audio.
+        The signal for the loopback output channel: the same playback the amp gets,
+        blips and all.
+
+        It used to be the blips alone, on the grounds that the loopback only had to
+        carry timing. Sending the program material too costs the measurement nothing --
+        detection and the sub-sample peak both look only inside the blip section, which
+        is silent either way (see :mod:`nam.capture.latency`) -- and it makes the
+        recorded loopback a clean, delay-bearing copy of the input as the rig actually
+        played it, which is what makes a session recoverable from ``captures_raw/``
+        rather than only re-recordable.
         """
-        loopback = _np.zeros_like(playback)
-        loopback[: preamble.n_samples] = preamble.render()
-        return loopback
+        return _np.asarray(playback, dtype=_np.float32)
 
     def _playrec(
         self,
@@ -364,11 +534,11 @@ class CaptureSession:
                 if self.project.sample_rate is not None
                 else self.load_inputs()
             )
-        preamble = _BlipPreamble(sample_rate)
-        tail = _np.zeros(int(TAIL_SECONDS * sample_rate), dtype=_np.float32)
-        playback = _np.concatenate([preamble.render(), tail])
+        playback, preamble = build_playback(
+            _np.zeros(0, dtype=_np.float32), sample_rate
+        )
         loopback_playback = (
-            self._loopback_playback(playback, preamble)
+            self._loopback_playback(playback)
             if self.project.audio.loopback_enabled
             else None
         )
@@ -404,11 +574,9 @@ class CaptureSession:
         cannot be trusted as coming from the loopback at all, so nothing is saved.
         """
         x, sample_rate = self._input_for_split(entry.split)
-        preamble = _BlipPreamble(sample_rate)
-        tail = _np.zeros(int(TAIL_SECONDS * sample_rate), dtype=_np.float32)
-        playback = _np.concatenate([preamble.render(), x, tail])
+        playback, preamble = build_playback(x, sample_rate)
         loopback_playback = (
-            self._loopback_playback(playback, preamble)
+            self._loopback_playback(playback)
             if self.project.audio.loopback_enabled
             else None
         )
@@ -440,6 +608,14 @@ class CaptureSession:
             alignment_note=shift_note,
         )
 
+        self._write_raw_recordings(
+            entry,
+            main,
+            loopback,
+            sample_rate,
+            preamble_samples=preamble.n_samples,
+            input_samples=len(x),
+        )
         self._write_capture_wav(entry, y, sample_rate)
         _mark_captured(
             entry,
@@ -599,12 +775,58 @@ class CaptureSession:
             messages=messages,
         )
 
+    def _write_raw_recordings(
+        self,
+        entry: _CaptureEntryModel,
+        main: _np.ndarray,
+        loopback: _Optional[_np.ndarray],
+        sample_rate: int,
+        *,
+        preamble_samples: int,
+        input_samples: int,
+    ) -> None:
+        """
+        Save the recordings as they came off the interface: the whole stream, blips and
+        tail included, with no delay applied, no alignment shift and no resampling, and
+        record where the input audio sits inside them.
+
+        That is the point of them. The capture WAV is already interpreted -- cut to the
+        input's length, slid onto the project's timebase and labelled with a measured
+        delay -- so if any of that turns out to be wrong, the only way back is a copy no
+        such decision has touched. Nothing in training reads these.
+
+        The manifest record is written here, with the audio, so it can only ever describe
+        files that exist; see :func:`update_raw_manifest`.
+        """
+        amp_path, loopback_path = raw_paths(self.project_dir, entry.y_path)
+        self._write_wav(amp_path, main, sample_rate)
+        if loopback is not None:
+            self._write_wav(loopback_path, loopback, sample_rate)
+
+        x_path = self.project.input_for_split(entry.split)
+        update_raw_manifest(
+            self.project_dir,
+            {
+                "y_path": entry.y_path,
+                "x_path": x_path,
+                "playback": playback_input_path(self.project_dir, x_path).name,
+                "raw": amp_path.name,
+                "raw_loopback": loopback_path.name if loopback is not None else None,
+                "preamble_samples": preamble_samples,
+                "tail_samples": len(main) - preamble_samples - input_samples,
+            },
+            note=_predates_raw_recording_note(self.project),
+        )
+
     def _write_capture_wav(
         self, entry: _CaptureEntryModel, y: _np.ndarray, sample_rate: int
     ) -> None:
+        self._write_wav(self.project_dir / entry.y_path, y, sample_rate)
+
+    @staticmethod
+    def _write_wav(path: _Path, y: _np.ndarray, sample_rate: int) -> None:
         from ..data import np_to_wav
 
-        path = self.project_dir / entry.y_path
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = _tempfile.mkstemp(
             prefix=f".{path.name}.", suffix=".tmp.wav", dir=path.parent

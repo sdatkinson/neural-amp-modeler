@@ -25,6 +25,7 @@ import numpy as _np
 from pydantic import BaseModel as _BaseModel
 from pydantic import Field as _Field
 
+from . import CAPTURE_APP_VERSION as _CAPTURE_APP_VERSION
 from .params import DEFAULT_KNOB_STEP
 from .params import KnobSpec
 from .planner import CAPTURES_DIRNAME
@@ -121,9 +122,10 @@ class AudioSettingsModel(_BaseModel):
     input_device: _Optional[str] = None
     output_channel: int = 1
     input_channel: int = 1
-    # Optional second I/O pair (on the same devices) wired as a direct loopback: a
-    # clean copy of the timing blips is played on ``loopback_output_channel`` and
-    # patched straight back into ``loopback_input_channel``. It stays undistorted no
+    # Optional second I/O pair (on the same devices) wired as a direct loopback: a copy
+    # of the capture playback (timing blips and input audio alike) goes out
+    # ``loopback_output_channel`` and is patched straight back into
+    # ``loopback_input_channel``. It stays undistorted no
     # matter how hard the amp is driven, so the delay is measured from it instead of the
     # (increasingly smeared) amp return. It also sees none of the amp's own knob-dependent
     # tone-stack group delay, which is real behaviour the model must learn rather than
@@ -254,6 +256,17 @@ class CaptureProject(_BaseModel):
     # matters. ``None`` until the first capture sets it, and for projects captured without
     # a loopback, where the correction is deliberately not applied.
     alignment_reference: _Optional[float] = None
+    # The capture app version this project was created under, stamped once at creation and
+    # carried forward unchanged (including when the plan is regenerated) -- it dates the
+    # project, not the last thing to touch it. ``None`` means the project was created
+    # before the version was recorded at all, which is the only comparison anything needs
+    # to make: such a project predates captures_raw/, so captures made before it was
+    # reopened here have no raw recordings behind them.
+    #
+    # Deliberately not tied to ``version`` above. That gates loading on an exact match, so
+    # bumping it would refuse every project made by an earlier release; this field is
+    # additive, which is what lets those projects open and carry on untouched.
+    created_with_version: _Optional[str] = None
 
     def knob_specs(self) -> tuple[KnobSpec, ...]:
         return tuple(knob.to_knob_spec() for knob in self.knobs)
@@ -310,6 +323,7 @@ def new_project(
         validation_input=validation_input,
         entries=entries,
         n_train_lhs=n_train,
+        created_with_version=_CAPTURE_APP_VERSION,
     )
 
 
