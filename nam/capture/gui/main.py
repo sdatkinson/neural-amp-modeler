@@ -383,10 +383,16 @@ class InputWavDialog(_QDialog):
 
 
 class MainWindow(_QMainWindow):
-    def __init__(self, *, enable_active_learning: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        enable_active_learning: bool = False,
+        enable_hyperwavenet: bool = False,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("NAM Parametric Capture")
         self._enable_active_learning = enable_active_learning
+        self._enable_hyperwavenet = enable_hyperwavenet
 
         self.project: _Optional[_CaptureProject] = None
         self.project_dir: _Optional[_Path] = None
@@ -729,6 +735,7 @@ class MainWindow(_QMainWindow):
         self.export_concat_button.clicked.connect(self._on_export_concat_configs)
         self.export_hyper_button = _QPushButton("Export HyperWaveNet Configs")
         self.export_hyper_button.clicked.connect(self._on_export_hyper_configs)
+        self.export_hyper_button.setVisible(self._enable_hyperwavenet)
         export_buttons.addWidget(self.export_concat_button)
         export_buttons.addWidget(self.export_hyper_button)
         layout.addLayout(export_buttons)
@@ -2206,7 +2213,11 @@ class MainWindow(_QMainWindow):
 def main() -> None:
     app = _QApplication.instance() or _QApplication(_sys.argv)
     enable_active_learning = "--active-learning" in _sys.argv
-    window = MainWindow(enable_active_learning=enable_active_learning)
+    enable_hyperwavenet = "--hyperwavenet" in _sys.argv
+    window = MainWindow(
+        enable_active_learning=enable_active_learning,
+        enable_hyperwavenet=enable_hyperwavenet,
+    )
     window.show()
     _sys.exit(app.exec())
 

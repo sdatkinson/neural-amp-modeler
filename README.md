@@ -99,6 +99,10 @@ The Capture tab has *Export ConcatWaveNet Configs* and *Export HyperWaveNet Conf
 a matched `model_*.json` and `learning_*.json` into the project folder, next to the `data.json`
 that's been kept current all along. Then:
 
+*Export HyperWaveNet Configs* is hidden by default — see
+[Which architecture?](#which-architecture) below — and needs
+`nam-capture --hyperwavenet` to show it.
+
 ```bash
 nam-full-parametric data.json model_hyper.json learning_hyper.json outputs
 ```
@@ -115,14 +119,15 @@ itself. ConcatWaveNet runs produce only `model_parametric.nam`.
 
 ### Which architecture?
 
-There's no clear winner yet. Both train from the same captures, so train both and listen — more
-people comparing them on real rigs is how a default eventually gets picked.
+ConcatWaveNet is the default. HyperWaveNet generates its weights whenever the knob values change,
+and audible zippering can show up in the plugin during those transitions with no fix yet — so its
+export button is hidden behind `nam-capture --hyperwavenet` until that's sorted out.
 
-The one firm difference is runtime cost. A HyperWaveNet generates its weights whenever the knob
-values change; once they settle, the audio path is a stock 8-channel WaveNet costing no more per
-buffer than an ordinary NAM capture. A ConcatWaveNet instead carries the knob values as extra
-channels through every layer, and has to be wider to hold its own — `8 + 2 × (knobs − 1)` channels,
-so a 5-knob model runs 16 wide, on every buffer, forever.
+Runtime cost is the tradeoff behind the two architectures. Once a HyperWaveNet's weights settle, its
+audio path is a stock 8-channel WaveNet costing no more per buffer than an ordinary NAM capture. A
+ConcatWaveNet instead carries the knob values as extra channels through every layer, and has to be
+wider to hold its own — `8 + 2 × (knobs − 1)` channels, so a 5-knob model runs 16 wide, on every
+buffer, forever.
 
 ## Active learning (experimental)
 
