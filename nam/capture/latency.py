@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass as _dataclass
 from typing import Any as _Any
 from typing import Optional as _Optional
+from typing import Union as _Union
 
 import numpy as _np
 
@@ -62,18 +63,9 @@ class BlipPreamble:
             )
 
     @property
-    def blip_section_samples(self) -> int:
-        return int(_BLIP_SECTION_SECONDS * self.sample_rate)
-
-    @property
     def blip_locations(self) -> tuple[int, int]:
         first, second = _BLIP_TIMES_SECONDS
         return (int(first * self.sample_rate), int(second * self.sample_rate))
-
-    @property
-    def noise_interval(self) -> tuple[int, int]:
-        start, stop = _NOISE_INTERVAL_SECONDS
-        return (int(start * self.sample_rate), int(stop * self.sample_rate))
 
     @property
     def n_samples(self) -> int:
@@ -81,7 +73,7 @@ class BlipPreamble:
         Total preamble length including the post-blip gap; the input audio starts at
         this offset in the playback.
         """
-        return self.blip_section_samples + int(_GAP_SECONDS * self.sample_rate)
+        return int((_BLIP_SECTION_SECONDS + _GAP_SECONDS) * self.sample_rate)
 
     def render(self) -> _np.ndarray:
         playback = _np.zeros(self.n_samples, dtype=_np.float32)
@@ -89,12 +81,89 @@ class BlipPreamble:
             playback[location] = self.amplitude
         return playback
 
+    def as_played(self) -> "PlayedPreamble":
+        """
+        This preamble as measurement sees it. A ``BlipPreamble`` says what to play;
+        what was played is what gets measured.
+        """
+        return PlayedPreamble.from_playback(
+            self.render(), self.n_samples, self.sample_rate
+        )
+
+
+def blip_locations_in(played: _np.ndarray) -> tuple[int, ...]:
+    """
+    Where a played preamble puts its impulses, read off the signal itself.
+
+    A plain threshold is enough because the preamble is synthesized: exact impulses
+    against digital silence, nothing like the return it will be looked for in. Adjacent
+    samples count as one impulse, so a preamble that shapes its blips still reports one
+    location each.
+    """
+    played = _np.abs(_np.asarray(played, dtype=_np.float64))
+    if not len(played) or played.max() <= 0.0:
+        return ()
+    strong = _np.flatnonzero(played > 0.5 * played.max())
+    locations: list[int] = []
+    run = [int(strong[0])]
+    for index in strong[1:]:
+        if index - run[-1] <= 8:
+            run.append(int(index))
+        else:
+            locations.append(run[int(_np.argmax(played[run]))])
+            run = [int(index)]
+    locations.append(run[int(_np.argmax(played[run]))])
+    return tuple(locations)
+
+
+@_dataclass(frozen=True)
+class PlayedPreamble:
+    """
+    A preamble described by the signal that was played, not by this version's constants.
+    The only thing :func:`measure_delay` measures.
+
+    Every capture keeps its playback in ``captures_raw/``, so a recording made under a
+    preamble that has since changed is still measured against its own: blip count,
+    timing and amplitude can move, with no migration and no project-version gate.
+    """
+
+    sample_rate: int
+    n_samples: int
+    blip_locations: tuple[int, ...]
+    noise_interval: tuple[int, int]
+
+    @property
+    def blip_section_samples(self) -> int:
+        # The whole preamble: its trailing gap is silence, so scanning it costs nothing
+        # and saves guessing where a future preamble would put the boundary.
+        return self.n_samples
+
+    @classmethod
+    def from_playback(
+        cls, played: _np.ndarray, n_samples: int, sample_rate: int
+    ) -> "PlayedPreamble":
+        """
+        Read the layout from the first ``n_samples`` of a playback. The raw manifest
+        records ``n_samples`` per capture, so it is never inferred.
+        """
+        preamble = _np.asarray(played)[:n_samples]
+        locations = blip_locations_in(preamble)
+        if not locations:
+            raise ValueError("No impulses found in the played preamble")
+        first = locations[0]
+        # The run-up to the first impulse is silent in any preamble worth the name, so
+        # its latter half is a noise window that assumes nothing about where it sits --
+        # and lands on exactly the interval this version's constants name.
+        return cls(
+            sample_rate=int(sample_rate),
+            n_samples=int(n_samples),
+            blip_locations=locations,
+            noise_interval=(first // 2, first * 3 // 4),
+        )
+
     def _data_info(self) -> _Any:
         from ..train.core import _DataInfo
 
-        # Only the fields the latency calibration reads are meaningful here; the
-        # train/validation split fields describe standardized training files, which
-        # this preamble is not, so they get placeholder values.
         return _DataInfo(
             major_version=0,
             rate=float(self.sample_rate),
@@ -108,6 +177,9 @@ class BlipPreamble:
         )
 
 
+_Preamble = _Union[BlipPreamble, PlayedPreamble]
+
+
 @_dataclass(frozen=True)
 class LatencyResult:
     delay: _Optional[int]
@@ -116,16 +188,21 @@ class LatencyResult:
     safety_factor: int
     # Sub-sample position of the blip response's energy peak, in the same frame as
     # ``delay``. See :func:`_peak_delay` for why this is not simply ``delay`` with a
-    # fractional part: the two are different estimators of the same arrival, and only
-    # the *difference between captures* of this one is meaningful.
+    # fractional part: the two are different estimators of the same arrival, and this
+    # is the one the capture timebase is built from.
     peak_delay: _Optional[float] = None
+    # What each blip said before they were averaged. Kept so a capture tripping
+    # ``disagreement_too_high`` can show the numbers rather than an unexplained complaint:
+    # one blip arriving late is a specific fault (a stream glitch during the preamble),
+    # and the pair of readings is what makes it recognisable.
+    blip_delays: tuple[int, ...] = ()
 
     @property
     def ok(self) -> bool:
         return self.detected and not self.disagreement_too_high
 
 
-def _coarse_bulk_delay(recording: _np.ndarray, preamble: BlipPreamble) -> int:
+def _coarse_bulk_delay(recording: _np.ndarray, preamble: _Preamble) -> int:
     """
     Estimate a large fixed round-trip latency so the fine calibrator can still find the
     blips. Returns ``0`` unless there is a confident bulk delay past the calibrator's
@@ -158,7 +235,7 @@ def _coarse_bulk_delay(recording: _np.ndarray, preamble: BlipPreamble) -> int:
     return d
 
 
-def _peak_delay(scan: _np.ndarray, preamble: BlipPreamble) -> _Optional[float]:
+def _peak_delay(scan: _np.ndarray, preamble: _Preamble) -> _Optional[float]:
     """
     Sub-sample arrival time of the blip response, from the continuous position of its
     energy peak. ``scan`` must already be coarse-aligned, as it is for the calibrator.
@@ -218,7 +295,7 @@ def _peak_delay(scan: _np.ndarray, preamble: BlipPreamble) -> _Optional[float]:
     return float(peak - _CALIBRATOR_LOOKAHEAD + fraction)
 
 
-def measure_delay(recording: _np.ndarray, preamble: BlipPreamble) -> LatencyResult:
+def measure_delay(recording: _np.ndarray, preamble: _Preamble) -> LatencyResult:
     """
     Measure round-trip delay from a recording that is time-aligned with the playback
     (sample 0 of the recording was captured as sample 0 of the playback started).
@@ -261,4 +338,5 @@ def measure_delay(recording: _np.ndarray, preamble: BlipPreamble) -> LatencyResu
         disagreement_too_high=calibration.warnings.disagreement_too_high,
         safety_factor=int(calibration.safety_factor),
         peak_delay=None if peak is None else peak + coarse,
+        blip_delays=tuple(int(d) + coarse for d in calibration.delays),
     )

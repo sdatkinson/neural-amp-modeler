@@ -375,10 +375,11 @@ def _calibrate_latency_v_all(
 
     def report_any_latency_warnings(
         delays: _Sequence[int],
+        detected: bool,
     ) -> _metadata.LatencyCalibrationWarnings:
         # Warnings associated with any single delay:
 
-        if len(delays) == 0:
+        if not detected:
             return _metadata.LatencyCalibrationWarnings(
                 matches_lookahead=False,
                 disagreement_too_high=False,
@@ -397,7 +398,8 @@ def _calibrate_latency_v_all(
         # If they're _really_ different, then something might be wrong.
         max_disagreement_threshold = 20
         max_disagreement_too_high = (
-            _np.max(delays) - _np.min(delays) >= max_disagreement_threshold
+            len(delays) > 1
+            and _np.max(delays) - _np.min(delays) >= max_disagreement_threshold
         )
         if max_disagreement_too_high:
             print(
@@ -431,15 +433,27 @@ def _calibrate_latency_v_all(
     )
 
     y_scans = []
-    for blip_index, i_abs in enumerate(data_info.blip_locations[0], 1):
+    for i_abs in data_info.blip_locations[0]:
         # Relative to start of the data
         i_rel = i_abs - data_info.first_blips_start
-        start_looking = i_rel - lookahead
-        stop_looking = i_rel + lookback
-        y_scans.append(y[start_looking:stop_looking])
+        y_scans.append(y[i_rel - lookahead : i_rel + lookback])
+
+    def first_crossing(scan) -> _Optional[int]:
+        """Delay, relative to its blip, of the first sample to trip the trigger."""
+        triggered = _np.where(_np.abs(scan) > trigger_threshold)[0]
+        return None if len(triggered) == 0 else int(triggered[0]) - lookahead
+
+    # Each blip on its own, which is what the ensemble disagreement check compares. The
+    # recommended delay still comes from the averaged scans (the noise-robust estimate),
+    # but averaging *first* leaves one number, and a range over one number is always zero
+    # -- so the check could never fire however far apart the blips landed. They travel the
+    # same chain a second apart, so a sound measurement reads the same delay from each;
+    # when they disagree the average blends two arrival times and cannot be trusted.
+    delays = [d for d in map(first_crossing, y_scans) if d is not None]
+
     y_scan_average = _np.mean(_np.stack(y_scans), axis=0)
-    triggered = _np.where(_np.abs(y_scan_average) > trigger_threshold)[0]
-    if len(triggered) == 0:  # No impulse responses were detected; can't calibrate
+    averaged_delay = first_crossing(y_scan_average)
+    if averaged_delay is None:  # No impulse responses were detected; can't calibrate
         msg = (
             "No response activated the trigger in response to input spikes. "
             "Is something wrong with the reamp?"
@@ -469,20 +483,19 @@ def _calibrate_latency_v_all(
             _plt.legend()
             _plt.title("SHARE THIS PLOT IF YOU ASK FOR HELP")
             _plt.show()
-        delays = []
         recommended = None
 
     else:
-        delay = triggered[0] + start_looking - i_rel
-        delays = [delay]
-        recommended = delay - safety_factor
-        print(f"Delay based on average is {delay}")
+        recommended = averaged_delay - safety_factor
+        print(f"Delay based on average is {averaged_delay}")
         print(
             f"After aplying safety factor of {safety_factor}, the final delay is "
             f"{recommended}"
         )
 
-    warnings = report_any_latency_warnings(delays)
+    warnings = report_any_latency_warnings(
+        delays, detected=averaged_delay is not None
+    )
 
     return _metadata.LatencyCalibration(
         algorithm_version=1,

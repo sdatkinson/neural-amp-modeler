@@ -50,6 +50,7 @@ from ..audio import DeviceInfo as _DeviceInfo
 from ..audio import LATENCY_CHOICES as _LATENCY_CHOICES
 from ..audio import list_devices as _list_devices
 from ..audio import reports_current_sample_rate as _reports_current_sample_rate
+from ..export import update_data_json as _update_data_json
 from ..export import write_concat_training_configs as _write_concat_training_configs
 from ..export import write_hyper_training_configs as _write_hyper_training_configs
 from ..params import KnobSpec as _KnobSpec
@@ -57,21 +58,26 @@ from ..params import validate_knobs as _validate_knobs
 from ..planner import corner_capture_count as _corner_capture_count
 from ..planner import settings_sort_key as _settings_sort_key
 from ..project import add_corner_captures as _add_corner_captures
+from ..project import clear_captures as _clear_captures
 from ..project import AudioSettingsModel as _AudioSettingsModel
 from ..project import CaptureEntryModel as _CaptureEntryModel
 from ..project import CaptureProject as _CaptureProject
+from ..project import find_clearable_entries as _find_clearable_entries
 from ..project import find_recoverable_entries as _find_recoverable_entries
 from ..project import KnobModel as _KnobModel
 from ..project import load_project as _load_project
 from ..project import migrate_legacy_peak_values as _migrate_legacy_peak_values
 from ..project import new_project as _new_project
 from ..project import PROJECT_FILENAME as _PROJECT_FILENAME
+from ..project import QAModel as _QAModel
 from ..project import reconcile_with_disk as _reconcile_with_disk
 from ..project import save_project as _save_project
-from ..project import QAModel as _QAModel
+from ..session import audit_captures as _audit_captures
+from ..session import audit_problems as _audit_problems
 from ..session import CaptureSession as _CaptureSession
 from ..session import LOOPBACK_CROSSCHECK_SAMPLES as _LOOPBACK_CROSSCHECK_SAMPLES
 from ..session import LOOPBACK_NOT_DETECTED_MESSAGE as _LOOPBACK_NOT_DETECTED_MESSAGE
+from ..session import timebase_problem as _timebase_problem
 from .workers import CancelToken as _CancelToken
 from .workers import SessionWorker as _SessionWorker
 
@@ -454,6 +460,14 @@ class MainWindow(_QMainWindow):
         if self._enable_active_learning:
             tabs.addTab(self._build_al_tab(), "Active Learning")
         self.status_bar = self.statusBar()
+        # A permanent widget, not a message: _refresh_status_bar rewrites the message
+        # area constantly and would wipe it. Reads the running version, which is not what
+        # a project was created under -- see CAPTURE_APP_VERSION.
+        self.version_label = _QLabel(f"v{_CAPTURE_APP_VERSION}")
+        self.version_label.setToolTip(f"Capture app version {_CAPTURE_APP_VERSION}")
+        # Clear of the size grip that owns the actual corner.
+        self.version_label.setContentsMargins(0, 0, 6, 0)
+        self.status_bar.addPermanentWidget(self.version_label)
 
     def _build_project_tab(self) -> _QWidget:
         widget = _QWidget()
@@ -709,9 +723,15 @@ class MainWindow(_QMainWindow):
         self.cancel_button = _QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._on_cancel_capture)
+        self.check_captures_button = _QPushButton("Check captures")
+        self.check_captures_button.clicked.connect(self._on_check_captures)
+        self.clear_captures_button = _QPushButton("Clear captures")
+        self.clear_captures_button.clicked.connect(self._on_clear_captures)
         buttons.addWidget(self.capture_next_button)
         buttons.addWidget(self.capture_selected_button)
         buttons.addWidget(self.cancel_button)
+        buttons.addWidget(self.check_captures_button)
+        buttons.addWidget(self.clear_captures_button)
         buttons.addWidget(self._make_sort_button())
         layout.addLayout(buttons)
 
@@ -982,8 +1002,105 @@ class MainWindow(_QMainWindow):
             _QMessageBox.information(self, "Project reconciled", "\n".join(notes))
         else:
             self.project_log.appendPlainText(f"Opened project: {project_dir}")
+        self._maybe_warn_timebase()
         self._maybe_prompt_import_al_proposals()
         self._refresh_devices()
+        self._refresh_all()
+
+    def _maybe_warn_timebase(self) -> None:
+        """
+        Say on open that this project's existing captures cannot be built on, rather than
+        letting the user pick a setting, run a capture and be refused at the end of it.
+        """
+        if self.project is None or self.project_dir is None:
+            return
+        problem = _timebase_problem(self.project, self.project_dir)
+        if problem is None:
+            return
+        self.project_log.appendPlainText(problem)
+        _QMessageBox.warning(
+            self,
+            "Captures can't be timed together",
+            f"{problem}\n\nUse \u201cClear captures\u201d on the Capture tab to start "
+            "this project's captures again.",
+        )
+
+    def _on_check_captures(self) -> None:
+        """
+        Re-measure every capture from its own raw recording and report any that do not
+        line up with the rest. Asks the recordings rather than the project file, so it
+        still works on a project whose timing metadata was lost -- which is the case that
+        needs it most, since nothing else can then tell the user anything is wrong.
+        """
+        if self.project is None or self.project_dir is None:
+            _QMessageBox.warning(self, "No project", "Open or create a project first.")
+            return
+        if not self.project.captured_entries():
+            _QMessageBox.information(
+                self, "Nothing to check", "This project has no captures yet."
+            )
+            return
+        project, project_dir = self.project, self.project_dir
+        self._run_worker(
+            lambda progress, cancel: _audit_captures(
+                project, project_dir, progress=progress
+            ),
+            on_progress=lambda fraction: self.capture_progress.setValue(
+                int(fraction * 100)
+            ),
+            on_success=self._on_check_captures_done,
+            on_failure=lambda message: _QMessageBox.critical(
+                self, "Check failed", message
+            ),
+            disable=[self.check_captures_button],
+        )
+
+    def _on_check_captures_done(self, audits: list) -> None:
+        self.capture_progress.setValue(100)
+        problems = _audit_problems(audits)
+        if not problems:
+            self.capture_log.appendPlainText(
+                "Checked captures: all line up with each other."
+            )
+            _QMessageBox.information(
+                self,
+                "Captures checked",
+                "Every capture was re-measured from its own recording and they all line "
+                "up with each other.",
+            )
+            return
+        body = "\n".join(problems)
+        self.capture_log.appendPlainText(f"Checked captures:\n{body}")
+        _QMessageBox.warning(self, "Captures need attention", body)
+
+    def _on_clear_captures(self) -> None:
+        if self.project is None or self.project_dir is None:
+            _QMessageBox.warning(self, "No project", "Open or create a project first.")
+            return
+        # Not just captured_entries(): a pending entry whose WAV is still on disk is
+        # exactly what this button has to clear, since that is the state the warning
+        # naming it as the fix fires in.
+        clearable = _find_clearable_entries(self.project, self.project_dir)
+        if not clearable:
+            _QMessageBox.information(
+                self, "Nothing to clear", "This project has no captures yet."
+            )
+            return
+        confirm = _QMessageBox.question(
+            self,
+            "Clear captures?",
+            f"Delete all {len(clearable)} capture(s) in this project and mark them for "
+            "recapturing?\n\nThe capture WAVs are deleted and cannot be recovered. The "
+            "original recordings in captures_raw/ are kept.",
+            _QMessageBox.StandardButton.Yes | _QMessageBox.StandardButton.No,
+            _QMessageBox.StandardButton.No,
+        )
+        if confirm != _QMessageBox.StandardButton.Yes:
+            return
+        notes = _clear_captures(self.project, self.project_dir)
+        _save_project(self.project, self.project_dir)
+        _update_data_json(self.project, self.project_dir)
+        self.capture_log.appendPlainText("\n".join(notes))
         self._refresh_all()
 
     def _maybe_prompt_import_al_proposals(self) -> None:
@@ -1287,6 +1404,11 @@ class MainWindow(_QMainWindow):
             # Restamping here would erase the fact that its earlier captures predate
             # captures_raw/, which is exactly what that stamp is for.
             project.created_with_version = self.project.created_with_version
+            # Same reason, more sharply: the capture WAVs survive this and are
+            # re-imported straight afterwards, so the timebase they were written against
+            # must survive it too. Dropping it left the files on one lead and every later
+            # capture on the constant, with nothing recording the difference.
+            project.alignment_reference = self.project.alignment_reference
 
         project.include_initial_corners = self.include_corners_check.isChecked()
         corner_note = ""
@@ -1750,6 +1872,19 @@ class MainWindow(_QMainWindow):
         self._begin_capture(self._displayed_entries[row])
 
     def _begin_capture(self, entry: _CaptureEntryModel) -> None:
+        # Checked here rather than left to the capture: the answer does not depend on
+        # anything the recording produces, so asking first turns "Capture failed" after a
+        # full pass into a refusal before the rig is driven at all.
+        if self.project is not None and self.project_dir is not None:
+            problem = _timebase_problem(self.project, self.project_dir)
+            if problem is not None:
+                _QMessageBox.critical(
+                    self,
+                    "Captures can't be timed together",
+                    f"{problem}\n\nUse \u201cClear captures\u201d below to start this "
+                    "project's captures again.",
+                )
+                return
         warnings = self._current_sample_rate_warnings()
         if warnings:
             self._refresh_sample_rate_warning()

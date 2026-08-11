@@ -611,6 +611,37 @@ def test_regenerate_plan_reimports_matching_captures_immediately(
     window.close()
 
 
+def test_regenerate_plan_keeps_the_projects_recorded_timebase(
+    _qapp, tmp_path, monkeypatch
+):
+    # Regenerating rebuilds the project file from the plan, but the capture WAVs survive
+    # and are re-imported straight after, so the timebase they were written against must
+    # survive too. Dropping it left them on one lead and later captures on the constant.
+    monkeypatch.setattr(
+        _MainWindow_module._QMessageBox, "information", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        _MainWindow_module._QMessageBox, "question",
+        lambda *a, **k: _MainWindow_module._QMessageBox.StandardButton.Yes,
+    )
+    window = _MainWindow()
+    window.project_dir = tmp_path
+    _fill_knob_rows(window, _GAIN_KNOB_ROWS)
+    window.n_train_spin.setValue(4)
+    window.n_validation_spin.setValue(2)
+    window.seed_spin.setValue(7)
+    window.include_corners_check.setChecked(False)
+    window._on_generate_plan()
+
+    window.project.alignment_reference = 4.4297
+
+    window._on_generate_plan()
+
+    assert window.project.alignment_reference == 4.4297
+    assert _load_project(tmp_path).alignment_reference == 4.4297
+    window.close()
+
+
 def _entry(index, gain, tone, status="pending"):
     return _CaptureEntryModel(
         index=index,
@@ -735,4 +766,120 @@ def test_add_corner_captures_button_appends_without_regenerating(
     corner_entries = [e for e in window.project.entries if "/corner_" in e.y_path]
     assert len(corner_entries) == 8
     assert len(window.project.entries) == base + 8
+    window.close()
+
+
+def _project_with_captures(tmp_path, _qapp):
+    """A window on a project with one real capture in it."""
+    from nam.capture.gui.main import MainWindow as _MW
+    from nam.capture.params import KnobSpec
+    from nam.capture.project import new_project, save_project
+    from nam.capture.session import CaptureSession
+    from nam.data import np_to_wav
+    import numpy as np
+
+    from tests.capture.test_session import _DriftingRecorder, _enable_loopback
+
+    rng = np.random.default_rng(42)
+    for name, n in (("input_train.wav", 48_000), ("input_validation.wav", 24_000)):
+        np_to_wav((0.1 * rng.standard_normal(n)).astype(np.float32),
+                  tmp_path / name, rate=48_000)
+    project = new_project([KnobSpec(name="Gain", min=0.0, max=10.0, step=0.5)],
+                          n_train=2, n_validation=1, seed=0)
+    save_project(project, tmp_path)
+    project = _load_project(tmp_path)
+    _enable_loopback(project)
+    session = CaptureSession(project, tmp_path, recorder=_DriftingRecorder(480))
+    entry = project.pending_entries()[0]
+    session.capture_entry(entry)
+
+    window = _MW()
+    window.project = project
+    window.project_dir = tmp_path
+    window.session = session
+    return window, project, entry
+
+
+def test_a_bad_timebase_blocks_capturing_before_the_rig_is_driven(_qapp, tmp_path, monkeypatch):
+    window, project, _ = _project_with_captures(tmp_path, _qapp)
+    project.alignment_reference = 129.0
+    shown: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        _MainWindow_module._QMessageBox, "critical",
+        lambda parent, title, text, *a, **k: shown.append((title, text)),
+    )
+    started: list[object] = []
+    monkeypatch.setattr(window, "_run_worker", lambda *a, **k: started.append(a))
+
+    window._begin_capture(project.pending_entries()[0])
+    window.close()
+
+    assert started == []  # refused before any capture was started
+    (title, text), = shown
+    assert title == "Captures can't be timed together"
+    assert "Clear captures" in text
+
+
+def test_clear_captures_button_resets_the_project(_qapp, tmp_path, monkeypatch):
+    window, project, entry = _project_with_captures(tmp_path, _qapp)
+    project.alignment_reference = 129.0
+    monkeypatch.setattr(
+        _MainWindow_module._QMessageBox, "question",
+        lambda *a, **k: _MainWindow_module._QMessageBox.StandardButton.Yes,
+    )
+
+    window._on_clear_captures()
+    window.close()
+
+    assert entry.status == "pending"
+    assert not (tmp_path / entry.y_path).exists()
+    assert project.alignment_reference is None
+    # Persisted, so reopening does not bring the old state back.
+    assert _load_project(tmp_path).alignment_reference is None
+    assert _load_project(tmp_path).captured_entries() == []
+
+
+def test_clear_captures_button_reaches_a_pending_entry_whose_file_survives(
+    _qapp, tmp_path, monkeypatch
+):
+    # The deadlock this guards: regenerating the plan (or declining the restore offer)
+    # leaves an entry pending with its WAV on disk. The refusal names this button as the
+    # fix, so it must not answer "Nothing to clear" and leave the project stuck.
+    window, project, entry = _project_with_captures(tmp_path, _qapp)
+    project.alignment_reference = 129.0
+    entry.status = "pending"
+    assert not project.captured_entries()
+    assert (tmp_path / entry.y_path).is_file()
+
+    informed: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        _MainWindow_module._QMessageBox, "information",
+        lambda parent, title, text, *a, **k: informed.append((title, text)),
+    )
+    monkeypatch.setattr(
+        _MainWindow_module._QMessageBox, "question",
+        lambda *a, **k: _MainWindow_module._QMessageBox.StandardButton.Yes,
+    )
+
+    window._on_clear_captures()
+    window.close()
+
+    assert not any(title == "Nothing to clear" for title, _ in informed)
+    assert not (tmp_path / entry.y_path).exists()
+    assert project.alignment_reference is None
+
+
+def test_the_running_version_is_shown_at_the_bottom_right(_qapp):
+    from nam.capture import CAPTURE_APP_VERSION
+
+    window = _MainWindow()
+
+    assert window.version_label.text() == f"v{CAPTURE_APP_VERSION}"
+    # A permanent widget, so the constant rewriting of the message area leaves it alone.
+    window.status_bar.showMessage("Capturing 3 of 12...")
+    assert window.version_label.text() == f"v{CAPTURE_APP_VERSION}"
+    assert window.version_label.isVisible() or not window.isVisible()
+    # Right of the message area: permanent widgets are laid out from the right edge, so
+    # it must start beyond where a status message is drawn.
+    assert window.version_label.x() > 0
     window.close()

@@ -38,7 +38,7 @@ def test_measure_delay_recovers_known_shift():
     playback = _np.concatenate([preamble.render(), tail])
     for true_delay in (37, 500, 4_321):
         recording = _simulate_chain(playback, delay=true_delay)
-        result = _measure_delay(recording, preamble)
+        result = _measure_delay(recording, preamble.as_played())
         assert result.detected
         assert not result.disagreement_too_high
         assert result.delay == true_delay - result.safety_factor
@@ -53,7 +53,7 @@ def test_measure_delay_recovers_large_fixed_latency():
     playback = _np.concatenate([preamble.render(), tail])
     true_delay = 12_288
     recording = _simulate_chain(playback, delay=true_delay)
-    result = _measure_delay(recording, preamble)
+    result = _measure_delay(recording, preamble.as_played())
     assert result.detected
     assert not result.disagreement_too_high
     assert result.delay == true_delay - result.safety_factor
@@ -64,7 +64,7 @@ def test_measure_delay_reports_not_detected_on_silence():
     recording = 1e-6 * _np.random.default_rng(0).standard_normal(
         preamble.n_samples + _RATE
     ).astype(_np.float32)
-    result = _measure_delay(recording, preamble)
+    result = _measure_delay(recording, preamble.as_played())
     assert not result.detected
     assert result.delay is None
     assert not result.ok
@@ -73,14 +73,15 @@ def test_measure_delay_reports_not_detected_on_silence():
 def test_measure_delay_rejects_short_recordings():
     preamble = _BlipPreamble(_RATE)
     with _pytest.raises(ValueError):
-        _measure_delay(_np.zeros(1_000, dtype=_np.float32), preamble)
+        _measure_delay(_np.zeros(1_000, dtype=_np.float32), preamble.as_played())
 
 
 def test_measure_delay_rejects_multichannel_recordings():
     preamble = _BlipPreamble(_RATE)
     with _pytest.raises(ValueError):
         _measure_delay(
-            _np.zeros((preamble.n_samples + _RATE, 2), dtype=_np.float32), preamble
+            _np.zeros((preamble.n_samples + _RATE, 2), dtype=_np.float32),
+            preamble.as_played(),
         )
 
 
@@ -107,7 +108,7 @@ def _fractionally_delayed_chain(
 def test_peak_delay_is_reported_alongside_the_integer_delay():
     preamble = _BlipPreamble(_RATE)
     playback = _np.concatenate([preamble.render(), _np.zeros(_RATE // 2, _np.float32)])
-    result = _measure_delay(_simulate_chain(playback, delay=500), preamble)
+    result = _measure_delay(_simulate_chain(playback, delay=500), preamble.as_played())
     assert result.peak_delay is not None
     # It is a different estimator from `delay` (peak vs threshold crossing minus a
     # safety factor), so it need not equal it -- only be close and be sub-sample.
@@ -119,12 +120,13 @@ def test_peak_delay_tracks_sub_sample_drift_that_the_integer_delay_cannot():
     playback = _np.concatenate([preamble.render(), _np.zeros(_RATE // 2, _np.float32)])
 
     baseline = _measure_delay(
-        _fractionally_delayed_chain(playback, delay=500, fraction=0.0), preamble
+        _fractionally_delayed_chain(playback, delay=500, fraction=0.0),
+        preamble.as_played(),
     )
     for fraction in (0.2, 0.4, -0.3):
         moved = _measure_delay(
             _fractionally_delayed_chain(playback, delay=500, fraction=fraction),
-            preamble,
+            preamble.as_played(),
         )
         assert moved.peak_delay - baseline.peak_delay == _pytest.approx(
             fraction, abs=0.02
@@ -134,4 +136,4 @@ def test_peak_delay_tracks_sub_sample_drift_that_the_integer_delay_cannot():
 def test_peak_delay_is_none_when_nothing_is_detected():
     preamble = _BlipPreamble(_RATE)
     recording = _np.zeros(preamble.n_samples + _RATE, dtype=_np.float32)
-    assert _measure_delay(recording, preamble).peak_delay is None
+    assert _measure_delay(recording, preamble.as_played()).peak_delay is None

@@ -221,10 +221,14 @@ class _TCalibrateDelay(object):
 
         with Capturing() as output:
             self._calibrate_delay(y, manual_available=False, show_plots=False)
-        # `[0]` -- Only look in the first set of blip locations
-        # With #485, we average them all together so there's only one index.
-        # TODO clean this up.
-        expected_warning = core._warn_lookaheads([1])  # "Blip 1"
+        # `[0]` -- Only look in the first set of blip locations. Every blip in it is
+        # named: #485 averaged the scans together before triggering, which left a single
+        # delay and so a single index here, but the blips are measured individually
+        # again (the average is still what the recommended delay comes from) so that
+        # they can be compared against each other at all.
+        expected_warning = core._warn_lookaheads(
+            list(range(1, len(self._data_info.blip_locations[0]) + 1))
+        )
         assert any(o == expected_warning for o in output), output
 
 

@@ -202,9 +202,17 @@ class QAModel(_BaseModel):
     loopback_delay: _Optional[int] = None
     amp_return_delay: _Optional[int] = None
     # Shift, in samples, applied to the target before it was written, to put it on the
-    # project's timebase (see CaptureSession._alignment_shift). ``None`` when no
-    # correction was applied.
+    # project's timebase (see CaptureSession._alignment). Always within half a sample --
+    # it is the rounding residue of the delay label. ``None`` when no correction was
+    # applied.
     subsample_shift: _Optional[float] = None
+    # Sub-sample position of the loopback blip response's energy peak: what the delay
+    # label and the shift are both derived from. A timing fault is only diagnosable after
+    # the fact if the number the timebase was built from was written down at the time.
+    peak_delay: _Optional[float] = None
+    # What each timing blip read on its own. Two that disagree mean a dropout during the
+    # count-in, and such a capture is untrustworthy however ordinary its other fields look.
+    blip_delays: list[int] = _Field(default_factory=list)
     messages: list[str] = _Field(default_factory=list)
 
 
@@ -248,13 +256,23 @@ class CaptureProject(_BaseModel):
     # planned LHS size drift every time the project is reopened.
     n_train_lhs: int = 0
     include_initial_corners: bool = False
-    # Timebase for this project: the offset, in samples, between the blip response's
-    # energy peak and the integer delay reported alongside it. The first capture that
-    # measures it sets it, and every later capture is shifted so its own offset matches --
-    # which is what puts the whole project on one timebase. The value itself is arbitrary
-    # (it carries the round trip's impulse-response shape); only holding it constant
-    # matters. ``None`` until the first capture sets it, and for projects captured without
-    # a loopback, where the correction is deliberately not applied.
+    # The lead this project's captures are labelled against, when it is not the current
+    # constant. Absent for anything captured under the stateless timebase, which is the
+    # normal case; present for a project captured before it.
+    #
+    # It used to be seeded from whichever capture was recorded first, and every later one
+    # shifted to match -- so a single bad measurement silently became the whole project's
+    # timebase, unchecked. Captures now derive theirs from their own loopback blip peak
+    # (see CaptureSession._alignment) and share nothing. But a project part-captured under
+    # the old scheme has captures written against this offset, and resuming it with a
+    # different one would leave the two groups a fraction of a sample (or worse) apart, so
+    # it is read back as the alignment lead and finished without recapturing anything.
+    #
+    # No capture ever measures a value in here; it survives only by being carried forward
+    # when the plan is regenerated. Once present it applies unconditionally and is released
+    # only by clear_captures -- see session.alignment_lead for why that must not depend on
+    # whether the project currently has captures, and CaptureSession._alignment_lead for
+    # the rejection of a value too large to be a converter's offset.
     alignment_reference: _Optional[float] = None
     # The capture app version this project was created under, stamped once at creation and
     # carried forward unchanged (including when the plan is regenerated) -- it dates the
@@ -442,6 +460,64 @@ def reconcile_with_disk(project: CaptureProject, project_dir: _Path) -> list[str
             relative = str(wav_path.relative_to(project_dir))
             if relative not in known:
                 notes.append(f"{relative}: not part of this project's plan.")
+    return notes
+
+
+def find_clearable_entries(
+    project: CaptureProject, project_dir: _Path
+) -> list[CaptureEntryModel]:
+    """
+    Entries :func:`clear_captures` would touch: every entry recorded as captured, plus
+    any pending entry whose WAV is still on disk.
+
+    That second group matters. Regenerating the plan resets a captured entry to pending
+    but leaves its WAV, and until the user accepts or declines the offer to restore it
+    (see :func:`find_recoverable_entries`) the file -- and the timebase it was written
+    against -- is still live. Reporting only ``captured_entries()`` called such a project
+    "nothing to clear" in exactly the state a caller comes here to get out of.
+    """
+    project_dir = _Path(project_dir)
+    return [
+        entry
+        for entry in project.entries
+        if entry.status == "captured" or (project_dir / entry.y_path).is_file()
+    ]
+
+
+def clear_captures(project: CaptureProject, project_dir: _Path) -> list[str]:
+    """
+    Put every capture in this project back to pending and delete its WAV, so the project
+    starts its captures over. Does not save; the caller saves. Returns a note per entry.
+
+    Covers everything :func:`find_clearable_entries` finds, not just entries recorded as
+    captured: a pending entry whose WAV is still on disk is offered back to the user as
+    recoverable (see :func:`find_recoverable_entries`) and would be marked captured again
+    on the next open, undoing this, if its file were left behind.
+
+    ``captures_raw/`` is left alone. Those recordings are the only record of what the rig
+    actually did, which is what a timing fault has to be diagnosed from after the fact,
+    and each is overwritten when its entry is captured again.
+
+    Clears ``alignment_reference`` for the same reason the entries are cleared: it exists
+    only to describe the timebase those captures were written against, and applying it to
+    captures made after them would be applying it to captures that never used it.
+    """
+    project_dir = _Path(project_dir)
+    notes: list[str] = []
+    for entry in find_clearable_entries(project, project_dir):
+        wav_path = project_dir / entry.y_path
+        try:
+            wav_path.unlink(missing_ok=True)
+        except OSError as exc:
+            notes.append(f"{entry.y_path}: could not delete ({exc}); left as is.")
+            continue
+        entry.status = "pending"
+        entry.delay = None
+        entry.captured_at = None
+        entry.qa = None
+        entry.stream_config = None
+        notes.append(f"{entry.y_path}: cleared.")
+    project.alignment_reference = None
     return notes
 
 
