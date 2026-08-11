@@ -23,6 +23,7 @@ from nam.data import Split as _Split
 from nam.data import apply_joint_dataset_hooks as _apply_joint_dataset_hooks
 from nam.data import get_joint_dataset_hooks as _get_joint_dataset_hooks
 from nam.data import init_dataset as _init_dataset
+from nam.models.exportable import Exportable as _Exportable
 from nam.models.parametric import HyperWaveNet as _HyperWaveNet
 from nam.models.parametric import ParametricDataset as _ParametricDataset
 from nam.models.parametric import ParametricNet as _ParametricNet
@@ -33,7 +34,6 @@ from nam.models.parametric import (
     output_scale_from_datasets as _output_scale_from_datasets,
 )
 from nam.train.core import _ValidationStopping
-from nam.train.full import _create_callbacks
 from nam.train.full import _handshake_datasets
 from nam.train.full import _rms as _rms
 from nam.train.lightning_module import LightningModule as _LightningModule
@@ -624,8 +624,106 @@ class _ParametricLightningModule(_LightningModule):
         self.log_dict({f"{name}/{bucket}": value for name, value in metrics.items()})
 
 
-def _create_parametric_callbacks(learning_config):
-    callbacks = _create_callbacks(learning_config, packed=False)
+class _ParametricModelCheckpoint(_ModelCheckpoint):
+    """
+    Extends ModelCheckpoint to export a `_parametric.nam` (and, for HyperWaveNet nets, a
+    baked stock-WaveNet `.nam`) alongside each `.ckpt` it writes. Mirrors what
+    ``nam.train.core._ModelCheckpoint`` does for the non-parametric trainer, so a hard
+    crash mid-training still leaves usable `.nam` exports instead of only `.ckpt` files
+    that require reloading through the training code to recover a model.
+    """
+
+    def __init__(self, *args, output_scale: _Optional[float] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._output_scale = output_scale
+
+    def _nam_stem(self, filepath: str) -> str:
+        if not filepath.endswith(self.FILE_EXTENSION):
+            raise ValueError(
+                f"Checkpoint filepath {filepath} doesn't end in expected extension "
+                f"{self.FILE_EXTENSION}"
+            )
+        return filepath[: -len(self.FILE_EXTENSION)]
+
+    def _save_checkpoint(self, trainer: _pl.Trainer, filepath: str) -> None:
+        super()._save_checkpoint(trainer, filepath)
+        stem = _Path(self._nam_stem(filepath))
+        outdir, basename = stem.parent, stem.name
+        net = _get_parametric_net(trainer.model)
+        try:
+            if isinstance(net, _HyperWaveNet):
+                _bake(net, net.nominal_params, output_scale=self._output_scale).export(
+                    outdir, basename=basename
+                )
+            _export_parametric(
+                net,
+                outdir,
+                basename=f"{basename}_parametric",
+                output_scale=self._output_scale,
+            )
+        except NotImplementedError:
+            # Some parametric nets (e.g. active learning's ConcatLSTM acquisition proxy)
+            # don't implement .nam weight export at all; nothing to checkpoint here.
+            pass
+
+    def _remove_checkpoint(self, trainer: _pl.Trainer, filepath: str) -> None:
+        super()._remove_checkpoint(trainer, filepath)
+        stem = _Path(self._nam_stem(filepath))
+        outdir, basename = stem.parent, stem.name
+        for nam_basename in (basename, f"{basename}_parametric"):
+            nam_path = outdir / f"{nam_basename}{_Exportable.FILE_EXTENSION}"
+            if nam_path.exists():
+                nam_path.unlink()
+
+
+def _create_parametric_checkpoint_callbacks(
+    learning_config, output_scale: _Optional[float] = None
+):
+    """
+    Same checkpoint cadence/naming as ``nam.train.full._create_callbacks(packed=False)``,
+    but using ``_ParametricModelCheckpoint`` so each `.ckpt` also gets a `.nam` export.
+    """
+    validate_inside_epoch = "val_check_interval" in learning_config["trainer"]
+    if validate_inside_epoch:
+        kwargs = {
+            "every_n_train_steps": learning_config["trainer"]["val_check_interval"]
+        }
+    else:
+        kwargs = {
+            "every_n_epochs": learning_config["trainer"].get(
+                "check_val_every_n_epoch", 1
+            )
+        }
+
+    checkpoint_best = _ParametricModelCheckpoint(
+        filename="{epoch:04d}_{step}_{ESR:.3e}_{MSE:.3e}",
+        save_top_k=3,
+        monitor="val_loss",
+        output_scale=output_scale,
+        **kwargs,
+    )
+    checkpoint_epoch = _ParametricModelCheckpoint(
+        filename="checkpoint_epoch_{epoch:04d}",
+        every_n_epochs=1,
+        output_scale=output_scale,
+    )
+    callbacks = [checkpoint_best]
+    if not validate_inside_epoch:
+        callbacks.append(checkpoint_epoch)
+        return callbacks
+    checkpoint_last = _ParametricModelCheckpoint(
+        filename="checkpoint_last_{epoch:04d}_{step}",
+        output_scale=output_scale,
+        **kwargs,
+    )
+    callbacks.extend([checkpoint_last, checkpoint_epoch])
+    return callbacks
+
+
+def _create_parametric_callbacks(
+    learning_config, output_scale: _Optional[float] = None
+):
+    callbacks = _create_parametric_checkpoint_callbacks(learning_config, output_scale)
     threshold_esr = learning_config.get("threshold_esr")
     if threshold_esr is not None:
         callbacks.append(
@@ -750,6 +848,7 @@ def main(
     )
     net.sample_rate = getattr(dataset_train, "sample_rate", None)
     _handshake_datasets(model, dataset_train, dataset_validation)
+    output_scale = _output_scale_from_datasets((dataset_train, dataset_validation))
 
     train_dataloader = _make_parametric_dataloader(
         dataset_train, learning_config["train_dataloader"]
@@ -768,7 +867,7 @@ def main(
         (train_dataloader, val_dataloader),
         learning_config.get("torch_compile", {}),
     )
-    callbacks = _create_parametric_callbacks(learning_config)
+    callbacks = _create_parametric_callbacks(learning_config, output_scale)
     trainer = _pl.Trainer(
         callbacks=callbacks,
         default_root_dir=outdir,
@@ -819,7 +918,6 @@ def main(
             )
             _plot_parametric(model, dataset_validation, show=not no_show)
 
-        output_scale = _output_scale_from_datasets((dataset_train, dataset_validation))
         # Baking a fixed-setting stock WaveNet snapshot is a HyperWaveNet-only feature;
         # other parametric nets (e.g. ConcatWaveNet) only get the parametric export.
         if isinstance(net, _HyperWaveNet):
