@@ -41,20 +41,25 @@ If you're interested in developing this package, this project uses ``mise`` and 
 
 `Mise <https://mise.jdx.dev/>`_ is used to bootstrap the tooling. It installs a local version of Python, isolated from your system installation, and `uv <https://docs.astral.sh/uv/>`_, which is an extremly fast Python package and project manager.
 
-You might need to check if ``openssl``, ``pkg-config``, and ``tcl-tk`` are installed on your system. Then install ``mise``, e.g. in macOS:
+On Ubuntu/Linux, no compiler or Python development packages are required. Install
+``mise`` and let it install the project toolchain:
+
+.. code-block:: console
+
+   $ mise install
+
+On macOS, Python must be compiled with the optional modules needed by NAM. Install
+the required system packages and ``mise`` first, then force the compilation when
+installing the toolchain:
 
 .. code-block:: console
 
    $ brew install openssl tcl-tk@8 pkg-config mise
+   $ MISE_PYTHON_COMPILE=true mise install
 
-These are needed to compile Python with optional modules needed by NAM.
-Once done, clone and navigate to the repository, then run:
-
-.. code-block:: console
-
-   $ mise install --verbose
-
-It will automatically set a virtual environment for you with all the tooling. By default ``uv`` performs an editable local install of the package, meaning you can run your changes without having to repackage each time.
+In both cases, ``mise`` automatically sets up the local virtual environment and
+the project tooling. By default ``uv`` performs an editable local install of the
+package, meaning you can run your changes without having to repackage each time.
 
 Perform the first project sync as below. This will install all dependencies. Repeat
 it after dependency changes, selecting exactly one accelerator extra:

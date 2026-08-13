@@ -5,6 +5,3 @@ uv = "0.12"
 [_.python]
 venv = ".venv"
 uv_venv_auto = "create|source"
-
-[settings.python]
-compile = true

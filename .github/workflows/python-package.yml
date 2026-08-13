@@ -23,28 +23,6 @@ jobs:
         with:
           fetch-depth: 0  # Ensures the full history is available
           fetch-tags: true  # Ensures tags are fetched
-      - name: Install Python build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libbz2-dev \
-            libffi-dev \
-            libgdbm-dev \
-            liblzma-dev \
-            libncursesw5-dev \
-            libnss3-dev \
-            libreadline-dev \
-            libsqlite3-dev \
-            libssl-dev \
-            libxml2-dev \
-            libxmlsec1-dev \
-            libzstd-dev \
-            pkg-config \
-            tk-dev \
-            uuid-dev \
-            xz-utils \
-            zlib1g-dev
       - name: Clone NeuralAmpModelerCore and build loadmodel
         env:
           CXX: clang++
