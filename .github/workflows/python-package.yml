@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
@@ -32,23 +32,20 @@ jobs:
           cd NeuralAmpModelerCore/build
           cmake .. -DCMAKE_BUILD_TYPE=Debug
           cmake --build . -j4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v3
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Set up mise toolchain
+        uses: jdx/mise-action@v4
+        env:
+          MISE_PYTHON_VERSION: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install .
-          nam-hello-world
+          uv sync --extra cpu
+          uv run --extra cpu nam-hello-world
       - name: Lint with flake8
         run: |
-          python -m pip install flake8
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Stop the build if there are Python syntax errors or undefined names.
+          uv run --extra cpu flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          uv run --extra cpu flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       - name: Test with pytest
         run: |
-          python -m pip install pytest pytest-mock
-          xvfb-run -a pytest -v
+          xvfb-run -a uv run --extra cpu python -m pytest -v

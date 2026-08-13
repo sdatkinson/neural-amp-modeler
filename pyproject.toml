@@ -20,7 +20,7 @@ dependencies = [
     "scipy",  # Required by auraloss
     "sounddevice",
     "tensorboard",
-    "torch",
+    # PyTorch is selected through the `cpu` or `gpu` extra below.
     # `transformers` is not required, but if you have it, it needs to be recent
     # enough so I'm adding it.
     "transformers>=4",
@@ -30,6 +30,10 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
+# Select exactly one accelerator variant, e.g. `uv sync --extra cpu`.
+cpu = ["torch"]
+gpu = ["torch"]
+
 # Optional features
 transformers-compat = [
     "transformers>=4",  # Issue-294
@@ -41,6 +45,45 @@ test = [
     "pytest-mock",
     "requests",
 ]
+
+[dependency-groups]
+dev = [
+    "black",
+    "flake8",
+    "h5py",
+    "jupyter",
+    "pre-commit",
+    "pytest",
+    "pytest-mock",
+    "semver",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "gpu" },
+    ],
+]
+
+[tool.uv.sources]
+torch = [
+    # macOS uses PyPI for its native CPU/MPS wheels.
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-gpu", extra = "gpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-gpu"
+# cu121 has no wheel for Python 3.14.
+# cu130 is the compatible PyTorch CUDA index for the configured Python version.
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [project.urls]
 homepage = "https://github.com/sdatkinson/"
