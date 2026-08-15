@@ -17,7 +17,7 @@ import torch as _torch
 from .base import BaseNet as _BaseNet
 from .linear import Linear as _Linear
 from .recurrent import LSTM as _LSTM
-from .wavenet import WaveNet as _WaveNet
+from .wavenet import PackedWaveNet as _PackedWaveNet, WaveNet as _WaveNet
 
 
 def _init_linear(config, sample_rate: _Optional[float]) -> _Linear:
@@ -143,6 +143,40 @@ def _init_wavenet(config, sample_rate: _Optional[float]) -> _WaveNet:
     return _WaveNet.init_from_config(full_config)
 
 
+def _init_slimmable_container(config, sample_rate: _Optional[float]) -> _BaseNet:
+    """Initialize SlimmableContainer, containing multiple submodels."""
+    submodel_configs = config.get("submodels", [])
+    if not submodel_configs:
+        raise ValueError("SlimmableContainer requires submodels")
+
+    # Extract submodel configs and weights
+    packed_config = {
+        "submodels": [],
+        "sample_rate": sample_rate,
+    }
+    submodel_weights = []
+    for submodel in submodel_configs:
+        model_dict = submodel.get("model", {})
+        packed_config["submodels"].append(
+            {
+                "max_value": submodel.get("max_value", 1.0),
+                "config": model_dict.get("config", {}),
+            }
+        )
+
+        submodel_weights.append(model_dict.get("weights", []))
+
+    # Initialize overall config, then load weights for each submodel
+    model = _PackedWaveNet.init_from_config(packed_config)
+    for i, weights in enumerate(submodel_weights):
+        if weights:
+            submodel_model = model.extract_submodel(i)
+            submodel_model.import_weights(_torch.Tensor(weights))
+            model.import_submodel(i, submodel_model)
+
+    return model
+
+
 def init_from_nam(config) -> _BaseNet:
     """
     Taking the contents of a .nam file, initialize a model
@@ -153,8 +187,15 @@ def init_from_nam(config) -> _BaseNet:
     ...     model = init_from_nam(config)
     """
     # NB: Some old .nam files don't have a sample_rate. Must .get()
-    model = {"Linear": _init_linear, "WaveNet": _init_wavenet, "LSTM": _init_lstm}[
-        config["architecture"]
-    ](config=config["config"], sample_rate=config.get("sample_rate", None))
-    model.import_weights(_torch.Tensor(config["weights"]))
+    model = {
+        "Linear": _init_linear,
+        "WaveNet": _init_wavenet,
+        "LSTM": _init_lstm,
+        "SlimmableContainer": _init_slimmable_container,
+    }[config["architecture"]](
+        config=config["config"], sample_rate=config.get("sample_rate", None)
+    )
+    # Weights are per-submodel in SlimmableContainer.
+    if config["architecture"] != "SlimmableContainer":
+        model.import_weights(_torch.Tensor(config["weights"]))
     return model
