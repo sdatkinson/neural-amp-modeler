@@ -149,6 +149,9 @@ class LSTM(_BaseNet, _ImportsWeights):
         return True
 
     def import_weights(self, weights):
+        # nam.models.parametric.ConcatLSTM.import_weights mirrors this layout (weight
+        # matrix, bias, hidden, cell per layer, then head) with its own offset-based
+        # implementation -- keep the two in sync if this packing scheme changes.
         def import_lstm_cell_weights(cell_index: int, i_weight: int) -> int:
             def assign(
                 name: str, i_weight: int, given_weights: _Optional[_torch.Tensor] = None
@@ -275,6 +278,9 @@ class LSTM(_BaseNet, _ImportsWeights):
         * bias vector
         * Initial hidden state
         * Initial cell state
+
+        Mirrored by nam.models.parametric.ConcatLSTM._export_cell_weights -- keep the two
+        in sync if this packing scheme changes.
         """
 
         tensors = [
@@ -330,6 +336,10 @@ class LSTM(_BaseNet, _ImportsWeights):
         :param inputs: (1,S,DX)
 
         :return: (L,DH), (L,DH)
+
+        Mirrored by nam.models.parametric.ConcatLSTM._get_export_initial_state, which
+        also tiles the encoded conditioning params across the burn-in input -- keep the
+        two in sync if this burn-in scheme changes.
         """
         inputs = (
             _torch.zeros((1, self._get_initial_state_burn_in, 1))

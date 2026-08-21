@@ -21,6 +21,7 @@ from ...data import ConcatDataset as _ConcatDataset
 from ...data import Dataset as _Dataset
 from ..wavenet import WaveNet as _WaveNet
 from ._base import ParametricNet as _ParametricNet
+from ._concat_lstm import ConcatLSTM as _ConcatLSTM
 from ._concat_wavenet import ConcatWaveNet as _ConcatWaveNet
 from ._dataset import ParametricDataset as _ParametricDataset
 from ._dataset import resolve_named_params as _resolve_named_params
@@ -55,6 +56,26 @@ class _ConcatWaveNetScaleOutputHook(_Dataset._ScaleOutputHook):
         # Same layout as stock WaveNet: head_scale in config, mirrored as the final weight.
         model_dict["config"]["head_scale"] *= self.scale
         model_dict["weights"][-1] *= self.scale
+        self._adjust_metadata_loudness(model_dict)
+        return model_dict
+
+
+class _ConcatLSTMScaleOutputHook(_Dataset._ScaleOutputHook):
+    def __init__(self, *, scale: float, head_size: int):
+        super().__init__(scale=scale)
+        if head_size <= 0:
+            raise ValueError(f"head_size must be positive; got {head_size}")
+        self._head_size = head_size
+
+    def apply(self, model_dict: dict):
+        if model_dict["architecture"] != "ConcatLSTM":
+            return super().apply(model_dict)
+        # Unlike WaveNet, there's no separate head_scale scalar: the output is linear in
+        # the head's weight & bias, which are the trailing `head_size` entries of the flat
+        # weights blob, so scale that whole block directly.
+        weights = model_dict["weights"]
+        for idx in range(len(weights) - self._head_size, len(weights)):
+            weights[idx] *= self.scale
         self._adjust_metadata_loudness(model_dict)
         return model_dict
 
@@ -216,6 +237,9 @@ def _make_parametric_scale_hook(
         )
     if isinstance(model, _ConcatWaveNet):
         return _ConcatWaveNetScaleOutputHook(scale=scale)
+    if isinstance(model, _ConcatLSTM):
+        head_size = model._head.weight.numel() + model._head.bias.numel()
+        return _ConcatLSTMScaleOutputHook(scale=scale, head_size=head_size)
     raise NotImplementedError(
         f"Output-scale compensation is not implemented for {type(model).__name__}"
     )

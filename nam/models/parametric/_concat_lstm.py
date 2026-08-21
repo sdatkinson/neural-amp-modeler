@@ -70,6 +70,7 @@ class ConcatLSTM(_ParametricNet):
             _torch.zeros((num_layers, hidden_size))
         )
         self._initial_cell = _nn.Parameter(_torch.zeros((num_layers, hidden_size)))
+        self._get_initial_state_burn_in = 48_000
 
     @classmethod
     def parse_config(cls, config: dict[str, _Any]) -> dict[str, _Any]:
@@ -165,16 +166,62 @@ class ConcatLSTM(_ParametricNet):
             "train_truncate": self._train_truncate,
         }
 
+    def _export_cell_weights(
+        self, i: int, hidden_state: _torch.Tensor, cell_state: _torch.Tensor
+    ) -> _np.ndarray:
+        """
+        * weight matrix (xh -> ifco)
+        * bias vector
+        * Initial hidden state
+        * Initial cell state
+
+        Mirrors ``nam.models.recurrent.LSTM._export_cell_weights``; the conditioning params
+        are already folded into ``x`` (and so into ``weight_ih_l{i}``'s input dimension), so
+        no extra handling is needed here.
+        """
+        tensors = [
+            _torch.cat(
+                [
+                    getattr(self._core, f"weight_ih_l{i}").data,
+                    getattr(self._core, f"weight_hh_l{i}").data,
+                ],
+                dim=1,
+            ),
+            getattr(self._core, f"bias_ih_l{i}").data
+            + getattr(self._core, f"bias_hh_l{i}").data,
+            hidden_state,
+            cell_state,
+        ]
+        return _np.concatenate([z.detach().cpu().numpy().flatten() for z in tensors])
+
     def _export_weights(self) -> _np.ndarray:
-        # Flat-blob (.nam) export is deferred. ConcatLSTM is a disposable active-learning
-        # acquisition proxy that is only ever persisted via PyTorch checkpoints
-        # (state_dict), so the lossy stock-LSTM serialization (which stores the burn-in
-        # settled hidden/cell state rather than the learned initial-state parameters) is
-        # not implemented here. Revisit if an LSTM is ever shipped as a production model.
-        raise NotImplementedError(
-            "ConcatLSTM .nam weight export is deferred; persist via a PyTorch checkpoint "
-            "(state_dict) instead."
+        """
+        * Loop over cells: weight matrix (xh -> ifco), bias vector, initial hidden, initial cell
+        * Head weights, head bias
+        """
+        return _np.concatenate(
+            [
+                self._export_cell_weights(i, h, c)
+                for i, (h, c) in enumerate(zip(*self._get_export_initial_state()))
+            ]
+            + [self._head.export_weights()]
         )
+
+    def _get_export_initial_state(self) -> _LSTMHiddenCellType:
+        """
+        Burn the core in on silence at the nominal control settings to find a good hidden
+        state to start the exported model at. Mirrors
+        ``nam.models.recurrent.LSTM._get_initial_state``, but the burn-in input must also
+        carry the encoded nominal params tiled across time, since this core's input
+        dimension includes the conditioning channels.
+        """
+        burn_in = self._get_initial_state_burn_in
+        x = _torch.zeros((1, burn_in, 1), device=self.input_device)
+        p = self._encode_params(self.nominal_params)
+        p_t = p[None, None, :].expand(1, burn_in, -1)
+        seq = _torch.cat([x, p_t], dim=-1)
+        _, (h, c) = self._core(seq)
+        return h, c
 
     def _initial_state(self, n: _Optional[int]) -> _LSTMHiddenCellType:
         return (
@@ -187,9 +234,76 @@ class ConcatLSTM(_ParametricNet):
         )
 
     def import_weights(self, weights: _WeightsLike, i: int = 0) -> int:
-        # Counterpart to the deferred `_export_weights`; see that method for why the
-        # flat-blob path is not implemented for this disposable proxy model.
-        raise NotImplementedError(
-            "ConcatLSTM .nam weight import is deferred; restore via a PyTorch checkpoint "
-            "(state_dict) instead."
-        )
+        """
+        Inverse of `_export_weights`. Offset-based (rather than consuming a whole flat
+        array like `nam.models.recurrent.LSTM.import_weights`) to match the
+        `ParametricNet` contract, which lets a caller pack multiple sub-models' weights
+        into one blob.
+        """
+        weights_tensor = _cast(
+            _torch.Tensor,
+            weights if isinstance(weights, _torch.Tensor) else _torch.tensor(weights),
+        ).to(dtype=_torch.float32)
+        if weights_tensor.ndim != 1:
+            raise ValueError(
+                f"ConcatLSTM weights must be a flat 1-D sequence; got shape {tuple(weights_tensor.shape)}"
+            )
+
+        def assign(name: str, i: int) -> int:
+            x = getattr(self._core, name)
+            assert isinstance(x, _torch.Tensor)
+            n = x.numel()
+            chunk = weights_tensor[i : i + n]
+            if chunk.numel() != n:
+                raise ValueError(
+                    f"Weight list containing {chunk.numel()} elements is the wrong "
+                    f"numel for destination {name} with numel {n} and shape {tuple(x.shape)}!"
+                )
+            x.data = chunk.reshape(x.shape).to(dtype=x.dtype, device=x.device)
+            return i + n
+
+        hidden_size = self._core.hidden_size
+        for layer in range(self._core.num_layers):
+            input_dim = self._core.input_size if layer == 0 else hidden_size
+            w_shape = (4 * hidden_size, input_dim + hidden_size)
+            nw = int(_np.prod(w_shape))
+            chunk = weights_tensor[i : i + nw]
+            if chunk.numel() != nw:
+                raise ValueError(
+                    f"Weight list containing {chunk.numel()} elements is the wrong "
+                    f"numel for the layer {layer} weight matrix with numel {nw}!"
+                )
+            w = chunk.reshape(w_shape)
+            i += nw
+            getattr(self._core, f"weight_ih_l{layer}").data = (
+                w[:, :input_dim]
+                .clone()
+                .to(dtype=_torch.float32, device=self.input_device)
+            )
+            getattr(self._core, f"weight_hh_l{layer}").data = (
+                w[:, input_dim:]
+                .clone()
+                .to(dtype=_torch.float32, device=self.input_device)
+            )
+
+            i = assign(f"bias_ih_l{layer}", i)
+            getattr(self._core, f"bias_hh_l{layer}").data.zero_()
+
+            self._initial_hidden.data[layer] = weights_tensor[i : i + hidden_size].to(
+                device=self._initial_hidden.device
+            )
+            i += hidden_size
+            self._initial_cell.data[layer] = weights_tensor[i : i + hidden_size].to(
+                device=self._initial_cell.device
+            )
+            i += hidden_size
+
+        head_size = self._head.weight.numel() + self._head.bias.numel()
+        chunk = weights_tensor[i : i + head_size]
+        if chunk.numel() != head_size:
+            raise ValueError(
+                f"Weight list containing {chunk.numel()} elements is the wrong numel "
+                f"for the head with numel {head_size}!"
+            )
+        self._head.import_weights(chunk.detach().cpu().numpy())
+        return i + head_size

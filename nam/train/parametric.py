@@ -662,8 +662,8 @@ class _ParametricModelCheckpoint(_ModelCheckpoint):
                 output_scale=self._output_scale,
             )
         except NotImplementedError:
-            # Some parametric nets (e.g. active learning's ConcatLSTM acquisition proxy)
-            # don't implement .nam weight export at all; nothing to checkpoint here.
+            # Defensive: nothing to checkpoint here if a future ParametricNet subclass
+            # doesn't implement .nam weight export.
             pass
 
     def _remove_checkpoint(self, trainer: _pl.Trainer, filepath: str) -> None:
