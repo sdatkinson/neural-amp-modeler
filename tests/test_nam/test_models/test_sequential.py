@@ -6,6 +6,7 @@ import pytest as _pytest
 import torch as _torch
 
 from nam.models import conv_net as _conv_net
+from nam.models import _from_nam as _from_nam
 from nam.models import linear as _linear
 from nam.models import sequential as _sequential
 
@@ -198,6 +199,92 @@ class TestSequential(_Base):
         assert all(
             isinstance(model, _linear.Linear) for model in parsed_config["models"]
         )
+
+    def test_export_uses_canonical_container_envelope(self):
+        sample_rate = 48_000
+        models = [
+            _linear.Linear(receptive_field=2, sample_rate=sample_rate),
+            _linear.Linear(receptive_field=3, sample_rate=sample_rate),
+        ]
+        model = _sequential.Sequential(models=models)
+
+        exported = model._get_export_dict()
+
+        assert exported["version"] == "0.7.0"
+        assert exported["architecture"] == "Sequential"
+        assert exported["weights"] == []
+        assert exported["sample_rate"] == sample_rate
+        assert "weights_version" not in exported["config"]
+        children = exported["config"]["models"]
+        assert [child["architecture"] for child in children] == ["Linear", "Linear"]
+        assert [child["sample_rate"] for child in children] == [
+            sample_rate,
+            sample_rate,
+        ]
+        assert [len(child["weights"]) for child in children] == [2, 3]
+
+    def test_init_from_nam_roundtrip(self):
+        sample_rate = 48_000
+        model = _sequential.Sequential(
+            models=[
+                _linear.Linear(receptive_field=2, sample_rate=sample_rate),
+                _linear.Linear(receptive_field=3, sample_rate=sample_rate),
+            ]
+        )
+        exported = model._get_export_dict()
+
+        restored = _from_nam.init_from_nam(exported)
+
+        assert isinstance(restored, _sequential.Sequential)
+        x = _torch.randn(256)
+        _torch.testing.assert_close(
+            restored(x, pad_start=False), model(x, pad_start=False)
+        )
+
+    def test_init_from_nam_roundtrip_nested(self):
+        sample_rate = 48_000
+        inner = _sequential.Sequential(
+            models=[
+                _linear.Linear(receptive_field=1, sample_rate=sample_rate),
+                _linear.Linear(receptive_field=1, sample_rate=sample_rate),
+            ]
+        )
+        model = _sequential.Sequential(
+            models=[inner, _linear.Linear(receptive_field=1, sample_rate=sample_rate)]
+        )
+
+        restored = _from_nam.init_from_nam(model._get_export_dict())
+
+        assert isinstance(restored, _sequential.Sequential)
+        assert isinstance(restored._models[0], _sequential.Sequential)
+        x = _torch.randn(64)
+        _torch.testing.assert_close(restored(x), model(x))
+
+    def test_init_from_nam_rejects_legacy_bare_child_configs(self):
+        sample_rate = 48_000
+        exported = _sequential.Sequential(
+            models=[
+                _linear.Linear(receptive_field=1, sample_rate=sample_rate),
+                _linear.Linear(receptive_field=1, sample_rate=sample_rate),
+            ]
+        )._get_export_dict()
+        exported["config"]["models"] = [
+            {"receptive_field": 1, "bias": False},
+            {"receptive_field": 1, "bias": False},
+        ]
+
+        with _pytest.raises(ValueError, match="complete NAM model"):
+            _from_nam.init_from_nam(exported)
+
+    def test_init_from_nam_rejects_nonempty_top_level_weights(self):
+        sample_rate = 48_000
+        exported = _sequential.Sequential(
+            models=[_linear.Linear(receptive_field=1, sample_rate=sample_rate)]
+        )._get_export_dict()
+        exported["weights"] = [1.0]
+
+        with _pytest.raises(ValueError, match="top-level weights"):
+            _from_nam.init_from_nam(exported)
 
     def test_receptive_field(self):
         """Test some receptive field arithmetic"""
