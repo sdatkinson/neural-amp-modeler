@@ -180,7 +180,6 @@ def init_from_nam(config) -> _BaseNet:
         "WaveNet": _init_wavenet,
         "LSTM": _init_lstm,
         "Sequential": _init_sequential,
-        "sequential": _init_sequential,
     }[config["architecture"]](
         config=config["config"], sample_rate=config.get("sample_rate", None)
     )

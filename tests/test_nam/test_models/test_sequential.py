@@ -286,6 +286,16 @@ class TestSequential(_Base):
         with _pytest.raises(ValueError, match="top-level weights"):
             _from_nam.init_from_nam(exported)
 
+    def test_init_from_nam_rejects_lowercase_architecture(self):
+        sample_rate = 48_000
+        exported = _sequential.Sequential(
+            models=[_linear.Linear(receptive_field=1, sample_rate=sample_rate)]
+        )._get_export_dict()
+        exported["architecture"] = "sequential"
+
+        with _pytest.raises(KeyError, match="sequential"):
+            _from_nam.init_from_nam(exported)
+
     def test_receptive_field(self):
         """Test some receptive field arithmetic"""
         # Create models with larger receptive fields
@@ -319,17 +329,17 @@ class TestSequential(_Base):
         assert y.shape[0] == 3  # Batch dimension preserved
         assert y.shape[1] == x.shape[1] - seq_model.receptive_field + 1
 
-    def test_export_weights_uses_chronological_linear_taps(self):
+    def test_exported_child_weights_use_chronological_linear_taps(self):
         linear1 = _linear.Linear(receptive_field=3)
         linear1._net.weight.data.copy_(_torch.tensor([[[1.0, 2.0, 3.0]]]))
         linear2 = _linear.Linear(receptive_field=1)
         linear2._net.weight.data.copy_(_torch.tensor([[[4.0]]]))
         model = _sequential.Sequential(models=[linear1, linear2])
 
-        _torch.testing.assert_close(
-            _torch.from_numpy(model._export_weights()),
-            _torch.tensor([3.0, 2.0, 1.0, 4.0]),
-        )
+        children = model._get_export_dict()["config"]["models"]
+
+        assert children[0]["weights"] == [3.0, 2.0, 1.0]
+        assert children[1]["weights"] == [4.0]
 
 
 if __name__ == "__main__":
