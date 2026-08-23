@@ -14,9 +14,18 @@ import matplotlib.pyplot as _plt
 import numpy as _np
 import pytorch_lightning as _pl
 import torch as _torch
+from pytorch_lightning.callbacks import RichProgressBar as _RichProgressBar
 from pytorch_lightning.utilities.warnings import (
     PossibleUserWarning as _PossibleUserWarning,
 )
+from rich.progress import BarColumn as _BarColumn
+from rich.progress import Progress as _Progress
+from rich.progress import ProgressColumn as _ProgressColumn
+from rich.progress import Task as _Task
+from rich.progress import TextColumn as _TextColumn
+from rich.progress import TimeElapsedColumn as _TimeElapsedColumn
+from rich.progress import TimeRemainingColumn as _TimeRemainingColumn
+from rich.text import Text as _Text
 from torch.utils.data import DataLoader as _DataLoader
 
 from nam.data import AbstractDataset as _AbstractDataset
@@ -36,6 +45,88 @@ def _handshake_datasets(model, *datasets: _AbstractDataset) -> None:
     for dataset in datasets:
         dataset.handshake(model.net)
         model.net.handshake(dataset)
+
+
+class _EpochCountColumn(_ProgressColumn):
+    """Shows epoch count matching Lightning's 'Epoch N/max-1' convention."""
+
+    def render(self, task: "_Task") -> _Text:
+        total = int(task.total) - 1 if task.total else 0
+        current = min(int(task.completed), total)
+        return _Text(f"{current}/{total}")
+
+
+class _EpochProgressBar(_RichProgressBar):
+    """Rich progress bar with current epoch on top, total epochs below."""
+
+    def __init__(self):
+        super().__init__(leave=False)
+        self._epoch_progress = None
+        self._epoch_task_id = None
+
+    def on_train_start(self, trainer, pl_module):
+        super().on_train_start(trainer, pl_module)
+        if self.progress is not None:
+            self.progress.live.transient = True
+        if trainer.max_epochs is not None:
+            self._epoch_progress = _Progress(
+                _TextColumn("[progress.description]{task.description}"),
+                _BarColumn(
+                    complete_style=self.theme.progress_bar,
+                    finished_style=self.theme.progress_bar_finished,
+                ),
+                _EpochCountColumn(),
+                _TimeElapsedColumn(),
+                _TextColumn("•"),
+                _TimeRemainingColumn(),
+                transient=True,
+            )
+            self._epoch_task_id = self._epoch_progress.add_task(
+                "Epochs", total=trainer.max_epochs
+            )
+            self._epoch_progress.start()
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        super().on_train_batch_end(trainer, pl_module, outputs, batch, batch_idx)
+        if self._epoch_progress is not None and self._epoch_task_id is not None:
+            fraction = (batch_idx + 1) / self.total_train_batches
+            self._epoch_progress.update(
+                self._epoch_task_id,
+                completed=trainer.current_epoch + fraction,
+            )
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        super().on_train_epoch_end(trainer, pl_module)
+        if self._epoch_progress is not None and self._epoch_task_id is not None:
+            self._epoch_progress.update(
+                self._epoch_task_id, completed=trainer.current_epoch + 1
+            )
+
+    def _stop_epoch_progress(self, leave=False):
+        if self._epoch_progress is not None:
+            if leave:
+                self._epoch_progress.live.transient = False
+            self._epoch_progress.stop()
+
+    def on_train_end(self, trainer, pl_module):
+        self._stop_progress()
+        self._stop_epoch_progress(leave=True)
+
+    def on_exception(self, trainer, pl_module, exception):
+        self._stop_progress()
+        self._stop_epoch_progress()
+
+    def teardown(self, trainer, pl_module, stage):
+        self._stop_progress()
+        self._stop_epoch_progress()
+
+    def _get_train_description(self, current_epoch):
+        return f"Epoch {current_epoch}"
+
+    def get_metrics(self, trainer, pl_module):
+        items = super().get_metrics(trainer, pl_module)
+        items.pop("v_num", None)
+        return items
 
 
 def _rms(x: _Union[_np.ndarray, _torch.Tensor]) -> float:
@@ -242,10 +333,19 @@ def main(
         (c for c in callbacks if isinstance(c, _lightning_module.PackedBestCheckpoint)),
         None,
     )
+    trainer_config = learning_config["trainer"]
+    # Only attach our epoch progress bar when the trainer hasn't disabled
+    # progress bars (Lightning rejects a progress-bar callback alongside
+    # enable_progress_bar=False).
+    progress_bar_callbacks = (
+        [_EpochProgressBar()]
+        if trainer_config.get("enable_progress_bar", True)
+        else []
+    )
     trainer = _pl.Trainer(
-        callbacks=callbacks,
+        callbacks=[*callbacks, *progress_bar_callbacks],
         default_root_dir=outdir,
-        **learning_config["trainer"],
+        **trainer_config,
     )
 
     try:
