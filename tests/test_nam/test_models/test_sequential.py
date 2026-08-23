@@ -232,6 +232,18 @@ class TestSequential(_Base):
         assert y.shape[0] == 3  # Batch dimension preserved
         assert y.shape[1] == x.shape[1] - seq_model.receptive_field + 1
 
+    def test_export_weights_uses_chronological_linear_taps(self):
+        linear1 = _linear.Linear(receptive_field=3)
+        linear1._net.weight.data.copy_(_torch.tensor([[[1.0, 2.0, 3.0]]]))
+        linear2 = _linear.Linear(receptive_field=1)
+        linear2._net.weight.data.copy_(_torch.tensor([[[4.0]]]))
+        model = _sequential.Sequential(models=[linear1, linear2])
+
+        _torch.testing.assert_close(
+            _torch.from_numpy(model._export_weights()),
+            _torch.tensor([3.0, 2.0, 1.0, 4.0]),
+        )
+
 
 if __name__ == "__main__":
     _pytest.main()
