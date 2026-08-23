@@ -17,6 +17,7 @@ import torch as _torch
 from .base import BaseNet as _BaseNet
 from .linear import Linear as _Linear
 from .recurrent import LSTM as _LSTM
+from .sequential import Sequential as _Sequential
 from .wavenet import WaveNet as _WaveNet
 
 
@@ -143,6 +144,27 @@ def _init_wavenet(config, sample_rate: _Optional[float]) -> _WaveNet:
     return _WaveNet.init_from_config(full_config)
 
 
+def _init_sequential(config, sample_rate: _Optional[float]) -> _Sequential:
+    models = config.get("models")
+    if not isinstance(models, list) or len(models) == 0:
+        raise ValueError("Sequential config must contain a non-empty 'models' list")
+
+    required_keys = {"version", "architecture", "config", "weights"}
+    for model in models:
+        if not isinstance(model, dict) or not required_keys.issubset(model):
+            raise ValueError(
+                "Sequential children must be complete NAM model objects with version, "
+                "architecture, config, and weights"
+            )
+
+    sequential = _Sequential(models=[init_from_nam(model) for model in models])
+    if sample_rate is not None and sequential.sample_rate != sample_rate:
+        raise ValueError(
+            "Sequential top-level sample rate does not match its child model sample rate"
+        )
+    return sequential
+
+
 def init_from_nam(config) -> _BaseNet:
     """
     Taking the contents of a .nam file, initialize a model
@@ -153,8 +175,13 @@ def init_from_nam(config) -> _BaseNet:
     ...     model = init_from_nam(config)
     """
     # NB: Some old .nam files don't have a sample_rate. Must .get()
-    model = {"Linear": _init_linear, "WaveNet": _init_wavenet, "LSTM": _init_lstm}[
-        config["architecture"]
-    ](config=config["config"], sample_rate=config.get("sample_rate", None))
+    model = {
+        "Linear": _init_linear,
+        "WaveNet": _init_wavenet,
+        "LSTM": _init_lstm,
+        "Sequential": _init_sequential,
+    }[config["architecture"]](
+        config=config["config"], sample_rate=config.get("sample_rate", None)
+    )
     model.import_weights(_torch.Tensor(config["weights"]))
     return model
