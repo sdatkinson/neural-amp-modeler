@@ -233,9 +233,7 @@ class _TCalibrateDelay(object):
 
 
 class TestCalibrateDelayV1(_TCalibrateDelay):
-    # staticmethod() keeps functools.partial from binding `self` as an argument
-    # when accessed as `self._calibrate_delay` (functools.partial is a descriptor
-    # as of Python 3.13+).
+    # functools.partial is a method descriptor in Python 3.14.
     _calibrate_delay = staticmethod(core._calibrate_latency_v1)
     _data_info = core._V1_DATA_INFO
 

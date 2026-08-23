@@ -3,6 +3,7 @@
 # Author: Enrico Schifano (eraz1997@live.it)
 
 import json as _json
+import pickle as _pickle
 from pathlib import Path as _Path
 from time import time as _time
 from typing import Optional as _Optional
@@ -25,6 +26,7 @@ from nam.data import apply_joint_dataset_hooks as _apply_joint_dataset_hooks
 from nam.data import get_joint_dataset_hooks as _get_joint_dataset_hooks
 from nam.data import init_dataset as _init_dataset
 from nam.train import lightning_module as _lightning_module
+from nam.train import util as _util
 from nam.util import filter_warnings as _filter_warnings
 
 _torch.manual_seed(0)
@@ -208,11 +210,7 @@ def main(
             _json.dump(config, fp, indent=4)
 
     is_packed = model_config["net"]["name"] == "PackedWaveNet"
-    lightning_cls = (
-        _lightning_module.PackedLightningModule
-        if is_packed
-        else _lightning_module.LightningModule
-    )
+    lightning_cls = _util.resolve_lightning_module_class(model_config)
     model = lightning_cls.init_from_config(model_config)
     # Add receptive field to data config:
     data_config["common"] = data_config.get("common", {})
@@ -262,13 +260,33 @@ def main(
         print("\nTraining interrupted by user.")
     finally:
         # Always try to export a model, even if training was interrupted
-        # Go to best checkpoint
+        # Go to best checkpoint. Fall back to the in-memory model if loading
+        # fails, e.g. when SIGINT lands while a checkpoint is being written:
+        # Lightning sets `best_model_path` before the file is finished, so the
+        # path can reference a missing or partial file (see issue #645).
         best_checkpoint = trainer.checkpoint_callback.best_model_path
         if best_checkpoint != "":
-            model = lightning_cls.load_from_checkpoint(
-                trainer.checkpoint_callback.best_model_path,
-                **lightning_cls.parse_config(model_config),
-            )
+            try:
+                model = lightning_cls.load_from_checkpoint(
+                    best_checkpoint,
+                    **lightning_cls.parse_config(model_config),
+                )
+            # A SIGINT during the checkpoint write leaves the file missing or
+            # partially-written, so torch.load can fail a few ways: missing
+            # file (FileNotFoundError), truncated zip archive (RuntimeError
+            # from torch's PyTorchStreamReader), empty file (EOFError), or
+            # garbage pickle data (pickle.UnpicklingError).
+            except (
+                FileNotFoundError,
+                RuntimeError,
+                EOFError,
+                _pickle.UnpicklingError,
+            ) as e:
+                _warn(
+                    f"Failed to load best checkpoint {best_checkpoint!r} "
+                    f"({type(e).__name__}: {e}); exporting the in-memory model "
+                    f"instead."
+                )
         model.cpu()
         model.eval()
         model.net.sample_rate = dataset_train.sample_rate
