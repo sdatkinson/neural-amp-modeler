@@ -32,6 +32,7 @@ class Linear(_BaseNet, _ImportsWeights):
         self._net.weight.data = (
             _torch.Tensor([w for w in weights[: self._net.weight.numel()]])
             .reshape(self._net.weight.shape)
+            .flip(-1)
             .to(self._net.weight.device)
         )
         if self._bias:
@@ -55,7 +56,7 @@ class Linear(_BaseNet, _ImportsWeights):
         }
 
     def _export_weights(self) -> _np.ndarray:
-        params_list = [self._net.weight.flatten()]
+        params_list = [self._net.weight.flip(-1).flatten()]
         if self._bias:
             params_list.append(self._net.bias.flatten())
         params = _torch.cat(params_list).detach().cpu().numpy()

@@ -50,14 +50,17 @@ class Sequential(_BaseNet):
 
     def _export_config(self):
         """Export configuration for the sequential model."""
-        return {"models": [model._export_config() for model in self._models]}
+        return {"models": [model._get_export_dict() for model in self._models]}
 
     def _export_weights(self):
-        """Export weights for the sequential model."""
-        weights_list = []
-        for model in self._models:
-            weights_list.append(model._export_weights())
-        return _np.concatenate(weights_list)
+        """The wrapper has no weights; each complete child model owns its weights."""
+        return _np.array([], dtype=_np.float32)
+
+    def import_weights(self, weights):
+        if len(weights) != 0:
+            raise ValueError(
+                "Sequential top-level weights must be empty; weights belong to the child models"
+            )
 
     @classmethod
     def _validate_models(cls, models: _Sequence[_BaseNet]):

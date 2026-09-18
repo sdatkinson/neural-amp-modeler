@@ -57,6 +57,36 @@ There are also some optional keys that ``nam`` may use:
     modeled.
 
 
+Sequential models
+-----------------
+
+``"Sequential"`` models compose complete child NAM models in processing order.
+They use the existing file version and top-level envelope. The wrapper has an
+empty ``"weights"`` array because its parameters belong to its children::
+
+  {
+    "version": "0.7.0",
+    "architecture": "Sequential",
+    "config": {
+      "models": [
+        {"version": "0.7.0", "architecture": "WaveNet", "config": {}, "weights": [], "sample_rate": 48000},
+        {"version": "0.7.0", "architecture": "Linear", "config": {}, "weights": [], "sample_rate": 48000}
+      ]
+    },
+    "weights": [],
+    "sample_rate": 48000
+  }
+
+Every entry in ``config.models`` is a complete NAM model with its own
+architecture, configuration, and weights. The top-level and child sample rates
+must agree.
+
+Sequential files exported before Core support was completed used bare child
+configs and concatenated top-level weights. Because those files omitted the
+child architectures, they cannot be interpreted reliably and are not supported
+by this canonical format.
+
+
 Change log
 ----------
 
