@@ -568,7 +568,12 @@ class PackedLightningModule(LightningModule):
 
 
 class PackedMaskCallback(_pl.Callback):
-    """Keep packed off-block weights exactly zero after optimizer updates."""
+    """
+    Keep packed off-block weights exactly zero after optimizer updates.
+
+    Redundant with `PackedLightningModule`, which already masks after every
+    optimizer step; kept for training loops that use other Lightning modules.
+    """
 
     def on_before_zero_grad(self, trainer, pl_module, optimizer) -> None:
         if isinstance(getattr(pl_module, "net", None), _PackedWaveNet):

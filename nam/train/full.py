@@ -172,12 +172,8 @@ def _create_callbacks(learning_config, packed: bool = False):
     )
     callbacks = [checkpoint_best]
     if packed:
-        callbacks.extend(
-            [
-                _lightning_module.PackedBestCheckpoint(),
-                _lightning_module.PackedMaskCallback(),
-            ]
-        )
+        # Masking after each optimizer step is handled by PackedLightningModule.
+        callbacks.append(_lightning_module.PackedBestCheckpoint())
     if not validate_inside_epoch:
         callbacks.append(checkpoint_epoch)
         return callbacks

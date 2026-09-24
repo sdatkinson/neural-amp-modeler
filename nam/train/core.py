@@ -51,7 +51,6 @@ from ._version import Version as _Version
 from .lightning_module import LightningModule as _LightningModule
 from .lightning_module import PackedBestCheckpoint as _PackedBestCheckpoint
 from .lightning_module import PackedLightningModule as _PackedLightningModule
-from .lightning_module import PackedMaskCallback as _PackedMaskCallback
 
 # Training using the simplified trainers in NAM is done at 48k.
 STANDARD_SAMPLE_RATE = 48_000.0
@@ -1221,7 +1220,8 @@ def get_callbacks(
         ),
     ]
     if packed:
-        callbacks.extend([_PackedBestCheckpoint(), _PackedMaskCallback()])
+        # Masking after each optimizer step is handled by PackedLightningModule.
+        callbacks.append(_PackedBestCheckpoint())
     if threshold_esr is not None:
         callbacks.append(
             _ValidationStopping(monitor="ESR", stopping_threshold=threshold_esr)
