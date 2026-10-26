@@ -55,6 +55,9 @@ There are also some optional keys that ``nam`` may use:
   * ``"output_level_dbu"``: The level, in dBu, of a 1kHz sine wave that achieves 0dBFS
     peak when input to the interface that's recording the output of the gear being
     modeled.
+  * ``"t3k_id"``: The model's ID on `TONE3000 <https://www.tone3000.com>`_ (an
+    integer), for models published there. Tools can use it to link a file back to
+    its page.
 
 
 Sequential models

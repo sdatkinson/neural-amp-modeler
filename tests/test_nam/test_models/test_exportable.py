@@ -60,6 +60,7 @@ class TestExportable(object):
                     tone_type=metadata.ToneType.HI_GAIN,
                     input_level_dbu=-6.5,
                     output_level_dbu=-12.5,
+                    t3k_id=12345,
                 ),
                 None,
             ),
@@ -168,6 +169,14 @@ class TestExportable(object):
             if other_metadata is not None:
                 assert training_key in model_dict_metadata
                 assert_metadata(model_dict_metadata, other_metadata)
+
+    def test_export_t3k_id(self):
+        model = self._get_model()
+        with TemporaryDirectory() as tmpdir:
+            model.export(tmpdir, user_metadata=metadata.UserMetadata(t3k_id=12345))
+            with open(Path(tmpdir, "model.nam"), "r") as fp:
+                model_dict = json.load(fp)
+        assert model_dict["metadata"]["t3k_id"] == 12345
 
     def test_export_model_dict_post_hooks(self):
         """

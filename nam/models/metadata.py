@@ -55,6 +55,7 @@ class UserMetadata(_BaseModel):
         model.
     :output_level_dbu: What analog loudness, in dBu, corresponds to 0 dbFS outputted by
         the model.
+    :param t3k_id: The model's ID on TONE3000, for models published there.
     """
 
     name: _Optional[str] = None
@@ -65,3 +66,4 @@ class UserMetadata(_BaseModel):
     tone_type: _Optional[ToneType] = None
     input_level_dbu: _Optional[float] = None
     output_level_dbu: _Optional[float] = None
+    t3k_id: _Optional[int] = None
