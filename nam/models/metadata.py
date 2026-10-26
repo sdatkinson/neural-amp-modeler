@@ -21,10 +21,10 @@ class GearType(_Enum):
     between local and cloud trainings.
     """
 
-    AMP = "amp"  # Amp head / combo without a speaker cabinet (any pedals in front)
+    AMP = "amp"  # Amp head / combo / preamp without a speaker cabinet (any pedals in front)
     AMP_CAB = "amp-cab"  # Amp through a speaker cabinet (any pedals in front)
     PEDAL = "pedal"
-    OUTBOARD = "outboard"  # Preamps, EQs, compressors, and other studio gear
+    OUTBOARD = "outboard"  # EQs, compressors, and other studio gear
     CAB = "cab"  # Speaker cabinet only
     EXPERIMENTAL = "experimental"
 
@@ -35,7 +35,7 @@ class GearType(_Enum):
             "amp_cab": cls.AMP_CAB,
             "pedal_amp": cls.AMP,
             "amp_pedal_cab": cls.AMP_CAB,
-            "preamp": cls.OUTBOARD,
+            "preamp": cls.AMP,
             "studio": cls.OUTBOARD,
         }
         return legacy.get(value)

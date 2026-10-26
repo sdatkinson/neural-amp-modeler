@@ -20,7 +20,7 @@ def test_gear_type_matches_tone3000_categories():
         ("amp_cab", metadata.GearType.AMP_CAB),
         ("pedal_amp", metadata.GearType.AMP),
         ("amp_pedal_cab", metadata.GearType.AMP_CAB),
-        ("preamp", metadata.GearType.OUTBOARD),
+        ("preamp", metadata.GearType.AMP),
         ("studio", metadata.GearType.OUTBOARD),
     ),
 )
