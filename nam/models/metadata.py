@@ -14,13 +14,31 @@ from pydantic import BaseModel as _BaseModel
 
 # Note: if you change this enum, you need to update the options in easy_colab.ipynb!
 class GearType(_Enum):
-    AMP = "amp"
+    """
+    What kind of gear a model captures.
+
+    The values follow the TONE3000 gear categories so that metadata is consistent
+    between local and cloud trainings.
+    """
+
+    AMP = "amp"  # Amp head / combo without a speaker cabinet (any pedals in front)
+    AMP_CAB = "amp-cab"  # Amp through a speaker cabinet (any pedals in front)
     PEDAL = "pedal"
-    PEDAL_AMP = "pedal_amp"
-    AMP_CAB = "amp_cab"
-    AMP_PEDAL_CAB = "amp_pedal_cab"
-    PREAMP = "preamp"
-    STUDIO = "studio"
+    OUTBOARD = "outboard"  # Preamps, EQs, compressors, and other studio gear
+    CAB = "cab"  # Speaker cabinet only
+    EXPERIMENTAL = "experimental"
+
+    @classmethod
+    def _missing_(cls, value):
+        # Accept the gear types used before the TONE3000 categories were adopted.
+        legacy = {
+            "amp_cab": cls.AMP_CAB,
+            "pedal_amp": cls.AMP,
+            "amp_pedal_cab": cls.AMP_CAB,
+            "preamp": cls.OUTBOARD,
+            "studio": cls.OUTBOARD,
+        }
+        return legacy.get(value)
 
 
 # Note: if you change this enum, you need to update the options in easy_colab.ipynb!
