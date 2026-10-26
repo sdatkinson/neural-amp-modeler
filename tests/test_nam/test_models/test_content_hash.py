@@ -19,13 +19,46 @@ from nam.models.wavenet import _packed_wavenet as _pw
 from .test_packed_wavenet import _packed_config
 
 
-def _sha256_of_f32(*weights: float) -> str:
-    return hashlib.sha256(struct.pack(f"<{len(weights)}f", *weights)).hexdigest()
+_VECTORS_PATH = (
+    Path(__file__).parents[2] / "resources" / "content_hash_test_vectors.json"
+)
+
+
+def _reference(*leaves) -> str:
+    """
+    Independent reference: tag, then each leaf's u64le count and f32le weights.
+    """
+    h = hashlib.sha256(b"nam-content-v1\0")
+    for leaf in leaves:
+        h.update(struct.pack("<Q", len(leaf)) + struct.pack(f"<{len(leaf)}f", *leaf))
+    return f"nam-content-v1:{h.hexdigest()}"
+
+
+def _vectors():
+    with open(_VECTORS_PATH, "r") as fp:
+        return json.load(fp)["vectors"]
+
+
+@pytest.mark.parametrize("vector", _vectors(), ids=lambda v: v["name"])
+def test_vectors(vector):
+    if vector["content_hash"] is None:
+        with pytest.raises(_ch.UnhashableModelError):
+            _ch.content_hash(vector["model"])
+    else:
+        assert _ch.content_hash(vector["model"]) == vector["content_hash"]
+
+
+def test_vectors_catch_a_wrong_hash():
+    vectors = {v["name"]: v for v in _vectors()}
+    assert (
+        _ch.content_hash(vectors["weight_order_matters"]["model"])
+        != vectors["wavenet"]["content_hash"]
+    )
 
 
 def test_plain_model_hashes_little_endian_float32_weights():
     d = {"architecture": "WaveNet", "config": {}, "weights": [0.5, -1.25, 3.0]}
-    assert _ch.content_hash(d) == _sha256_of_f32(0.5, -1.25, 3.0)
+    assert _ch.content_hash(d) == _reference([0.5, -1.25, 3.0])
 
 
 def test_hash_ignores_metadata_and_config():
@@ -60,7 +93,7 @@ def test_slimmable_container_hashes_submodels_small_to_large():
         },
         "weights": [],
     }
-    assert _ch.content_hash(container) == _sha256_of_f32(1.0, 2.0, 3.0)
+    assert _ch.content_hash(container) == _reference([1.0], [2.0, 3.0])
 
 
 def test_sequential_hashes_children_in_processing_order():
@@ -71,7 +104,7 @@ def test_sequential_hashes_children_in_processing_order():
         "config": {"models": [first, second]},
         "weights": [],
     }
-    assert _ch.content_hash(seq) == _sha256_of_f32(1.0, 2.0, 3.0)
+    assert _ch.content_hash(seq) == _reference([1.0, 2.0], [3.0])
 
 
 def test_export_stamps_content_hash():
@@ -81,7 +114,8 @@ def test_export_stamps_content_hash():
         with open(Path(tmpdir, "model.nam"), "r") as fp:
             model_dict = json.load(fp)
     stamped = model_dict["metadata"]["content_hash"]
-    assert isinstance(stamped, str) and len(stamped) == 64
+    assert isinstance(stamped, str) and stamped.startswith("nam-content-v1:")
+    assert "content_hash" not in model_dict
     # The stamp matches a recomputation from the file as written.
     assert stamped == _ch.content_hash(model_dict)
 
@@ -115,8 +149,8 @@ def test_sequential_export_stamps_content_hash():
         with open(Path(tmpdir, "model.nam"), "r") as fp:
             model_dict = json.load(fp)
     assert model_dict["metadata"]["content_hash"] == _ch.content_hash(model_dict)
-    assert model_dict["metadata"]["content_hash"] == _sha256_of_f32(
-        *(w for child in model_dict["config"]["models"] for w in child["weights"])
+    assert model_dict["metadata"]["content_hash"] == _reference(
+        *(child["weights"] for child in model_dict["config"]["models"])
     )
 
 
@@ -129,3 +163,27 @@ def test_metadata_edits_do_not_change_hash():
     before = model_dict["metadata"]["content_hash"]
     model_dict["metadata"].update({"name": "Renamed", "loudness": -12.0})
     assert _ch.content_hash(model_dict) == before
+
+
+def test_negative_zero_hashes_as_zero():
+    a = {"architecture": "WaveNet", "config": {}, "weights": [-0.0, 1.0]}
+    b = {"architecture": "WaveNet", "config": {}, "weights": [0.0, 1.0]}
+    assert _ch.content_hash(a) == _ch.content_hash(b)
+
+
+def test_weights_cannot_shift_between_leaves():
+    leaf = lambda w: {"architecture": "Linear", "config": {}, "weights": w}
+    seq = lambda *ms: {"architecture": "Sequential", "config": {"models": list(ms)}}
+    assert _ch.content_hash(seq(leaf([1.0, 2.0]), leaf([3.0]))) != _ch.content_hash(
+        seq(leaf([1.0]), leaf([2.0, 3.0]))
+    )
+
+
+def test_stamp_skips_an_unhashable_model():
+    d = {
+        "architecture": "WaveNet",
+        "config": {},
+        "weights": [float("nan")],
+        "metadata": {"content_hash": "nam-content-v1:stale"},
+    }
+    assert "content_hash" not in _ch.stamp_content_hash(d)["metadata"]
