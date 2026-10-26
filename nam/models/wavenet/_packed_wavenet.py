@@ -167,7 +167,7 @@ class PackedWaveNet(_BaseNet, _ImportsWeights):
             container["metadata"].update(_cast_enums(user_metadata.model_dump()))
         if other_metadata is not None:
             container["metadata"].update(_cast_enums(other_metadata))
-        container = self._apply_export_model_dict_post_hooks(model_dict=container)
+        container = self._finalize_export_model_dict(model_dict=container)
 
         outdir = _Path(outdir)
         with open(_Path(outdir, f"{basename}{self.FILE_EXTENSION}"), "w") as fp:

@@ -55,6 +55,17 @@ There are also some optional keys that ``nam`` may use:
   * ``"output_level_dbu"``: The level, in dBu, of a 1kHz sine wave that achieves 0dBFS
     peak when input to the interface that's recording the output of the gear being
     modeled.
+  * ``"content_hash"``: SHA-256 (64 lowercase hex characters) of the model's
+    weights, written by the trainer at export. It identifies the weights that
+    are actually run, independent of the rest of the file, so editing metadata
+    does not change it; two files with the same ``content_hash`` are the same
+    model. It is computed over the little-endian bytes of the weights as 32-bit
+    floats, in the order of the ``"weights"`` array. Models that contain other
+    models hash their children first, in a canonical order, then their own
+    (empty) weights: a ``"SlimmableContainer"`` orders its ``submodels`` from the
+    smallest ``max_value`` to the largest; a ``"Sequential"`` model uses
+    processing order. ``nam.models.content_hash.content_hash(model_dict)``
+    computes it for any parsed ``.nam`` file.
 
 
 Sequential models

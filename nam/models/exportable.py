@@ -20,6 +20,7 @@ import numpy as _np
 
 from ..hooks import ExportModelDictPostHook as _ExportModelDictPostHook
 from ._constants import MODEL_VERSION as _MODEL_VERSION
+from .content_hash import stamp_content_hash as _stamp_content_hash
 from .metadata import Date as _Date
 from .metadata import UserMetadata as _UserMetadata
 
@@ -44,7 +45,6 @@ _JsonDumpable = (
     dict[str, "_JsonDumpable"] | list["_JsonDumpable"] | str | int | float | bool | None
 )
 _ExportModelDict = _Dict[str, _JsonDumpable]
-
 
 
 class Exportable(_abc.ABC):
@@ -111,7 +111,7 @@ class Exportable(_abc.ABC):
                     + "\n ".join(overwritten_keys)
                 )
             model_dict["metadata"].update(_cast_enums(other_metadata))
-        model_dict = self._apply_export_model_dict_post_hooks(model_dict=model_dict)
+        model_dict = self._finalize_export_model_dict(model_dict=model_dict)
 
         training = self.training
         self.eval()
@@ -180,6 +180,16 @@ class Exportable(_abc.ABC):
         for hook in self.export_model_dict_post_hooks:
             model_dict = hook.apply(model_dict)
         return model_dict
+
+    def _finalize_export_model_dict(
+        self, model_dict: _ExportModelDict
+    ) -> _ExportModelDict:
+        """
+        Last steps before a model dictionary is written to disk: run the post hooks
+        (which may change the weights), then stamp `metadata.content_hash`.
+        """
+        model_dict = self._apply_export_model_dict_post_hooks(model_dict=model_dict)
+        return _stamp_content_hash(model_dict)
 
     def _get_export_architecture(self) -> str:
         return self.__class__.__name__
