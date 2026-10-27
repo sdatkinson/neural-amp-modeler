@@ -2,10 +2,10 @@
 # Created Date: Monday October 26th 2026
 
 """
-`metadata.content_hash`: a SHA-256 digest that identifies the weights of a `.nam`
+`metadata.weights_hash`: a SHA-256 digest that identifies the weights of a `.nam`
 file, independent of its metadata.
 
-Two files with the same content hash run the same model. Editing metadata (name,
+Two files with the same weights hash run the same model. Editing metadata (name,
 author, gear, loudness, ...) does not change the hash, so it can be used to
 de-duplicate and sync copies of a model across tools and services.
 
@@ -14,7 +14,7 @@ Definition
 
 ::
 
-    content_hash = "nam-content-v1:" + hex(SHA-256(
+    weights_hash = "nam-content-v1:" + hex(SHA-256(
         "nam-content-v1" 0x00
         for each leaf model, depth-first:
             u64le(N) || f32le(w[0]) || ... || f32le(w[N-1])
@@ -34,7 +34,7 @@ Definition
 3. The `nam-content-v1` tag names this recipe. A future change to the recipe gets
    a new tag, so hashes from different recipes never look alike.
 
-A model is unhashable, and gets no `content_hash`, if a leaf has no weights, a
+A model is unhashable, and gets no `weights_hash`, if a leaf has no weights, a
 container is malformed (no children, or two submodels with the same
 `max_value`), or a weight isn't a finite number that fits in a float32.
 """
@@ -48,10 +48,10 @@ from typing import List as _List
 
 import numpy as _np
 
-CONTENT_HASH_KEY = "content_hash"
+WEIGHTS_HASH_KEY = "weights_hash"
 TAG = "nam-content-v1"
 
-logger = _logging.getLogger(__name__)
+_logger = _logging.getLogger(__name__)
 
 
 class UnhashableModelError(ValueError):
@@ -61,9 +61,9 @@ class UnhashableModelError(ValueError):
     """
 
 
-def content_hash(model_dict: _Dict[str, _Any]) -> str:
+def weights_hash(model_dict: _Dict[str, _Any]) -> str:
     """
-    Content hash of an exported model dictionary (the parsed JSON of a `.nam` file).
+    Weights hash of an exported model dictionary (the parsed JSON of a `.nam` file).
 
     :return: "nam-content-v1:" followed by 64 lowercase hex characters.
     :raises UnhashableModelError: See the module docstring.
@@ -76,18 +76,18 @@ def content_hash(model_dict: _Dict[str, _Any]) -> str:
     return f"{TAG}:{h.hexdigest()}"
 
 
-def stamp_content_hash(model_dict: _Dict[str, _Any]) -> _Dict[str, _Any]:
+def stamp_weights_hash(model_dict: _Dict[str, _Any]) -> _Dict[str, _Any]:
     """
-    Write `metadata.content_hash` into the model dictionary (in place) and return
+    Write `metadata.weights_hash` into the model dictionary (in place) and return
     it. Should be called after any step that can change the weights. An unhashable
     model is written without one.
     """
     metadata = model_dict.setdefault("metadata", {})
     try:
-        metadata[CONTENT_HASH_KEY] = content_hash(model_dict)
+        metadata[WEIGHTS_HASH_KEY] = weights_hash(model_dict)
     except UnhashableModelError as e:
-        metadata.pop(CONTENT_HASH_KEY, None)
-        logger.warning(f"Not writing {CONTENT_HASH_KEY}: {e}")
+        metadata.pop(WEIGHTS_HASH_KEY, None)
+        _logger.warning(f"Not writing {WEIGHTS_HASH_KEY}: {e}")
     return model_dict
 
 
