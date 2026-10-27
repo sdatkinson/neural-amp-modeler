@@ -20,7 +20,7 @@ import numpy as _np
 
 from ..hooks import ExportModelDictPostHook as _ExportModelDictPostHook
 from ._constants import MODEL_VERSION as _MODEL_VERSION
-from .content_hash import stamp_content_hash as _stamp_content_hash
+from .weights_hash import stamp_weights_hash as _stamp_weights_hash
 from .metadata import Date as _Date
 from .metadata import UserMetadata as _UserMetadata
 
@@ -186,10 +186,10 @@ class Exportable(_abc.ABC):
     ) -> _ExportModelDict:
         """
         Last steps before a model dictionary is written to disk: run the post hooks
-        (which may change the weights), then stamp `metadata.content_hash`.
+        (which may change the weights), then stamp `metadata.weights_hash`.
         """
         model_dict = self._apply_export_model_dict_post_hooks(model_dict=model_dict)
-        return _stamp_content_hash(model_dict)
+        return _stamp_weights_hash(model_dict)
 
     def _get_export_architecture(self) -> str:
         return self.__class__.__name__
