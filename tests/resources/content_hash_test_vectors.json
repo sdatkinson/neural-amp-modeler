@@ -1,0 +1,587 @@
+{
+  "recipe": "nam-content-v1",
+  "notes": "weights_hash null means the model must be rejected as unhashable. Parse this file with a standard JSON parser: 1e309 is a finite-looking literal that parses as infinity.",
+  "vectors": [
+    {
+      "name": "wavenet",
+      "description": "A plain leaf model.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          0.5,
+          -1.25,
+          3.0,
+          1e-08,
+          0.02
+        ],
+        "metadata": {}
+      },
+      "weights_hash": "nam-content-v1:7f5c79c758b2e211325b9fe3f42b31cc0e42782d53bfe09a91b3b83be381538b"
+    },
+    {
+      "name": "wavenet_metadata_ignored",
+      "description": "Same weights as wavenet; name, metadata, config and sample_rate differ.",
+      "model": {
+        "version": "0.5.4",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.5
+        },
+        "weights": [
+          0.5,
+          -1.25,
+          3.0,
+          1e-08,
+          0.02
+        ],
+        "metadata": {
+          "name": "Renamed",
+          "gear_type": "amp",
+          "t3k_id": 42,
+          "weights_hash": "nam-content-v1:stale"
+        },
+        "sample_rate": 44100
+      },
+      "weights_hash": "nam-content-v1:7f5c79c758b2e211325b9fe3f42b31cc0e42782d53bfe09a91b3b83be381538b"
+    },
+    {
+      "name": "integer_weights",
+      "description": "JSON integers are numbers: same as [1.0, 2.0, 0.0].",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1,
+          2,
+          0
+        ],
+        "metadata": {}
+      },
+      "weights_hash": "nam-content-v1:9fbc5cf74b19f1471f76735db8faafd858e56f003a4c084b0b5e8f6eee355e02"
+    },
+    {
+      "name": "negative_zero",
+      "description": "-0.0 hashes as +0.0: same as integer_weights.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1.0,
+          2.0,
+          -0.0
+        ],
+        "metadata": {}
+      },
+      "weights_hash": "nam-content-v1:9fbc5cf74b19f1471f76735db8faafd858e56f003a4c084b0b5e8f6eee355e02"
+    },
+    {
+      "name": "float64_rounding",
+      "description": "Values round to the nearest float32: 0.1 and 0.10000000000000002 give the same float32.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          0.1,
+          1.0000000001,
+          3.4028234663852886e+38
+        ],
+        "metadata": {}
+      },
+      "weights_hash": "nam-content-v1:27f136221dcf7c19f39e2a01180f3a5646b67bf19bea2845d1752d39e76a9ab4"
+    },
+    {
+      "name": "float64_rounding_neighbor",
+      "description": "Same float32 values as float64_rounding.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          0.10000000000000002,
+          1.0,
+          3.4028234663852886e+38
+        ],
+        "metadata": {}
+      },
+      "weights_hash": "nam-content-v1:27f136221dcf7c19f39e2a01180f3a5646b67bf19bea2845d1752d39e76a9ab4"
+    },
+    {
+      "name": "lstm",
+      "description": "Another leaf architecture.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "LSTM",
+        "config": {
+          "num_layers": 1,
+          "hidden_size": 2
+        },
+        "weights": [
+          0.25,
+          -0.75,
+          1.5,
+          0.002
+        ],
+        "metadata": {}
+      },
+      "weights_hash": "nam-content-v1:5ad23d26f57ccdcac20dafd3d18ad799196c37044df86400ebc9afcbe4715518"
+    },
+    {
+      "name": "weight_order_matters",
+      "description": "wavenet's weights, two swapped.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          -1.25,
+          0.5,
+          3.0,
+          1e-08,
+          0.02
+        ],
+        "metadata": {}
+      },
+      "weights_hash": "nam-content-v1:dd0b6b26636a79685f9b36673b6b7d7533911ea96dfbe14ec53469dd2c95e3ec"
+    },
+    {
+      "name": "a2_container",
+      "description": "SlimmableContainer: submodels hashed from the smallest max_value to the largest.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "SlimmableContainer",
+        "weights": [],
+        "metadata": {},
+        "sample_rate": 48000,
+        "config": {
+          "submodels": [
+            {
+              "max_value": 0.5,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  0.5,
+                  -1.25
+                ],
+                "metadata": {}
+              }
+            },
+            {
+              "max_value": 1.0,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  3.0,
+                  1e-08,
+                  0.02
+                ],
+                "metadata": {}
+              }
+            }
+          ]
+        }
+      },
+      "weights_hash": "nam-content-v1:f6041fa41d0c3fd75153222b998a5c3acd743f9d748c21bb24abbb9ed76f31f7"
+    },
+    {
+      "name": "leaf_boundaries_matter",
+      "description": "Same weights as a2_container split differently across leaves.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "SlimmableContainer",
+        "weights": [],
+        "metadata": {},
+        "config": {
+          "submodels": [
+            {
+              "max_value": 0.5,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  0.5,
+                  -1.25,
+                  3.0
+                ],
+                "metadata": {}
+              }
+            },
+            {
+              "max_value": 1.0,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  1e-08,
+                  0.02
+                ],
+                "metadata": {}
+              }
+            }
+          ]
+        }
+      },
+      "weights_hash": "nam-content-v1:8c89362f7983c2738d41d32c8222a6bda1acf58741f16308eba73eb7dcbdecc3"
+    },
+    {
+      "name": "sequential",
+      "description": "Sequential: children hashed in processing order; a child can be a container.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "Sequential",
+        "weights": [],
+        "metadata": {},
+        "sample_rate": 48000,
+        "config": {
+          "models": [
+            {
+              "version": "0.7.0",
+              "architecture": "WaveNet",
+              "config": {
+                "head_scale": 0.02
+              },
+              "weights": [
+                0.5
+              ],
+              "metadata": {}
+            },
+            {
+              "version": "0.7.0",
+              "architecture": "Linear",
+              "config": {},
+              "weights": [
+                1.0,
+                -2.0
+              ],
+              "sample_rate": 48000
+            },
+            {
+              "version": "0.7.0",
+              "architecture": "SlimmableContainer",
+              "weights": [],
+              "config": {
+                "submodels": [
+                  {
+                    "max_value": 1.0,
+                    "model": {
+                      "version": "0.7.0",
+                      "architecture": "WaveNet",
+                      "config": {
+                        "head_scale": 0.02
+                      },
+                      "weights": [
+                        7.0
+                      ],
+                      "metadata": {}
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "weights_hash": "nam-content-v1:2eadafc8759e796ae5def8c87def93db5610c6ed99c6795efb630559e7189225"
+    },
+    {
+      "name": "reject_infinite",
+      "description": "1e309 parses as infinity.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1.0,
+          1e309
+        ],
+        "metadata": {}
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_float32_overflow",
+      "description": "Finite as float64, infinite as float32.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1.0,
+          1e+39
+        ],
+        "metadata": {}
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_string_weight",
+      "description": "Strings aren't numbers.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1.0,
+          "2.0"
+        ],
+        "metadata": {}
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_bool_weight",
+      "description": "Booleans aren't numbers.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1.0,
+          true
+        ],
+        "metadata": {}
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_nested_weight",
+      "description": "Weights are a flat list.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1.0,
+          [
+            2.0
+          ]
+        ],
+        "metadata": {}
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_null_weight",
+      "description": "null isn't a number.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [
+          1.0,
+          null
+        ],
+        "metadata": {}
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_empty_weights",
+      "description": "A leaf with no weights.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "WaveNet",
+        "config": {
+          "head_scale": 0.02
+        },
+        "weights": [],
+        "metadata": {}
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_unknown_container",
+      "description": "An unknown architecture with empty weights.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "Mystery",
+        "config": {},
+        "weights": []
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "container_listed_out_of_order",
+      "description": "a2_container with its submodels listed largest-first: they're hashed by max_value, so the hash is the same.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "SlimmableContainer",
+        "weights": [],
+        "metadata": {},
+        "sample_rate": 48000,
+        "config": {
+          "submodels": [
+            {
+              "max_value": 1.0,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  3.0,
+                  1e-08,
+                  0.02
+                ],
+                "metadata": {}
+              }
+            },
+            {
+              "max_value": 0.5,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  0.5,
+                  -1.25
+                ],
+                "metadata": {}
+              }
+            }
+          ]
+        }
+      },
+      "weights_hash": "nam-content-v1:f6041fa41d0c3fd75153222b998a5c3acd743f9d748c21bb24abbb9ed76f31f7"
+    },
+    {
+      "name": "reject_container_duplicate_max_value",
+      "description": "Two submodels with the same max_value have no defined order.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "SlimmableContainer",
+        "weights": [],
+        "config": {
+          "submodels": [
+            {
+              "max_value": 1.0,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  1.0
+                ],
+                "metadata": {}
+              }
+            },
+            {
+              "max_value": 1.0,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [
+                  2.0
+                ],
+                "metadata": {}
+              }
+            }
+          ]
+        }
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_container_empty",
+      "description": "A container with no submodels.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "SlimmableContainer",
+        "weights": [],
+        "config": {
+          "submodels": []
+        }
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_sequential_empty",
+      "description": "A Sequential with no models.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "Sequential",
+        "weights": [],
+        "config": {
+          "models": []
+        }
+      },
+      "weights_hash": null
+    },
+    {
+      "name": "reject_container_bad_child",
+      "description": "A submodel's leaf has no weights.",
+      "model": {
+        "version": "0.7.0",
+        "architecture": "SlimmableContainer",
+        "weights": [],
+        "config": {
+          "submodels": [
+            {
+              "max_value": 1.0,
+              "model": {
+                "version": "0.7.0",
+                "architecture": "WaveNet",
+                "config": {
+                  "head_scale": 0.02
+                },
+                "weights": [],
+                "metadata": {}
+              }
+            }
+          ]
+        }
+      },
+      "weights_hash": null
+    }
+  ]
+}
