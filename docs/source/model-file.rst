@@ -63,7 +63,7 @@ There are also some optional keys that ``nam`` may use:
     each burst is measured in dB, and the burst levels are averaged in dB with a
     fixed +3 dB calibration offset. Measuring over a range of input levels makes
     the value insensitive to how hard the player drives the model. Files
-    exported by versions of ``nam`` before this definition used the flat RMS of
+    exported by versions of ``nam`` on v0.13.0 or older used the flat RMS of
     1 s of pink noise at -15 dBFS instead; the two agree in their median but
     differ per model by up to roughly +-10 dB. See
     `tone-3000/loudness-research <https://github.com/tone-3000/loudness-research>`_
