@@ -19,11 +19,78 @@ from typing import Union as _Union
 import numpy as _np
 import torch as _torch
 import torch.nn as _nn
+from scipy.signal import sosfilt as _sosfilt
 
 from .._core import InitializableFromConfig as _InitializableFromConfig
 from .._handshake import HandshakeError as _HandshakeError
 from ..data import wav_to_tensor as _wav_to_tensor
 from .exportable import Exportable as _Exportable
+
+# `metadata.loudness` stimulus and measurement
+# ---------------------------------------------
+# The stimulus (`_resources/loudness_input.wav`) is a 1.75 s "level-sweep burst
+# train": 7 bursts of 0.25 s of instrument-shaped pink noise (pink x 2nd-order
+# high-pass at 70 Hz x 2nd-order low-pass at 1 kHz) at -39, -35, -31, -27, -23,
+# -19 and -15 dBFS RMS, with 10 ms raised-cosine edges, at 48 kHz.
+#
+# The model's response is K-weighted (ITU-R BS.1770-4 pre-filter), the level of
+# each burst is measured in dB with 30 ms trimmed from each edge, and the burst
+# levels are averaged *in dB*.  Averaging in dB over a range of input levels is
+# what makes the number insensitive to how hard the player happens to hit the
+# model; K-weighting makes it track perceived loudness rather than flat RMS.
+# The constant offset keeps the median value over a large catalogue of models
+# where the previous (1 s pink noise at -15 dBFS, flat RMS) calculation had it,
+# so existing players that do `gain = target - loudness` keep working.
+#
+# Background and evaluation: https://github.com/tone-3000/loudness-research
+_LOUDNESS_SAMPLE_RATE = 48_000
+_LOUDNESS_NUM_BURSTS = 7
+_LOUDNESS_BURST_EDGE_TRIM_SAMPLES = int(0.030 * _LOUDNESS_SAMPLE_RATE)
+_LOUDNESS_CALIBRATION_DB = 3.0
+# ITU-R BS.1770-4 K-weighting (48 kHz): high-shelf stage, then high-pass stage.
+_LOUDNESS_K_WEIGHTING_SOS = _np.array(
+    [
+        [
+            1.53512485958697,
+            -2.69169618940638,
+            1.19839281085285,
+            1.0,
+            -1.69065929318241,
+            0.73248077421585,
+        ],
+        [1.0, -2.0, 1.0, 1.0, -1.99004745483398, 0.99007225036621],
+    ]
+)
+
+
+def _burst_train_loudness_db(y: _np.ndarray, num_input_samples: int) -> float:
+    """
+    K-weighted, per-burst, mean-of-dB level of a model's response to the
+    loudness stimulus.
+
+    :param y: The model's output (1D).  Its last sample is taken to correspond to
+        the last sample of the stimulus.
+    :param num_input_samples: Length of the stimulus, used to lay out the bursts.
+    :return: Level in dB (-inf if any burst is silent).
+    """
+    y = _sosfilt(_LOUDNESS_K_WEIGHTING_SOS, y.astype(_np.float64))
+    burst_len = num_input_samples // _LOUDNESS_NUM_BURSTS
+    # Keep the trim sensible for short (e.g. mocked) stimuli.
+    trim = min(_LOUDNESS_BURST_EDGE_TRIM_SAMPLES, burst_len // 4)
+    offset = len(y) - num_input_samples
+    mean_squares = []
+    for b in range(_LOUDNESS_NUM_BURSTS):
+        start = max(b * burst_len + trim + offset, 0)
+        stop = max((b + 1) * burst_len - trim + offset, 0)
+        segment = y[start:stop]
+        mean_squares.append(
+            float(_np.mean(_np.square(segment))) if len(segment) else 0.0
+        )
+    mean_squares = _np.array(mean_squares)
+    if _np.any(mean_squares <= 0.0):
+        return -_math.inf
+    burst_levels_db = -0.691 + 10.0 * _np.log10(mean_squares)
+    return float(_np.mean(burst_levels_db)) + _LOUDNESS_CALIBRATION_DB
 
 
 class ModelDatasetHandshakeError(_HandshakeError):
@@ -123,14 +190,23 @@ class _Base(_nn.Module, _InitializableFromConfig, _Exportable):
         How loud is this model when given a standardized input?
         In dB
 
+        The input is a 1.75 s train of 7 instrument-shaped noise bursts spanning
+        -39 to -15 dBFS; the output is K-weighted (BS.1770), measured per burst,
+        and the burst levels are averaged in dB, plus a fixed calibration offset
+        (see the module-level notes).  Players normalize with
+        `gain = target - loudness` (target typically -18 dB).
+
         :param gain: Multiplies input signal
+        :param db: If `False`, return the equivalent linear amplitude instead.
         """
         x = self._metadata_loudness_x().to(self.device)
         y = self._at_nominal_settings(gain * x)
-        loudness = _torch.sqrt(_torch.mean(_torch.square(y)))
+        loudness = _burst_train_loudness_db(
+            y.detach().cpu().numpy().reshape(-1), num_input_samples=x.numel()
+        )
         if db:
-            loudness = 20.0 * _torch.log10(loudness)
-        return loudness.item()
+            return loudness
+        return 0.0 if loudness == -_math.inf else 10.0 ** (loudness / 20.0)
 
     def _metadata_gain(self) -> float:
         """
