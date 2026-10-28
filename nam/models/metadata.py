@@ -22,17 +22,17 @@ class GearType(_Enum):
     """
 
     AMP = "amp"  # Amp head / combo / preamp without a speaker cabinet (any pedals in front)
-    AMP_CAB = "amp-cab"  # Amp through a speaker cabinet (any pedals in front)
+    AMP_CAB = "amp_cab"  # Amp through a speaker cabinet (any pedals in front)
     PEDAL = "pedal"
     OUTBOARD = "outboard"  # EQs, compressors, and other studio gear
     CAB = "cab"  # Speaker cabinet only
+    SPACE = "space"  # A room, hall, or other physical space (e.g. a room IR)
     EXPERIMENTAL = "experimental"
 
     @classmethod
     def _missing_(cls, value):
         # Accept the gear types used before the TONE3000 categories were adopted.
         legacy = {
-            "amp_cab": cls.AMP_CAB,
             "pedal_amp": cls.AMP,
             "amp_pedal_cab": cls.AMP_CAB,
             "preamp": cls.AMP,

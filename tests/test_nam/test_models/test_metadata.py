@@ -6,8 +6,8 @@ import pytest
 
 from nam.models import metadata
 
-# The TONE3000 gear categories that apply to NAM models.
-_TONE3000_GEAR = {"amp", "amp-cab", "pedal", "outboard", "cab", "experimental"}
+# The TONE3000 gear categories, with "_" in place of "-" per the NAM convention.
+_TONE3000_GEAR = {"amp", "amp_cab", "pedal", "outboard", "cab", "space", "experimental"}
 
 
 def test_gear_type_matches_tone3000_categories():
@@ -17,7 +17,6 @@ def test_gear_type_matches_tone3000_categories():
 @pytest.mark.parametrize(
     "legacy,expected",
     (
-        ("amp_cab", metadata.GearType.AMP_CAB),
         ("pedal_amp", metadata.GearType.AMP),
         ("amp_pedal_cab", metadata.GearType.AMP_CAB),
         ("preamp", metadata.GearType.AMP),
