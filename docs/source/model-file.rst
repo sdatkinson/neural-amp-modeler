@@ -43,9 +43,16 @@ There are also some optional keys that ``nam`` may use:
   * ``"modeled_by"``: Who made the model
   * ``"gear_make"``: Make of the gear (E.g. Fender)
   * ``"gear_model"``: Model of the gear (E.g. Deluxe Reverb)
-  * ``"gear_type"``: What kind of gear this is a model of. Options are 
-    ``"amp"``, ``"pedal"``, ``"pedal_amp"``, ``"amp_cab"``, ``"amp_pedal_cab"``,
-    ``"preamp"``, and ``"studio"``.
+  * ``"gear_type"``: What kind of gear this is a model of. Options follow the
+    `TONE3000 <https://www.tone3000.com>`_ gear categories (with ``_`` in place
+    of ``-``): ``"amp"`` (amp head/combo or preamp without a speaker cabinet),
+    ``"amp_cab"`` (amp through a speaker cabinet), ``"pedal"``, ``"outboard"``
+    (EQs, compressors and other studio gear), ``"cab"`` (speaker cabinet only),
+    ``"space"`` (a room, hall or other physical space, e.g. a room IR), and
+    ``"experimental"``. Pedals placed in front of an amp do not change its
+    category. Files written by older versions may use ``"pedal_amp"``,
+    ``"amp_pedal_cab"``, ``"preamp"`` or ``"studio"``; ``nam`` reads these as
+    ``"amp"``, ``"amp_cab"``, ``"amp"`` and ``"outboard"`` respectively.
   * ``"tone_type"``: How the model sounds. Options are ``"clean"``, 
     ``"overdrive"``, ``"crunch"``, ``"hi_gain"``, and ``"fuzz"``.
   * ``"training"``: A dictionary containing information about training (*Only 
