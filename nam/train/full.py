@@ -28,6 +28,7 @@ from nam.data import init_dataset as _init_dataset
 from nam.train import lightning_module as _lightning_module
 from nam.train import util as _util
 from nam.util import filter_warnings as _filter_warnings
+from nam.util import init as _init
 
 _torch.manual_seed(0)
 
@@ -186,6 +187,20 @@ def _create_callbacks(learning_config, packed: bool = False):
         return callbacks
 
 
+def _init_config_callbacks(callback_configs) -> list:
+    """
+    Callbacks specified in the learning config under trainer.callbacks.
+
+    Each entry looks like
+    {"name": "my_package.my_module.MyCallback", "args": [...], "kwargs": {...}},
+    where "args" and "kwargs" are optional.
+    """
+    return [
+        _init(c["name"], *c.get("args", []), **c.get("kwargs", {}))
+        for c in callback_configs
+    ]
+
+
 def main(
     data_config,
     model_config,
@@ -238,10 +253,12 @@ def main(
         (c for c in callbacks if isinstance(c, _lightning_module.PackedBestCheckpoint)),
         None,
     )
+    trainer_config = dict(learning_config["trainer"])
+    callbacks.extend(_init_config_callbacks(trainer_config.pop("callbacks", [])))
     trainer = _pl.Trainer(
         callbacks=callbacks,
         default_root_dir=outdir,
-        **learning_config["trainer"],
+        **trainer_config,
     )
 
     try:

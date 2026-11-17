@@ -83,6 +83,34 @@ the final output path to save your training results where you'd like.
     PyTorch Lightning configuration options from 
     ``nam_full_configs/learning/default.json``.
 
+Custom callbacks
+^^^^^^^^^^^^^^^^
+
+You can add your own
+`PyTorch Lightning callbacks <https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html>`_
+to training by listing them under ``"callbacks"`` in the ``"trainer"`` section
+of ``learning.json``. Each entry gives the import path of the callback class (or
+any factory that returns a callback), plus optional positional and keyword
+arguments:
+
+.. code-block:: json
+
+    "trainer": {
+        "accelerator": "gpu",
+        "devices": 1,
+        "max_epochs": 100,
+        "callbacks": [
+            {
+                "name": "my_package.my_module.MyCallback",
+                "args": [],
+                "kwargs": {}
+            }
+        ]
+    }
+
+These are added alongside NAM's own checkpointing callbacks. The module needs to
+be importable from the environment you train in (e.g. installed with ``pip``).
+
 Once training is done, a file called ``model.nam`` is created in the output 
 directory. To use it, point 
 `the plugin <https://github.com/sdatkinson/NeuralAmpModelerPlugin>`_ at the file
