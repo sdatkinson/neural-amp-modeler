@@ -36,6 +36,12 @@ transformers-compat = [
     "numpy",  # NB: Older PyTorch versions require numpy<2
 ]
 
+dev = [
+    "black",
+    "flake8",
+    "pre-commit",
+]
+
 test = [
     "pytest",
     "pytest-mock",
