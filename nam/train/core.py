@@ -1366,8 +1366,9 @@ def train(
     input_version, strong_match = _detect_input_version(input_path)
 
     user_latency = latency
+    # Basic training doesn't need to show the latency calibration figure.
     latency_analysis = _analyze_latency(
-        user_latency, input_version, input_path, output_path, silent=silent
+        user_latency, input_version, input_path, output_path, silent=True
     )
     final_latency = _get_final_latency(latency_analysis)
 
