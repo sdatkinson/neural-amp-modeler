@@ -92,6 +92,7 @@ def wav_to_np(
     required_wavinfo: _Optional[WavInfo] = None,
     preroll: _Optional[int] = None,
     info: bool = False,
+    _dtype: type = _np.float64,
 ) -> _Union[_np.ndarray, _Tuple[_np.ndarray, WavInfo]]:
     """
     :param filename: Where to load from
@@ -104,6 +105,7 @@ def wav_to_np(
         matches that provided.
     :param preroll: Drop this many samples off the front
     :param info: If `True`, also return the WAV info of this file.
+    :param _dtype: Private. Float type that the integer samples are scaled into.
     """
 
     def main(
@@ -134,7 +136,9 @@ def wav_to_np(
                 raise ValueError(
                     f"Mismatched rates {x_wav.rate} versus {required_wavinfo.rate}"
                 )
-        arr_premono = x_wav.data[preroll:] / (2.0 ** (8 * x_wav.sampwidth - 1))
+        arr_premono = _np.divide(
+            x_wav.data[preroll:], 2.0 ** (8 * x_wav.sampwidth - 1), dtype=_dtype
+        )
         if required_shape is not None:
             if arr_premono.shape != required_shape:
                 raise AudioShapeMismatchError(
@@ -225,13 +229,14 @@ def wav_to_np(
 def wav_to_tensor(
     *args, info: bool = False, **kwargs
 ) -> _Union[_torch.Tensor, _Tuple[_torch.Tensor, WavInfo]]:
-    out = wav_to_np(*args, info=info, **kwargs)
+    # Scale straight into 32-bit floats and let the tensor share that buffer.
+    out = wav_to_np(*args, info=info, _dtype=_np.float32, **kwargs)
     if info:
         arr, info = out
-        return _torch.Tensor(arr), info
+        return _torch.from_numpy(arr), info
     else:
         arr = out
-        return _torch.Tensor(arr)
+        return _torch.from_numpy(arr)
 
 
 def tensor_to_wav(x: _torch.Tensor, *args, **kwargs):
